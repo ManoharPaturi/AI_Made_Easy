@@ -59,6 +59,11 @@ class TrainingPage(QtWidgets.QWidget):
         row.addWidget(self.stop_btn)
         self.status = QtWidgets.QLabel("idle")
         row.addWidget(self.status, stretch=1)
+        self.locked_chip = QtWidgets.QLabel("")
+        self.locked_chip.setToolTip(
+            "the model's weights are fixed — it only changes when you "
+            "retrain")
+        row.addWidget(self.locked_chip)
         layout.addLayout(row)
 
         # Wave-1 insight buttons — enabled once a run leaves artifacts
@@ -130,11 +135,23 @@ class TrainingPage(QtWidgets.QWidget):
         for btn in (self.museum_btn, self.inspect_btn, self.card_btn):
             btn.setEnabled(has)
         self.live_btn.setEnabled(live_ok)
+        self.locked_chip.setText("🔒 model locked" if live_ok else "")
 
     # ------------------------------------------------------------- data
 
+    def last_score(self) -> float | None:
+        """Final accuracy-ish metric (0–1 or %) for pedagogy bits."""
+        candidates = []
+        for key, values in self._series.items():
+            if "loss" in key or not values:
+                continue
+            if any(t in key for t in ("acc", "score", "auc", "f1")):
+                candidates.append(values[-1])
+        return max(candidates) if candidates else None
+
     def reset(self) -> None:
         self._epoch_x.clear()
+        self.locked_chip.setText("")  # retraining unlocks the model
         self._series.clear()
         for curves in (self._loss_curves, self._score_curves):
             for curve in curves.values():

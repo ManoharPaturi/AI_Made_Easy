@@ -212,10 +212,11 @@ def test_missions_reference_real_samples():
     samples = ProjectService.samples_dir()
     for mission in MISSIONS:
         assert (samples / mission["sample"]).exists(), mission["sample"]
-        assert mission["steps"], mission["id"]
+        assert mission["quiz"], mission["id"]
+        assert mission["band"] in ("🟢", "🔵"), mission["id"]
 
 
-def test_mission_checklist_marks_steps():
+def test_mission_primm_stages_marked():
     pytest.importorskip("PySide6")
     from ai_made_easy.ui.app import _ensure_qt_plugin_path
     _ensure_qt_plugin_path()
@@ -226,9 +227,14 @@ def test_mission_checklist_marks_steps():
     panel = MissionsPanel()
     mission = MISSIONS[0]
     panel._select(mission)
-    g = _mlp([("c", "core.conv2d", {"out_channels": 4})])
-    panel.check(g)
-    assert "1" in panel._steps.text() or "✅" in panel._steps.text()
-    panel.notify_run_finished()
+    assert "⬜" in panel._steps.text()
+    panel.mission_event("predict")
+    panel.mission_event("run")
     text = panel._steps.text()
-    assert "▶ Train" in text
+    assert "✅ 🔮 Predict" in text and "✅ ▶ Run" in text
+    assert not panel.all_done()
+    for key in ("investigate", "modify", "make"):
+        panel.mission_event(key)
+    assert panel.all_done()
+    assert panel.take_quiz() is mission  # offered exactly once
+    assert panel.take_quiz() is None

@@ -65,6 +65,8 @@ class AppContext(QtCore.QObject):
         self.validation_store = ValidationStore(self)
         self._seen_issue_msgs: set[str] = set()
         self._celebration = None
+        self._guess = None
+        self._last_trained_hash = None
 
         self.canvas = CanvasController()
         self.graph_service = GraphService(self.canvas, self.log_bus, self)
@@ -282,6 +284,7 @@ class AppContext(QtCore.QObject):
             return
         from ai_made_easy.ui.features.mistake_museum import MistakeMuseumDialog
 
+        self.palette.missions.mission_event("investigate")
         MistakeMuseumDialog(None, wd).exec()
 
     def _start_inspect(self, sample_arg: str = "0") -> None:
@@ -317,6 +320,7 @@ class AppContext(QtCore.QObject):
         wd = getattr(self, "_inspect_workdir", None)
         if wd is None:
             return
+        self.palette.missions.mission_event("investigate")
         dialog = InspectDialog(None, wd)
         dialog.rerun_requested.connect(self._start_inspect)
         dialog.exec()
@@ -391,7 +395,46 @@ class AppContext(QtCore.QObject):
         self._celebration.celebrate(
             "🎉 Training finished — great job!",
             "Open 📈 Training to see how your model learned")
-        self.missions_panel.notify_run_finished()
+        self.status_message.emit(
+            "🎁 Using mode — 🔒 model locked (weights stay fixed until "
+            "you retrain)")
+        self._after_train_pedagogy()
+
+    def _after_train_pedagogy(self) -> None:
+        """PRIMM bookkeeping + 😲 surprise + checkpoint quiz offer."""
+        missions = self.palette.missions
+        missions.notify_run_finished()
+        self._maybe_surprise()
+
+        import json as _json
+
+        graph_now = hash(_json.dumps(
+            self.project_service.snapshot().to_dict(), default=str,
+            sort_keys=True))
+        prev = getattr(self, "_last_trained_hash", None)
+        if prev is not None and prev != graph_now:
+            missions.mission_event("modify")
+        self._last_trained_hash = graph_now
+        active_sample = missions.active_sample()
+        if active_sample and self.project_store.name not in active_sample:
+            missions.mission_event("make")
+
+        quiz = missions.take_quiz()
+        if quiz is not None:
+            from ai_made_easy.ui.features.missions import QuizDialog
+
+            QuizDialog(None, quiz).exec()
+
+    def _maybe_surprise(self) -> None:
+        from ai_made_easy.ui.features.predict_gate import (
+            SurpriseDialog, is_surprising)
+
+        guess = getattr(self, "_guess", None)
+        if guess is None:
+            return
+        score = self.training_page.last_score()
+        if is_surprising(guess, score):
+            SurpriseDialog(None, guess, score).exec()
 
     # ========================================================= act_* slots
 
@@ -495,8 +538,27 @@ class AppContext(QtCore.QObject):
     def act_train(self, *_):
         if not self._guard_run("train"):
             return
+        import json as _json
+
+        self._run_graph_hash = hash(_json.dumps(
+            self.project_service.snapshot().to_dict(), default=str,
+            sort_keys=True))
+        self._ask_prediction()
         self.training_page.reset()
         self.process_service.run_training(self.project_service.snapshot())
+
+    def _ask_prediction(self) -> None:
+        """🔮 POE gate before training (None guess = skipped, still runs)."""
+        settings = QtCore.QSettings()
+        if not settings.value("aime/pedagogy/predict_gate", True, type=bool):
+            self.palette.missions.mission_event("predict")
+            return
+        from ai_made_easy.ui.features.predict_gate import PredictGateDialog
+
+        dialog = PredictGateDialog(None, self.project_store.name)
+        dialog.exec()
+        self._guess = dialog.guess
+        self.palette.missions.mission_event("predict")
 
     def act_test_run(self, *_):
         if not self._guard_run("test run"):

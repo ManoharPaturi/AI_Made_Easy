@@ -1,0 +1,187 @@
+{
+  "schema_version": 1,
+  "name": "bias_arc_biased",
+  "nodes": [
+    {
+      "id": "input",
+      "type": "core.input",
+      "params": {
+        "shape": "3, 40, 40"
+      },
+      "position": [
+        -760,
+        -40
+      ]
+    },
+    {
+      "id": "conv1",
+      "type": "core.conv2d",
+      "params": {
+        "out_channels": 8
+      },
+      "position": [
+        -520,
+        -40
+      ]
+    },
+    {
+      "id": "relu1",
+      "type": "core.relu",
+      "params": {},
+      "position": [
+        -320,
+        -40
+      ]
+    },
+    {
+      "id": "pool1",
+      "type": "core.maxpool2d",
+      "params": {
+        "kernel_size": 2
+      },
+      "position": [
+        -140,
+        -40
+      ]
+    },
+    {
+      "id": "conv2",
+      "type": "core.conv2d",
+      "params": {
+        "out_channels": 16
+      },
+      "position": [
+        40,
+        -40
+      ]
+    },
+    {
+      "id": "relu2",
+      "type": "core.relu",
+      "params": {},
+      "position": [
+        240,
+        -40
+      ]
+    },
+    {
+      "id": "gap",
+      "type": "core.global_avgpool2d",
+      "params": {},
+      "position": [
+        440,
+        -40
+      ]
+    },
+    {
+      "id": "dense",
+      "type": "core.dense",
+      "params": {
+        "units": 2
+      },
+      "position": [
+        640,
+        -40
+      ]
+    },
+    {
+      "id": "output",
+      "type": "core.output",
+      "params": {},
+      "position": [
+        840,
+        -40
+      ]
+    },
+    {
+      "id": "data",
+      "type": "data.image_folder",
+      "params": {
+        "root": "samples/bias_arc/biased",
+        "grayscale": false
+      },
+      "position": [
+        -980,
+        160
+      ]
+    },
+    {
+      "id": "trainer",
+      "type": "train.trainer",
+      "params": {
+        "epochs": 6,
+        "batch_size": 32
+      },
+      "position": [
+        300,
+        160
+      ]
+    },
+    {
+      "id": "opt",
+      "type": "train.adam",
+      "params": {
+        "lr": 0.003
+      },
+      "position": [
+        20,
+        260
+      ]
+    },
+    {
+      "id": "loss",
+      "type": "train.loss_cross_entropy",
+      "params": {},
+      "position": [
+        520,
+        260
+      ]
+    },
+    {
+      "id": "acc",
+      "type": "eval.accuracy",
+      "params": {},
+      "position": [
+        720,
+        260
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "from": "input/out",
+      "to": "conv1/in"
+    },
+    {
+      "from": "conv1/out",
+      "to": "relu1/in"
+    },
+    {
+      "from": "relu1/out",
+      "to": "pool1/in"
+    },
+    {
+      "from": "pool1/out",
+      "to": "conv2/in"
+    },
+    {
+      "from": "conv2/out",
+      "to": "relu2/in"
+    },
+    {
+      "from": "relu2/out",
+      "to": "gap/in"
+    },
+    {
+      "from": "gap/out",
+      "to": "dense/in"
+    },
+    {
+      "from": "dense/out",
+      "to": "output/in"
+    }
+  ],
+  "meta": {
+    "description": "\u2696\ufe0f part 1 \u2014 cats always on grass, dogs always on sand. Train it, then look \ud83d\udc40: WHERE does it look?"
+  }
+}

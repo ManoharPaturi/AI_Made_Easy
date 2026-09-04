@@ -84,7 +84,7 @@ batch_size: {trainer_params.get("batch_size", "—")}
 {dataset_comment}.
 A computer found number patterns in the examples — nobody told it rules.
 
-## 🧠 How smart is it?
+## 📊 How accurate is it?
 It got {smart} right.
 (That's only the examples it was checked on — new ones can still trick it!)
 

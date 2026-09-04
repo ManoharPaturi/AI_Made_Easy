@@ -49,6 +49,55 @@ def _images_in(folder: Path) -> list[Path]:
                   if p.is_file() and p.suffix.lower() in IMAGE_SUFFIXES)
 
 
+def _mean_rgb(path: Path):
+    try:
+        from PIL import Image
+
+        with Image.open(path) as im:
+            small = im.convert("RGB").resize((8, 8))
+            data = list(small.getdata())
+        n = len(data)
+        return tuple(round(sum(c[i] for c in data) / n) for i in range(3))
+    except Exception:
+        return None
+
+
+def background_shortcut(classes_means: dict[str, list[tuple]]) -> Finding | None:
+    """Detect the classic confound: every class lives on its own background.
+
+    classes_means maps class name → list of mean-RGB per image. If each
+    class splits cleanly into ONE bright/dark bucket (luminance) and the
+    buckets differ between classes, the background may be doing the
+    recognising. Pure math — no fs.
+    """
+    if len(classes_means) < 2:
+        return None
+    bucket_share: dict[str, tuple[int, int]] = {}  # class -> (dark_n, light_n)
+    class_bucket: dict[str, int] = {}
+    for name, means in classes_means.items():
+        means = [m for m in means if m]
+        if len(means) < 6:
+            return None
+        dark = sum(1 for m in means if sum(m) / 3 < 128)
+        light = len(means) - dark
+        bucket_share[name] = (dark, light)
+        class_bucket[name] = 0 if dark >= light else 1
+    names = list(classes_means)
+    for a, b in zip(names, names[1:]):
+        if class_bucket[a] == class_bucket[b]:
+            return None  # same dominant bucket — no class/background pairing
+    shares = [max(*bucket_share[n]) / sum(bucket_share[n]) for n in names]
+    if min(shares) < 0.9:
+        return None
+    return Finding(
+        "warning",
+        "every class has its own background (" +
+        " vs ".join(names) + ") — the model may recognise the background, "
+        "not the object",
+        "mix the backgrounds across classes — otherwise it learns a "
+        "shortcut and can fail on new photos")
+
+
 def _hash_of(path: Path) -> str:
     h = hashlib.sha256()
     with path.open("rb") as fh:
@@ -69,6 +118,7 @@ def scan_image_folder(root: Path) -> HealthReport:
         return report
 
     hashes: dict[str, list[str]] = {}
+    means: dict[str, list[tuple]] = {}
     for sub in sorted(p for p in root.iterdir() if p.is_dir()):
         files = _images_in(sub)
         report.classes.append(ClassCount(sub.name, len(files)))
@@ -78,6 +128,12 @@ def scan_image_folder(root: Path) -> HealthReport:
                 hashes.setdefault(_hash_of(f), []).append(f.name)
             except OSError:
                 pass
+        if len(files) >= 6 and len(report.classes) <= 4:
+            means[sub.name] = [m for m in (_mean_rgb(f) for f in files[:60])
+                               if m is not None]
+    shortcut = background_shortcut(means)
+    if shortcut is not None:
+        report.findings.append(shortcut)
 
     if not report.classes:
         report.findings.append(Finding(

@@ -10,6 +10,7 @@ runner executes exactly this output, so progress lines follow a stable
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from jinja2 import Environment
 
@@ -162,6 +163,14 @@ def collect_spec(graph: Graph) -> TrainingSpec:
             "n_samples": 1000, "n_features": input_volume,
             "n_classes": output_units, "noise": 0.3, "seed": 42,
         }
+    # training runs in a temp workspace — relative file paths must be
+    # pinned to absolute ones (resolved from where the app was launched)
+    for key in ("root", "path"):
+        raw = spec.dataset.get(key)
+        if raw and not Path(raw).is_absolute():
+            candidate = Path.cwd() / raw
+            if candidate.exists():
+                spec.dataset[key] = str(candidate)
 
     norm = [n for n in graph.nodes.values() if n.type_id == "prep.normalize"]
     if norm:

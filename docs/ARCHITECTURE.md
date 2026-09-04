@@ -169,6 +169,34 @@ emoji never obscure the message.
   `context._dataset_health_issues` (fs scan in the UI layer, rules pure in
   core).
 
+## Wave 3 — 🧭 Pedagogy
+
+- **🔮 Predict-before-training** (`features/predict_gate.py`) — every valid
+  ▶ Train first opens the guess dialog (😵/🙂/🤩; "just train, no guess"
+  skips; QSettings `aime/pedagogy/predict_gate` can disable). A
+  confidently-wrong guess (two bands off; bands at 0.60/0.85) triggers the
+  😲 **Surprise** dialog after the run with pointers to the museum/health
+  meter — POE + hypercorruption, evidence-backed.
+- **PRIMM missions + dual tracks + quizzes** (`features/missions.py`) —
+  every mission is 🔮 Predict → ▶ Run → 🔍 Investigate → 🔧 Modify → 🎨
+  Make; stages complete on events the context forwards (`mission_event`:
+  guess made, run finished, museum/inspect opened, graph changed between
+  runs → modify, own project trained → make). Tracks 🟢 8–10 / 🔵 11–14;
+  finishing all stages offers a 3-question checkpoint quiz; wrong answers
+  point back at the mission.
+- **⚖️ Bias arc** — `samples/bias_arc/{biased,fair}` (circles vs triangles
+  on grass/sand, generated PNGs) + two sample graphs. The biased set is
+  flagged live by `background_shortcut` (every class on its own
+  background, ≥90% luminance-bucket purity per class) in the health
+  meter; the trained biased model demonstrably classifies by background
+  (a circle on sand is called a triangle), and the fair sample fixes it.
+  Dataset file paths in generated scripts resolve to absolute at
+  generation time (training runs in a temp workspace).
+- **Anti-anthropomorphism + train/use modes** — copy swept ("the model
+  got X right", never "smart/thinks"); after a run the statusbar shows
+  🎁 Using mode and TrainingPage carries a 🔒 model-locked chip (cleared
+  when retraining starts).
+
 ## What died in the rebuild
 
 - The 701-line / 37-method / ~20-concern MainWindow god object.
