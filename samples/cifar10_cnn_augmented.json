@@ -1,0 +1,325 @@
+{
+  "schema_version": 1,
+  "name": "cifar10_cnn",
+  "nodes": [
+    {
+      "id": "input",
+      "type": "core.input",
+      "params": {
+        "shape": "3, 32, 32"
+      },
+      "position": [
+        -640.0,
+        -40.0
+      ]
+    },
+    {
+      "id": "conv1",
+      "type": "core.conv2d",
+      "params": {
+        "out_channels": 32,
+        "kernel_size": 3,
+        "stride": 1,
+        "padding": 1,
+        "dilation": 1
+      },
+      "position": [
+        -400.0,
+        -40.0
+      ]
+    },
+    {
+      "id": "bn1",
+      "type": "core.batch_norm2d",
+      "params": {
+        "epsilon": 1e-05,
+        "momentum": 0.1
+      },
+      "position": [
+        -160.0,
+        -40.0
+      ]
+    },
+    {
+      "id": "relu1",
+      "type": "core.relu",
+      "params": {},
+      "position": [
+        80.0,
+        -40.0
+      ]
+    },
+    {
+      "id": "pool1",
+      "type": "core.maxpool2d",
+      "params": {
+        "kernel_size": 2,
+        "stride": 2,
+        "padding": 0
+      },
+      "position": [
+        320.0,
+        -40.0
+      ]
+    },
+    {
+      "id": "conv2",
+      "type": "core.conv2d",
+      "params": {
+        "out_channels": 64,
+        "kernel_size": 3,
+        "stride": 1,
+        "padding": 1,
+        "dilation": 1
+      },
+      "position": [
+        560.0,
+        -40.0
+      ]
+    },
+    {
+      "id": "bn2",
+      "type": "core.batch_norm2d",
+      "params": {
+        "epsilon": 1e-05,
+        "momentum": 0.1
+      },
+      "position": [
+        800.0,
+        -40.0
+      ]
+    },
+    {
+      "id": "relu2",
+      "type": "core.relu",
+      "params": {},
+      "position": [
+        1040.0,
+        -40.0
+      ]
+    },
+    {
+      "id": "gap",
+      "type": "core.global_avgpool2d",
+      "params": {},
+      "position": [
+        1280.0,
+        -40.0
+      ]
+    },
+    {
+      "id": "drop",
+      "type": "core.dropout",
+      "params": {
+        "p": 0.3
+      },
+      "position": [
+        1520.0,
+        -40.0
+      ]
+    },
+    {
+      "id": "dense1",
+      "type": "core.dense",
+      "params": {
+        "units": 10,
+        "bias": true
+      },
+      "position": [
+        1760.0,
+        -40.0
+      ]
+    },
+    {
+      "id": "output",
+      "type": "core.output",
+      "params": {},
+      "position": [
+        2000.0,
+        -40.0
+      ]
+    },
+    {
+      "id": "data",
+      "type": "data.torchvision",
+      "params": {
+        "dataset": "cifar10",
+        "download": true,
+        "data_dir": "~/.aime/data"
+      },
+      "position": [
+        -640.0,
+        200.0
+      ]
+    },
+    {
+      "id": "aug_flip",
+      "type": "prep.random_flip",
+      "params": {
+        "mode": "horizontal"
+      },
+      "position": [
+        -400.0,
+        200.0
+      ]
+    },
+    {
+      "id": "aug_rot",
+      "type": "prep.random_rotation",
+      "params": {
+        "degrees": 15.0
+      },
+      "position": [
+        -160.0,
+        200.0
+      ]
+    },
+    {
+      "id": "aug_jit",
+      "type": "prep.color_jitter",
+      "params": {
+        "brightness": 0.2,
+        "contrast": 0.2,
+        "saturation": 0.2,
+        "hue": 0.05
+      },
+      "position": [
+        80.0,
+        200.0
+      ]
+    },
+    {
+      "id": "opt",
+      "type": "train.adamw",
+      "params": {
+        "lr": 0.001,
+        "weight_decay": 0.01,
+        "beta1": 0.9,
+        "beta2": 0.999
+      },
+      "position": [
+        320.0,
+        200.0
+      ]
+    },
+    {
+      "id": "loss",
+      "type": "train.loss_cross_entropy",
+      "params": {
+        "label_smoothing": 0.0
+      },
+      "position": [
+        560.0,
+        200.0
+      ]
+    },
+    {
+      "id": "sched",
+      "type": "train.plateau_lr",
+      "params": {
+        "factor": 0.5,
+        "patience": 3
+      },
+      "position": [
+        800.0,
+        200.0
+      ]
+    },
+    {
+      "id": "trainer",
+      "type": "train.trainer",
+      "params": {
+        "epochs": 30,
+        "batch_size": 64,
+        "device": "auto",
+        "seed": 42,
+        "early_stopping_patience": 5
+      },
+      "position": [
+        1040.0,
+        200.0
+      ]
+    },
+    {
+      "id": "acc",
+      "type": "eval.accuracy",
+      "params": {},
+      "position": [
+        1280.0,
+        200.0
+      ]
+    },
+    {
+      "id": "f1",
+      "type": "eval.f1",
+      "params": {
+        "average": "macro"
+      },
+      "position": [
+        1520.0,
+        200.0
+      ]
+    },
+    {
+      "id": "cm",
+      "type": "eval.confusion_matrix",
+      "params": {
+        "labels": ""
+      },
+      "position": [
+        1760.0,
+        200.0
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "from": "input/out",
+      "to": "conv1/in"
+    },
+    {
+      "from": "conv1/out",
+      "to": "bn1/in"
+    },
+    {
+      "from": "bn1/out",
+      "to": "relu1/in"
+    },
+    {
+      "from": "relu1/out",
+      "to": "pool1/in"
+    },
+    {
+      "from": "pool1/out",
+      "to": "conv2/in"
+    },
+    {
+      "from": "conv2/out",
+      "to": "bn2/in"
+    },
+    {
+      "from": "bn2/out",
+      "to": "relu2/in"
+    },
+    {
+      "from": "relu2/out",
+      "to": "gap/in"
+    },
+    {
+      "from": "gap/out",
+      "to": "drop/in"
+    },
+    {
+      "from": "drop/out",
+      "to": "dense1/in"
+    },
+    {
+      "from": "dense1/out",
+      "to": "output/in"
+    }
+  ],
+  "meta": {
+    "framework": "pytorch",
+    "description": "BatchNorm CNN, augmentations, AdamW + plateau"
+  }
+}

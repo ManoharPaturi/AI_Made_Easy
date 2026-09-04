@@ -1,0 +1,104 @@
+{
+  "schema_version": 1,
+  "name": "story_generator",
+  "nodes": [
+    {
+      "id": "input",
+      "type": "core.input",
+      "params": {
+        "shape": "4"
+      },
+      "position": [
+        -400.0,
+        0.0
+      ]
+    },
+    {
+      "id": "d1",
+      "type": "core.dense",
+      "params": {
+        "units": 2,
+        "bias": true
+      },
+      "position": [
+        -140.0,
+        0.0
+      ]
+    },
+    {
+      "id": "output",
+      "type": "core.output",
+      "params": {},
+      "position": [
+        120.0,
+        0.0
+      ]
+    },
+    {
+      "id": "m",
+      "type": "llm.model",
+      "params": {
+        "repo_id": "distilbert/distilgpt2",
+        "dtype": "float32",
+        "trust_remote_code": false
+      },
+      "position": [
+        -400.0,
+        220.0
+      ]
+    },
+    {
+      "id": "tok",
+      "type": "llm.tokenizer",
+      "params": {
+        "repo_id": "",
+        "max_length": 512
+      },
+      "position": [
+        -160.0,
+        220.0
+      ]
+    },
+    {
+      "id": "pr",
+      "type": "llm.prompt",
+      "params": {
+        "template": "Once upon a time, {input}"
+      },
+      "position": [
+        80.0,
+        220.0
+      ]
+    },
+    {
+      "id": "gn",
+      "type": "llm.generation",
+      "params": {
+        "max_new_tokens": 200,
+        "do_sample": true,
+        "temperature": 0.8,
+        "top_p": 0.95,
+        "top_k": 50,
+        "repetition_penalty": 1.1
+      },
+      "position": [
+        320.0,
+        220.0
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "from": "input/out",
+      "to": "d1/in"
+    },
+    {
+      "from": "d1/out",
+      "to": "output/in"
+    }
+  ],
+  "meta": {
+    "framework": "llm",
+    "description": "HF causal-LM text generation script"
+  }
+}

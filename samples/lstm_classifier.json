@@ -1,0 +1,160 @@
+{
+  "schema_version": 1,
+  "name": "lstm_classifier",
+  "nodes": [
+    {
+      "id": "input",
+      "type": "core.input",
+      "params": {
+        "shape": "50, 32"
+      },
+      "position": [
+        -560.0,
+        0.0
+      ]
+    },
+    {
+      "id": "lstm1",
+      "type": "core.lstm",
+      "params": {
+        "hidden_size": 48,
+        "num_layers": 1,
+        "bias": true,
+        "bidirectional": false
+      },
+      "position": [
+        -300.0,
+        0.0
+      ]
+    },
+    {
+      "id": "drop1",
+      "type": "core.dropout",
+      "params": {
+        "p": 0.2
+      },
+      "position": [
+        -60.0,
+        0.0
+      ]
+    },
+    {
+      "id": "mot",
+      "type": "core.mean_over_time",
+      "params": {},
+      "position": [
+        180.0,
+        0.0
+      ]
+    },
+    {
+      "id": "dense1",
+      "type": "core.dense",
+      "params": {
+        "units": 5,
+        "bias": true
+      },
+      "position": [
+        420.0,
+        0.0
+      ]
+    },
+    {
+      "id": "output",
+      "type": "core.output",
+      "params": {},
+      "position": [
+        660.0,
+        0.0
+      ]
+    },
+    {
+      "id": "opt",
+      "type": "train.radam",
+      "params": {
+        "lr": 0.001,
+        "beta1": 0.9,
+        "beta2": 0.999
+      },
+      "position": [
+        -300.0,
+        220.0
+      ]
+    },
+    {
+      "id": "loss",
+      "type": "train.loss_cross_entropy",
+      "params": {
+        "label_smoothing": 0.0
+      },
+      "position": [
+        -60.0,
+        220.0
+      ]
+    },
+    {
+      "id": "sched",
+      "type": "train.one_cycle_lr",
+      "params": {
+        "max_lr": 0.01,
+        "pct_start": 0.3
+      },
+      "position": [
+        180.0,
+        220.0
+      ]
+    },
+    {
+      "id": "trainer",
+      "type": "train.trainer",
+      "params": {
+        "epochs": 15,
+        "batch_size": 32,
+        "device": "auto",
+        "seed": 42,
+        "early_stopping_patience": 4
+      },
+      "position": [
+        420.0,
+        220.0
+      ]
+    },
+    {
+      "id": "f1",
+      "type": "eval.f1",
+      "params": {
+        "average": "macro"
+      },
+      "position": [
+        660.0,
+        220.0
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "from": "input/out",
+      "to": "lstm1/in"
+    },
+    {
+      "from": "lstm1/out",
+      "to": "drop1/in"
+    },
+    {
+      "from": "drop1/out",
+      "to": "mot/in"
+    },
+    {
+      "from": "mot/out",
+      "to": "dense1/in"
+    },
+    {
+      "from": "dense1/out",
+      "to": "output/in"
+    }
+  ],
+  "meta": {
+    "framework": "pytorch",
+    "description": "LSTM \u2192 mean-over-time head with OneCycle"
+  }
+}

@@ -1,0 +1,123 @@
+{
+  "schema_version": 1,
+  "name": "lora_finetune",
+  "nodes": [
+    {
+      "id": "input",
+      "type": "core.input",
+      "params": {
+        "shape": "4"
+      },
+      "position": [
+        -400.0,
+        0.0
+      ]
+    },
+    {
+      "id": "d1",
+      "type": "core.dense",
+      "params": {
+        "units": 2,
+        "bias": true
+      },
+      "position": [
+        -140.0,
+        0.0
+      ]
+    },
+    {
+      "id": "output",
+      "type": "core.output",
+      "params": {},
+      "position": [
+        120.0,
+        0.0
+      ]
+    },
+    {
+      "id": "m",
+      "type": "llm.model",
+      "params": {
+        "repo_id": "distilbert/distilgpt2",
+        "dtype": "float32",
+        "trust_remote_code": false
+      },
+      "position": [
+        -400.0,
+        220.0
+      ]
+    },
+    {
+      "id": "tok",
+      "type": "llm.tokenizer",
+      "params": {
+        "repo_id": "",
+        "max_length": 512
+      },
+      "position": [
+        -160.0,
+        220.0
+      ]
+    },
+    {
+      "id": "l",
+      "type": "llm.lora",
+      "params": {
+        "mode": "lora",
+        "r": 8,
+        "alpha": 16,
+        "dropout": 0.05,
+        "target_modules": "c_attn,c_proj"
+      },
+      "position": [
+        80.0,
+        220.0
+      ]
+    },
+    {
+      "id": "ds",
+      "type": "llm.dataset",
+      "params": {
+        "source": "text_file",
+        "dataset_id": "",
+        "split": "train",
+        "text_field": "text",
+        "file_path": "data.txt"
+      },
+      "position": [
+        320.0,
+        220.0
+      ]
+    },
+    {
+      "id": "s",
+      "type": "llm.sft",
+      "params": {
+        "epochs": 3,
+        "batch_size": 1,
+        "lr": 0.0002,
+        "gradient_accumulation": 8,
+        "warmup_ratio": 0.03,
+        "seed": 42
+      },
+      "position": [
+        560.0,
+        220.0
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "from": "input/out",
+      "to": "d1/in"
+    },
+    {
+      "from": "d1/out",
+      "to": "output/in"
+    }
+  ],
+  "meta": {
+    "framework": "llm",
+    "description": "LoRA SFT from a text file"
+  }
+}

@@ -1,0 +1,141 @@
+{
+  "schema_version": 1,
+  "name": "docs_assistant",
+  "nodes": [
+    {
+      "id": "input",
+      "type": "core.input",
+      "params": {
+        "shape": "4"
+      },
+      "position": [
+        -400.0,
+        0.0
+      ]
+    },
+    {
+      "id": "d1",
+      "type": "core.dense",
+      "params": {
+        "units": 2,
+        "bias": true
+      },
+      "position": [
+        -140.0,
+        0.0
+      ]
+    },
+    {
+      "id": "output",
+      "type": "core.output",
+      "params": {},
+      "position": [
+        120.0,
+        0.0
+      ]
+    },
+    {
+      "id": "m",
+      "type": "llm.model",
+      "params": {
+        "repo_id": "distilbert/distilgpt2",
+        "dtype": "float32",
+        "trust_remote_code": false
+      },
+      "position": [
+        -400.0,
+        220.0
+      ]
+    },
+    {
+      "id": "pr",
+      "type": "llm.prompt",
+      "params": {
+        "template": "Context:\n{context}\n\nQuestion: {input}\nAnswer:"
+      },
+      "position": [
+        -160.0,
+        220.0
+      ]
+    },
+    {
+      "id": "gn",
+      "type": "llm.generation",
+      "params": {
+        "max_new_tokens": 200,
+        "do_sample": false,
+        "temperature": 0.7,
+        "top_p": 0.9,
+        "top_k": 50,
+        "repetition_penalty": 1.1
+      },
+      "position": [
+        80.0,
+        220.0
+      ]
+    },
+    {
+      "id": "emb",
+      "type": "llm.embedding_model",
+      "params": {
+        "repo_id": "sentence-transformers/all-MiniLM-L6-v2",
+        "pooling": "mean",
+        "batch_size": 32
+      },
+      "position": [
+        320.0,
+        220.0
+      ]
+    },
+    {
+      "id": "vs",
+      "type": "llm.vector_store",
+      "params": {
+        "backend": "numpy",
+        "persist_path": ""
+      },
+      "position": [
+        560.0,
+        220.0
+      ]
+    },
+    {
+      "id": "ret",
+      "type": "llm.retriever",
+      "params": {
+        "top_k": 3
+      },
+      "position": [
+        800.0,
+        220.0
+      ]
+    },
+    {
+      "id": "r",
+      "type": "llm.rag",
+      "params": {
+        "docs_path": "docs/*.txt",
+        "chunk_size": 500,
+        "chunk_overlap": 50
+      },
+      "position": [
+        1040.0,
+        220.0
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "from": "input/out",
+      "to": "d1/in"
+    },
+    {
+      "from": "d1/out",
+      "to": "output/in"
+    }
+  ],
+  "meta": {
+    "framework": "llm",
+    "description": "MiniLM embeddings + numpy store + RAG"
+  }
+}

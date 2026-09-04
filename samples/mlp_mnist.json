@@ -1,0 +1,154 @@
+{
+  "schema_version": 1,
+  "name": "mnist_mlp",
+  "nodes": [
+    {
+      "id": "input",
+      "type": "core.input",
+      "params": {
+        "shape": "784"
+      },
+      "position": [
+        -420.0,
+        0.0
+      ]
+    },
+    {
+      "id": "dense1",
+      "type": "core.dense",
+      "params": {
+        "units": 128,
+        "bias": true
+      },
+      "position": [
+        -160.0,
+        0.0
+      ]
+    },
+    {
+      "id": "relu1",
+      "type": "core.relu",
+      "params": {},
+      "position": [
+        90.0,
+        0.0
+      ]
+    },
+    {
+      "id": "drop1",
+      "type": "core.dropout",
+      "params": {
+        "p": 0.2
+      },
+      "position": [
+        330.0,
+        0.0
+      ]
+    },
+    {
+      "id": "dense2",
+      "type": "core.dense",
+      "params": {
+        "units": 10,
+        "bias": true
+      },
+      "position": [
+        570.0,
+        0.0
+      ]
+    },
+    {
+      "id": "output",
+      "type": "core.output",
+      "params": {},
+      "position": [
+        810.0,
+        0.0
+      ]
+    },
+    {
+      "id": "opt",
+      "type": "train.adam",
+      "params": {
+        "lr": 0.001
+      },
+      "position": [
+        -160.0,
+        220.0
+      ]
+    },
+    {
+      "id": "loss",
+      "type": "train.loss_cross_entropy",
+      "params": {
+        "label_smoothing": 0.0
+      },
+      "position": [
+        90.0,
+        220.0
+      ]
+    },
+    {
+      "id": "sched",
+      "type": "train.cosine_annealing_lr",
+      "params": {
+        "T_max": 50,
+        "eta_min": 1e-06
+      },
+      "position": [
+        330.0,
+        220.0
+      ]
+    },
+    {
+      "id": "trainer",
+      "type": "train.trainer",
+      "params": {
+        "epochs": 10,
+        "batch_size": 32,
+        "device": "auto",
+        "seed": 42,
+        "early_stopping_patience": 3
+      },
+      "position": [
+        570.0,
+        220.0
+      ]
+    },
+    {
+      "id": "acc",
+      "type": "eval.accuracy",
+      "params": {},
+      "position": [
+        810.0,
+        220.0
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "from": "input/out",
+      "to": "dense1/in"
+    },
+    {
+      "from": "dense1/out",
+      "to": "relu1/in"
+    },
+    {
+      "from": "relu1/out",
+      "to": "drop1/in"
+    },
+    {
+      "from": "drop1/out",
+      "to": "dense2/in"
+    },
+    {
+      "from": "dense2/out",
+      "to": "output/in"
+    }
+  ],
+  "meta": {
+    "framework": "pytorch",
+    "description": "784\u2192128\u219210 MLP with dropout, Adam + cosine"
+  }
+}

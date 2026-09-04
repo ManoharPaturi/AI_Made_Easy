@@ -1,0 +1,113 @@
+{
+  "schema_version": 1,
+  "name": "skip_mlp",
+  "nodes": [
+    {
+      "id": "input",
+      "type": "core.input",
+      "params": {
+        "shape": "64"
+      },
+      "position": [
+        -560.0,
+        0.0
+      ]
+    },
+    {
+      "id": "dense1",
+      "type": "core.dense",
+      "params": {
+        "units": 64,
+        "bias": true
+      },
+      "position": [
+        -300.0,
+        -80.0
+      ]
+    },
+    {
+      "id": "norm1",
+      "type": "core.layer_norm",
+      "params": {
+        "epsilon": 1e-05
+      },
+      "position": [
+        -60.0,
+        -80.0
+      ]
+    },
+    {
+      "id": "relu1",
+      "type": "core.relu",
+      "params": {},
+      "position": [
+        180.0,
+        -80.0
+      ]
+    },
+    {
+      "id": "add1",
+      "type": "core.add",
+      "params": {},
+      "position": [
+        430.0,
+        0.0
+      ]
+    },
+    {
+      "id": "dense2",
+      "type": "core.dense",
+      "params": {
+        "units": 10,
+        "bias": true
+      },
+      "position": [
+        680.0,
+        0.0
+      ]
+    },
+    {
+      "id": "output",
+      "type": "core.output",
+      "params": {},
+      "position": [
+        920.0,
+        0.0
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "from": "input/out",
+      "to": "dense1/in"
+    },
+    {
+      "from": "dense1/out",
+      "to": "norm1/in"
+    },
+    {
+      "from": "norm1/out",
+      "to": "relu1/in"
+    },
+    {
+      "from": "relu1/out",
+      "to": "add1/in1"
+    },
+    {
+      "from": "input/out",
+      "to": "add1/in2"
+    },
+    {
+      "from": "add1/out",
+      "to": "dense2/in"
+    },
+    {
+      "from": "dense2/out",
+      "to": "output/in"
+    }
+  ],
+  "meta": {
+    "framework": "pytorch",
+    "description": "Dense + LayerNorm skip connection via Add"
+  }
+}

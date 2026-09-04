@@ -1,0 +1,22 @@
+# environments & caches
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.DS_Store
+
+# local tooling state
+.zcode/
+
+# generated artifacts (exports, checkpoints, renders)
+exports/
+*.pt
+*.onnx
+*.onnx.data
+checkpoints/
+
+# large local-only reference material
+reference/
+
+# Qt user state
+*.plist
