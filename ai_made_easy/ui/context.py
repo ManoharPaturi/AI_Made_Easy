@@ -11,7 +11,7 @@ from pathlib import Path
 
 from PySide6 import QtCore, QtWidgets
 
-from ai_made_easy.core.graph import Graph
+from ai_made_easy.core.graph import Graph, ValidationIssue
 from ai_made_easy.core.registry import get_registry
 from ai_made_easy.core.summary import summarize
 from ai_made_easy.ui.canvas import CanvasArea, CanvasController
@@ -143,6 +143,7 @@ class AppContext(QtCore.QObject):
         self.training_page.museum_clicked.connect(self._open_mistake_museum)
         self.training_page.inspect_clicked.connect(self._start_inspect)
         self.training_page.card_clicked.connect(self._open_report_card)
+        self.training_page.live_clicked.connect(self._open_live_predict)
 
         # run lifecycle: statusbar text, trainer node status, plots, header
         self.run_store.state_changed.connect(
@@ -198,7 +199,7 @@ class AppContext(QtCore.QObject):
     # ============================================================== settle
 
     def _on_graph_settled(self, ir: Graph) -> None:
-        issues = ir.validate()
+        issues = ir.validate() + self._dataset_health_issues(ir)
         self.validation_store.update(issues)
         self.graph_service.note_shapes(ir)
         self.graph_service.apply_validation(issues)
@@ -235,6 +236,24 @@ class AppContext(QtCore.QObject):
         for gone in fixed:
             self.log_bus.info(f"resolved: {gone}")
         self._seen_issue_msgs = msgs
+
+    def _dataset_health_issues(self, ir: Graph) -> list:
+        """🩺 Image Folder health findings as warnings in the Checks list.
+        Fs scan here (UI layer); rules live pure in core.dataset_health."""
+        from pathlib import Path
+
+        for node in ir.nodes.values():
+            if node.type_id != "data.image_folder":
+                continue
+            root = Path(node.params.get("root", "images/"))
+            if not root.exists():
+                continue
+            from ai_made_easy.core.dataset_health import scan_image_folder
+
+            report = scan_image_folder(root)
+            return [ValidationIssue("warning", f.message, node.instance_id)
+                    for f in report.warnings]
+        return []
 
     def _refresh_preview(self, ir: Graph) -> None:
         try:
@@ -314,6 +333,15 @@ class AppContext(QtCore.QObject):
                              self._run_workdir()).exec()
         except Exception as exc:
             self.log_bus.error(f"report card: {exc}")
+
+    def _open_live_predict(self) -> None:
+        wd = self._run_workdir()
+        if wd is None:
+            self.log_bus.info("train first — then you can try it live")
+            return
+        from ai_made_easy.ui.features.live_predict import LivePredictDialog
+
+        LivePredictDialog(None, wd).exec()
 
     def _open_mission(self, sample: str) -> None:
         from ai_made_easy.ui.services.project_service import ProjectService

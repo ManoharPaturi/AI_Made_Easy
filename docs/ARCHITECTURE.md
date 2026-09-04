@@ -137,6 +137,38 @@ batch tensors themselves (`_save_sample_png`). Three insight buttons on
 `CelebrationOverlay` paints confetti *before* the headline card so falling
 emoji never obscure the message.
 
+## Wave 2 — Teach with your world (perception)
+
+- **📷 Capture dialog** (`features/capture.py`) — hold-to-record examples
+  into an Image Folder: Qt Multimedia only (QCamera + QMediaCaptureSession
+  + QVideoWidget + QImageCapture), frames saved mirrored, ~3 per second
+  while held. Class picker is seeded from the root's subfolders (➕ makes
+  new ones, names sanitised). A blocked/inactive camera (macOS privacy)
+  is detected via `camera.isActive()` after 2.5 s and gets a plain-words
+  hint instead of a blank viewfinder; the first open explains the one-time
+  permission prompt. Entry point: double-click an Image Folder block →
+  📷 button.
+- **🎤 Sounds tab** — same dialog, optional `sounddevice` (pip extra
+  `perception`): each hold records ≥0.4 s and becomes one log-spectrogram
+  PNG (`torch.stft`, amber→red map) inside the class folder — the CNN
+  pipeline trains on it unchanged.
+- **🔴 Live prediction** (`features/live_predict.py`, Training page) —
+  imports the run's generated script as a module (model class, INPUT_SHAPE,
+  NORM_* are module-level; main() is guarded), loads the checkpoint in a
+  QThread worker, and predicts camera frames at ~8 FPS with the same
+  tensor math as the Image Folder loader (PIL resize → /255 → optional
+  normalize). Frames are tapped through a session QVideoSink
+  (`QCamera.videoSink()` is not bound in PySide6). Top guess + per-class
+  bars; 📁 try-a-photo works without a camera. Worker/camera stop on
+  finished/close (accept() skips closeEvent — cleanup hooks both).
+- **🩺 Dataset health meter** (`core/dataset_health.py` pure rules +
+  `_HealthMeter` in the data preview) — per-class balance bars (red when
+  < 10 photos), empty-class / too-few / imbalance-ratio (≥3×) / exact
+  duplicate (sha256) findings with 💡 kid hints; the same findings are
+  appended to the 📋 Checks list as warnings by
+  `context._dataset_health_issues` (fs scan in the UI layer, rules pure in
+  core).
+
 ## What died in the rebuild
 
 - The 701-line / 37-method / ~20-concern MainWindow god object.

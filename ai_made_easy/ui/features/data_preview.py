@@ -120,7 +120,7 @@ class DataPreviewDialog(QtWidgets.QDialog):
         super().__init__(parent)
         self.setWindowTitle(f"👀 {definition.display_name} — data preview")
         self.setModal(True)
-        self.resize(560, 420)
+        self.resize(560, 480)
         layout = QtWidgets.QVBoxLayout(self)
 
         type_id = definition.type_id
@@ -135,7 +135,76 @@ class DataPreviewDialog(QtWidgets.QDialog):
 
         view = QtWidgets.QPlainTextEdit(text)
         view.setReadOnly(True)
-        layout.addWidget(view)
+        layout.addWidget(view, 1)
+
+        if type_id == "data.image_folder":
+            root = Path(params.get("root", "images/"))
+            layout.addWidget(_HealthMeter(root))
+            cam = QtWidgets.QPushButton("📷 Add examples with your camera / mic")
+            cam.clicked.connect(lambda: self._open_capture(root))
+            layout.addWidget(cam)
+
         close = QtWidgets.QPushButton("Got it 👍")
         close.clicked.connect(self.accept)
         layout.addWidget(close)
+
+    def _open_capture(self, root: Path) -> None:
+        from ai_made_easy.ui.features.capture import CaptureDialog
+
+        CaptureDialog(self, root).exec()
+
+
+class _HealthMeter(QtWidgets.QWidget):
+    """🩺 class-balance bars + duplicate/too-few findings for kids."""
+
+    def __init__(self, root: Path, parent=None):  # noqa: ANN001
+        super().__init__(parent)
+        self.setProperty("card", True)
+        layout = QtWidgets.QVBoxLayout(self)
+        layout.setContentsMargins(10, 8, 10, 8)
+
+        from ai_made_easy.core.dataset_health import scan_image_folder
+
+        report = scan_image_folder(root)
+        head = QtWidgets.QLabel(f"🩺 Dataset health — {report.total} photo(s)")
+        head.setStyleSheet("font-weight: 700;")
+        layout.addWidget(head)
+
+        if report.classes:
+            peak = max(c.count for c in report.classes)
+            for cc in report.classes:
+                row = QtWidgets.QHBoxLayout()
+                name = QtWidgets.QLabel(cc.name)
+                name.setMinimumWidth(90)
+                row.addWidget(name)
+                bar = QtWidgets.QProgressBar()
+                bar.setRange(0, max(peak, 1))
+                bar.setValue(cc.count)
+                bar.setTextVisible(False)
+                bar.setFixedHeight(10)
+                bar.setStyleSheet(_bar_style(cc.count))
+                row.addWidget(bar, 1)
+                count = QtWidgets.QLabel(str(cc.count))
+                count.setMinimumWidth(34)
+                row.addWidget(count)
+                layout.addLayout(row)
+
+        for f in report.findings:
+            icon = "✅" if f.severity == "info" else "⚠️"
+            line = QtWidgets.QLabel(f"{icon} {f.message}")
+            line.setWordWrap(True)
+            if f.severity == "warning":
+                line.setStyleSheet("color: #B3540B;")
+            layout.addWidget(line)
+            if f.hint:
+                hint = QtWidgets.QLabel(f"💡 {f.hint}")
+                hint.setWordWrap(True)
+                hint.setStyleSheet("color: #7A7565; font-size: 12px;")
+                layout.addWidget(hint)
+
+
+def _bar_style(count: int) -> str:
+    from ai_made_easy.core.dataset_health import TOO_FEW
+
+    color = "#FF8787" if count < TOO_FEW else "#63E6BE"
+    return f"QProgressBar::chunk {{ background: {color}; border-radius: 4px; }}"

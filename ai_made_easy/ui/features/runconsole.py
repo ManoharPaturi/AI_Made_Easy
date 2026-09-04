@@ -36,6 +36,7 @@ class TrainingPage(QtWidgets.QWidget):
     museum_clicked = QtCore.Signal()
     inspect_clicked = QtCore.Signal()
     card_clicked = QtCore.Signal()
+    live_clicked = QtCore.Signal()
 
     def __init__(self, run_store: RunStore, parent=None):
         super().__init__(parent)
@@ -70,9 +71,13 @@ class TrainingPage(QtWidgets.QWidget):
             "See WHERE the model looked (Grad-CAM heatmap + first layer)")
         self.card_btn = QtWidgets.QPushButton("🪪 Report Card")
         self.card_btn.setToolTip("A shareable card about your model")
+        self.live_btn = QtWidgets.QPushButton("🔴 Live")
+        self.live_btn.setToolTip(
+            "Point your camera at things and watch the model guess")
         for btn, sig in ((self.museum_btn, self.museum_clicked),
                          (self.inspect_btn, self.inspect_clicked),
-                         (self.card_btn, self.card_clicked)):
+                         (self.card_btn, self.card_clicked),
+                         (self.live_btn, self.live_clicked)):
             btn.setEnabled(False)
             btn.clicked.connect(sig.emit)
             results.addWidget(btn)
@@ -121,8 +126,10 @@ class TrainingPage(QtWidgets.QWidget):
         from pathlib import Path
         wd = Path(workdir)
         has = wd.joinpath("predictions.json").exists()
+        live_ok = has and any(wd.glob("*_best.pt"))
         for btn in (self.museum_btn, self.inspect_btn, self.card_btn):
             btn.setEnabled(has)
+        self.live_btn.setEnabled(live_ok)
 
     # ------------------------------------------------------------- data
 
