@@ -96,3 +96,38 @@ agent tools (network dependencies in generated scripts), feature-rank /
 hyperparameter-sweep blocks (deferred), Paint Data (needs a drawing UI),
 Orange's drag-time port highlighting and Langflow's impossible-wire
 physics (we keep the smart-mix guard: undo + explain, so kids learn why).
+
+## Research appendix — deferred with rationale (2026-09)
+
+Evidence-backed features we deliberately did NOT build yet, so future
+waves have the reasoning on file:
+
+- **Whisper-style voice input** — local ASR pulls a ~150 MB model and a
+  first-run download; conflicts with the fully-offline promise for
+  classrooms. Revisit when a vendored tiny model (≤30 MB) meets quality.
+- **Pose / hand-tracking projects** — needs MediaPipe-class dependencies
+  (large, camera-permission-heavy, fast-moving APIs). The webcam capture
+  + image-folder pipeline already covers "teach with your body" via
+  photos.
+- **Clustering / unsupervised mode** — no label-free objective in the
+  block graph (loss/trainer assume targets); would need a parallel
+  validation + mission arc. Evidence-wise, kids' first exposure is
+  classification (AI4K12 grade bands), so supervised stays the spine.
+- **Scratch-bridge export** — a JSON message protocol is easy, but the
+  Scratch side needs a custom extension + network permission in the
+  editor; the single-file HTML web demo already gives a shareable,
+  offline "use it anywhere" artifact.
+- **Per-neuron playground view** — TensorFlow Playground-style unit
+  visualization conflicts with the block mental model (our neurons are
+  layer-level). The Grad-CAM + feature-grid inspect view carries the
+  "see inside" evidence goal for our age bands.
+- **Local LLM copilot in-app** — transformers is already an optional
+  extra for the LLM suite, but a chat copilot that edits graphs needs
+  strong guardrails + a model download; missions + PRIMM cover guided
+  help offline for now.
+- **Hosted sharing** — anything hosted breaks the no-accounts,
+  no-network promise for young learners; .aime bundles + the HTML demo
+  are the sharing story (AirDrop/email instead of a server).
+
+i18n groundwork started (title + chrome strings marked `tr()`); a full
+string pass is queued with the localization study in mind.

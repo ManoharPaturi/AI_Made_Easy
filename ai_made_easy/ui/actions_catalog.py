@@ -34,6 +34,13 @@ CATALOG: list[ActionSpec] = [
     ActionSpec("file.export_png", "Export Canvas as &PNG...", "&File",
                "act_export_png", "", "Share the graph as an image",
                separator_after=True),
+    ActionSpec("file.export_bundle", "Export .aime &Bundle...", "&File",
+               "act_export_bundle", "",
+               "One shareable file: graph + card + dataset + checkpoint"),
+    ActionSpec("file.open_bundle", "&Open a Friend's Bundle...", "&File",
+               "act_open_bundle", "",
+               "Load their project or swap-test their model on your photos",
+               separator_after=True),
     ActionSpec("file.quit", "&Quit", "&File", "act_quit", "Ctrl+Q"),
 
     # ---- Edit ----

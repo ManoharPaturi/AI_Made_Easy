@@ -259,6 +259,14 @@ class CanvasController:
             node.view._aime_progress = fraction
             node.view.update()
 
+    def set_wire_flow(self, running: bool) -> None:
+        """Marching-ants dashes along every wire while a run is active."""
+        from ai_made_easy.ui.canvas import painter
+
+        if getattr(self, "_flow_animator", None) is None:
+            self._flow_animator = painter.WireFlowAnimator()
+        self._flow_animator.set_running(running)
+
     def select_and_center(self, node_id: str) -> None:
         """Select a block by IR id and bring it into view (issue jump-to)."""
         for node in self._graph.all_nodes():

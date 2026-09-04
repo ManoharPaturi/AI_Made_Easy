@@ -28,8 +28,25 @@ class Workspace(QtWidgets.QWidget):
         super().__init__(parent)
         self.setObjectName("workspacePage")
 
+        # canvas card with a hidden ⌨️ code pane under it (blocks↔python)
+        canvas_host = QtWidgets.QSplitter(QtCore.Qt.Orientation.Vertical)
+        canvas_host.addWidget(ctx.canvas_area)
+        self.code_pane = QtWidgets.QPlainTextEdit()
+        self.code_pane.setReadOnly(True)
+        self.code_pane.setObjectName("sideCode")
+        self.code_pane.setVisible(False)
+        font = self.code_pane.font()
+        font.setFamily("Menlo")
+        font.setPointSize(11)
+        self.code_pane.setFont(font)
+        canvas_host.addWidget(self.code_pane)
+        canvas_host.setStretchFactor(0, 1)
+        canvas_host.setChildrenCollapsible(False)
+        canvas_host.setSizes([520, 180])
+        self.code_pane_toggled = False
+
         self._v_split = QtWidgets.QSplitter(QtCore.Qt.Orientation.Vertical)
-        self._v_split.addWidget(_card("panel.canvas", ctx.canvas_area))
+        self._v_split.addWidget(_card("panel.canvas", canvas_host))
         self._v_split.addWidget(_card("panel.runconsole", ctx.runconsole))
         self._v_split.setStretchFactor(0, 1)
         self._v_split.setStretchFactor(1, 0)
@@ -50,6 +67,18 @@ class Workspace(QtWidgets.QWidget):
         layout = QtWidgets.QVBoxLayout(self)
         layout.setContentsMargins(10, 8, 10, 8)
         layout.addWidget(self._h_split)
+
+    # -------------------------------------------------- blocks ↔ python
+    def toggle_code_pane(self) -> bool:
+        """⌨️ show/hide the live code next to the blocks. Returns state."""
+        self.code_pane_toggled = not self.code_pane_toggled
+        self.code_pane.setVisible(self.code_pane_toggled)
+        return self.code_pane_toggled
+
+    def set_side_code(self, code: str) -> None:
+        """Live-synced from the preview renderer; cheap when hidden."""
+        if self.code_pane_toggled and self.code_pane.toPlainText() != code:
+            self.code_pane.setPlainText(code)
 
     # ------------------------------------------------------- persistence
 

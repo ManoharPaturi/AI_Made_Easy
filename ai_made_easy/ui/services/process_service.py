@@ -98,9 +98,14 @@ class ProcessService(QtCore.QObject):
             bytes(proc.readAllStandardOutput()).decode("utf-8", "replace")))
         proc.readyReadStandardError.connect(lambda: self._emit_lines(
             bytes(proc.readAllStandardError()).decode("utf-8", "replace")))
-        proc.finished.connect(
-            lambda code, *_: (self.finished.emit(int(code), kind),
-                              self.log.info(f"{kind} export finished (exit {int(code)}) — see exports/")))
+        def _done(code, *_):
+            self.run_store.set(
+                self.run_store.FINISHED if int(code) == 0
+                else self.run_store.FAILED, kind)
+            self.finished.emit(int(code), kind)
+            self.log.info(f"{kind} export finished (exit {int(code)})")
+
+        proc.finished.connect(_done)
         self.run_store.set(self.run_store.RUNNING, kind)
         proc.start()
 

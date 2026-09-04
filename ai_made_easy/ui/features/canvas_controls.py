@@ -8,6 +8,7 @@ from PySide6 import QtCore, QtWidgets
 
 class CanvasControls(QtWidgets.QFrame):
     snapshot_clicked = QtCore.Signal()
+    code_toggle_clicked = QtCore.Signal()
 
     def __init__(self, canvas_widget: QtWidgets.QWidget, adapter, parent=None):
         super().__init__(canvas_widget)
@@ -23,6 +24,8 @@ class CanvasControls(QtWidgets.QFrame):
             ("＋", "Zoom in", lambda: self._adapter.zoom(+1)),
             ("－", "Zoom out", lambda: self._adapter.zoom(-1)),
             ("⛶", "Fit graph in view", self._adapter.center_view),
+            ("⌨️", "Show the Python code for these blocks "
+                   "(blocks ↔ python)", lambda: self.code_toggle_clicked.emit()),
             ("📸", "Save canvas as PNG", lambda: self.snapshot_clicked.emit()),
         ):
             btn = QtWidgets.QPushButton(label)

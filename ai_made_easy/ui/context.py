@@ -7,6 +7,7 @@ shell and menus call them via the actions catalog.
 """
 from __future__ import annotations
 
+import tempfile
 from pathlib import Path
 
 from PySide6 import QtCore, QtWidgets
@@ -53,6 +54,7 @@ class AppContext(QtCore.QObject):
     """Builds + wires everything. One instance per application."""
 
     status_message = QtCore.Signal(str)
+    side_code = QtCore.Signal(str)  # live blocks→python pane
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -150,6 +152,9 @@ class AppContext(QtCore.QObject):
         # run lifecycle: statusbar text, trainer node status, plots, header
         self.run_store.state_changed.connect(
             lambda state, kind: self.header.set_running(
+                state == RunStore.RUNNING))
+        self.run_store.state_changed.connect(
+            lambda state, _k: self.canvas.set_wire_flow(
                 state == RunStore.RUNNING))
         self.process_service.epoch_received.connect(self.training_page.on_epoch)
         self.process_service.epoch_received.connect(
@@ -262,6 +267,7 @@ class AppContext(QtCore.QObject):
             code = self.export_service.render(ir,
                                               self.preview_page.current_target())
             self.preview_page.set_code(code)
+            self.side_code.emit(code)
         except Exception as exc:
             self.preview_page.set_error(f"{type(exc).__name__}: {exc}")
 
@@ -382,6 +388,12 @@ class AppContext(QtCore.QObject):
             else:
                 self.log_bus.error("inspect run failed — see Console")
             return
+        if kind == "swap":
+            if code == 0:
+                self._show_swap_result()
+            else:
+                self.log.error("swap-test failed — see Console")
+            return
         if kind == "train":
             self.training_page.set_results_available(
                 self.process_service.last_workdir or "")
@@ -484,6 +496,183 @@ class AppContext(QtCore.QObject):
                 else f"canvas image saved → {saved}")
 
         self.canvas.export_canvas_png(Path(path), on_done=done)
+
+    # ------------------------------------------------------ .aime bundles
+    def act_export_bundle(self, *_):
+        """One shareable .aime: graph + card + dataset + run artifacts."""
+        from ai_made_easy.core.bundle import write_bundle
+        from ai_made_easy.core.codegen.training_gen import collect_spec
+
+        path, _ = QtWidgets.QFileDialog.getSaveFileName(
+            None, "Export .aime Bundle", f"{self.project_store.name}.aime",
+            "AI Made Easy Bundle (*.aime)")
+        if not path:
+            return
+
+        spec = collect_spec(self.project_service.snapshot())
+        dataset_dir = None
+        if spec.dataset.get("block") == "data.image_folder":
+            candidate = Path(spec.dataset.get("root", "images/"))
+            if candidate.exists():
+                dataset_dir = candidate
+        card_md = None
+        wd = self._run_workdir()
+        if wd is not None:
+            try:
+                from ai_made_easy.core.codegen.training_gen import (
+                    _dataset_comment)
+                from ai_made_easy.core.model_card import build_card
+
+                card_md = build_card(self.project_store.name,
+                                     _dataset_comment(spec),
+                                     spec.trainer, wd, "", "")
+            except Exception:
+                card_md = None
+        thumb = self.canvas_area.grab().scaledToWidth(640).toImage()
+        import io
+
+        buf = QtCore.QBuffer()
+        buf.open(QtCore.QIODevice.OpenModeFlag.WriteOnly)
+        thumb.save(buf, "PNG")
+        try:
+            out = write_bundle(Path(path),
+                               self.project_service.snapshot().to_dict(),
+                               name=self.project_store.name,
+                               card_md=card_md,
+                               thumbnail_png=bytes(buf.data()),
+                               dataset_dir=dataset_dir, workdir=wd)
+            self.log.info(f"📦 bundle exported → {out} "
+                          f"({out.stat().st_size / 1e6:.1f} MB)")
+            self.status_message.emit(f"📦 bundle saved → {out.name}")
+        except Exception as exc:
+            self.log.error(f"bundle export failed: {exc}")
+
+    def act_open_bundle(self, *_):
+        """Open a friend's .aime: load the project or swap-test on my data."""
+        from ai_made_easy.core.bundle import read_bundle
+
+        path, _ = QtWidgets.QFileDialog.getOpenFileName(
+            None, "Open a Friend's Bundle", "", "AI Made Easy (*.aime)")
+        if not path:
+            return
+        try:
+            bundle = read_bundle(Path(path))
+        except ValueError as exc:
+            self.log.error(str(exc))
+            return
+        friend = bundle["manifest"].get("name", "friend")
+        my_root = self._image_folder_root()
+        can_swap = (bundle["has_run"] and my_root is not None)
+        choice = QtWidgets.QMessageBox.question(
+            None, f"📦 {friend}'s bundle",
+            "What should we do with it?\n\n"
+            "🤝 Load their project — see and edit their blocks\n" +
+            ("🔁 Swap-test — run THEIR model on YOUR photos and compare"
+             if can_swap else "(swap-test needs their checkpoint and your "
+              "image-folder dataset)"),
+            (QtWidgets.QMessageBox.StandardButton.Yes
+             | QtWidgets.QMessageBox.StandardButton.No
+             | QtWidgets.QMessageBox.StandardButton.Cancel
+             if can_swap else
+             QtWidgets.QMessageBox.StandardButton.Yes
+             | QtWidgets.QMessageBox.StandardButton.Cancel))
+        if choice == QtWidgets.QMessageBox.StandardButton.Cancel:
+            return
+        if choice == QtWidgets.QMessageBox.StandardButton.Yes:
+            from ai_made_easy.core.graph import Graph
+
+            self.graph_service.load(Graph.from_dict(bundle["graph"]))
+            self.status_message.emit(f"🤝 loaded {friend}'s project")
+            return
+        if can_swap and \
+                choice == QtWidgets.QMessageBox.StandardButton.No:
+            self._run_swap_test(bundle, my_root, friend)
+
+    def _image_folder_root(self) -> Path | None:
+        for node in self.project_service.snapshot().nodes.values():
+            if node.type_id == "data.image_folder":
+                root = Path(node.params.get("root", "images/"))
+                if not root.is_absolute():
+                    # pin to absolute — subprocesss run in temp workdirs
+                    candidate = Path.cwd() / root
+                    root = candidate if candidate.exists() else root
+                if root.exists():
+                    return root
+        return None
+
+    def _run_swap_test(self, bundle: dict, my_root: Path, friend: str):
+        """Their checkpoint + my photos → one honest accuracy comparison."""
+        from ai_made_easy.core.bundle import SWAP_EVAL_TEMPLATE
+        from ai_made_easy.core.codegen.training_gen import collect_spec
+
+        spec = collect_spec(self.project_service.snapshot())
+        my_shape = None
+        try:
+            shapes = self.project_service.snapshot().infer_shapes()
+            chain = self.project_service.snapshot().model_nodes()
+            my_shape = shapes[chain[0].instance_id]
+        except Exception:
+            pass
+        if not my_shape or my_shape[0] not in (1, 3):
+            self.log.error("swap-test needs an image model (input like "
+                           "3,64,64)")
+            return
+        grayscale = my_shape[0] == 1
+        norm = None
+        if spec.normalize:
+            norm = [list(spec.normalize["mean"]),
+                    list(spec.normalize["std"])]
+        workdir = Path(tempfile.mkdtemp(prefix="aime_swap_"))
+        script = workdir / "swap_eval.py"
+        script.write_text(SWAP_EVAL_TEMPLATE.format(
+            root=str(my_root), grayscale=grayscale,
+            input_shape=list(my_shape), norm=norm,
+            model_script=str(bundle["run_dir"] / "train.py"),
+            checkpoint=str(bundle["run_dir"] / "checkpoint.pt")))
+        self.status_message.emit(f"🔁 swap-test running — {friend}'s model "
+                                 "on your photos…")
+        self._swap_friend = friend
+        self._swap_workdir = workdir
+        self.process_service.run_script(script, workdir, "swap")
+
+    def _show_swap_result(self):
+        """Comparison card: their model on my photos vs my own score."""
+        import json
+
+        result_path = Path(getattr(self, "_swap_workdir", "") or "") \
+            / "swap_predictions.json"
+        if not result_path.exists():
+            self.log.error("swap-test produced no results")
+            return
+        try:
+            data = json.loads(result_path.read_text())
+        except Exception as exc:
+            self.log.error(f"swap-test: {exc}")
+            return
+        friend = getattr(self, "_swap_friend", "your friend")
+        theirs = data.get("accuracy", 0.0)
+        mine = self.training_page.last_score()
+        n = data.get("n", 0)
+        classes = ", ".join(data.get("classes", [])[:8]) or "my classes"
+
+        box = QtWidgets.QMessageBox(None)
+        box.setWindowTitle("🔁 Swap-test result")
+        verdict = ("🤯 Their model beat yours on YOUR photos — compare "
+                   "blocks to see why!"
+                   if mine is None or theirs > mine else
+                   "😎 Your model knows your photos better — different data "
+                   "makes different models!")
+        box.setText(
+            f"<b>{friend}'s model on YOUR photos: {theirs:.0%}</b> "
+            f"({n} photos — {classes})<br><br>"
+            + (f"Your model's score: {mine:.0%}<br><br>" if mine is not None
+               else "")
+            + verdict)
+        box.setInformativeText("Same blocks + different photos = different "
+                               "models. That's why sharing data matters!")
+        box.exec()
+        self.status_message.emit(f"🔁 swap-test: their model scored "
+                                 f"{theirs:.0%} on your photos")
 
     def act_quit(self, *_):
         from PySide6 import QtWidgets
@@ -590,6 +779,9 @@ class AppContext(QtCore.QObject):
             self.log.error(f"code generation failed: {exc}")
 
     def act_runtime_export(self, kind: str, *_):
+        if kind == "web":
+            self._export_web_demo()
+            return
         try:
             script = self.export_service.write_runtime_script(
                 self.project_service.snapshot(), kind, Path.cwd() / "exports")
@@ -597,6 +789,53 @@ class AppContext(QtCore.QObject):
             self.log.error(f"export failed: {exc}")
             return
         self.process_service.run_script(script, Path.cwd(), kind)
+
+    def _export_web_demo(self) -> None:
+        """🌐 one double-clickable .html with the trained model inside."""
+        from ai_made_easy.core.codegen.training_gen import collect_spec
+        from ai_made_easy.core.web_export import build_web_demo, layers_from_torch
+
+        wd = self._run_workdir()
+        if wd is None:
+            self.log.error(
+                "train first — the web demo needs a trained checkpoint")
+            self.status_message.emit("🌐 web demo: train first, then export")
+            return
+        from ai_made_easy.ui.features.live_predict import load_predictor
+
+        try:
+            model, shape, norm = load_predictor(wd)
+            layers = layers_from_torch(model)
+            spec = collect_spec(self.project_service.snapshot())
+            classes = self._class_names(spec, shape)
+            html = build_web_demo(layers, classes, list(shape), norm,
+                                  title=self.project_store.name)
+        except RuntimeError as exc:
+            self.log.error(f"web demo: {exc}")
+            self.status_message.emit("🌐 web demo not possible — see Console")
+            return
+        out_dir = Path.cwd() / "exports"
+        out_dir.mkdir(exist_ok=True)
+        out = out_dir / f"{self.project_store.name}_demo.html"
+        out.write_text(html)
+        self.log.info(f"🌐 web demo exported → {out} "
+                      f"({out.stat().st_size / 1e6:.1f} MB, "
+                      "double-click to open)")
+        self.status_message.emit(f"🌐 web demo saved → {out.name}")
+
+    def _class_names(self, spec, shape) -> list[str]:
+        """Image Folder classes by subfolder; otherwise numbered classes."""
+        from pathlib import Path as _P
+
+        ds = spec.dataset
+        if ds.get("block") == "data.image_folder":
+            root = _P(ds.get("root", "images/"))
+            if root.exists():
+                names = [d.name for d in sorted(root.iterdir()) if d.is_dir()]
+                if names:
+                    return names
+        n = spec.output_units
+        return [str(i) for i in range(n)]
 
     def act_save_selection(self, *_):
         dialog = SaveTemplateDialog(None)

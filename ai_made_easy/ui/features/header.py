@@ -80,6 +80,9 @@ class HeaderBar(QtWidgets.QWidget):
                           lambda: self.runtime_export_requested.emit("onnx"))
                 _menu_btn(menu, "Export TorchScript (.pt)",
                           lambda: self.runtime_export_requested.emit("jit"))
+                menu.addSeparator()
+                _menu_btn(menu, "Export web demo (.html)",
+                          lambda: self.runtime_export_requested.emit("web"))
             button.setMenu(menu)
             layout.addWidget(button)
 

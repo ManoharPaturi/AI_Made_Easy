@@ -197,6 +197,36 @@ emoji never obscure the message.
   🎁 Using mode and TrainingPage carries a 🔒 model-locked chip (cleared
   when retraining starts).
 
+## Wave 4 — 🌐 Share & shine
+
+- **Single-file web demo** (`core/web_export.py`, ⬇ PyTorch → Export web
+  demo) — the trained torch model converts to tfjs-layers layers (Conv2d
+  OIHW→HWIO, Linear transposed, BatchNorm running stats, pool/flatten/
+  activation/dropout/global-pool; anything else fails with a kid-worded
+  message) with weights as base64, inlined into one double-clickable
+  ~1.5 MB HTML together with the vendored tf.min.js — drag-drop a photo
+  (or click), resize → /255 → optional normalize, bars with class names.
+  `?selftest=1` (or a `true` swap) builds and predicts on zeros and
+  prints the result — live-verified in Chrome.
+- **.aime bundle** (`core/bundle.py`, File menu) — zip with manifest
+  (format/version/app version/created), graph.json, model card, canvas
+  thumbnail, size-capped dataset/, run/ (checkpoint + train script +
+  predictions). Opening validates the manifest and offers: load their
+  project, or **🔁 swap-test** — their checkpoint on YOUR photos via a
+  generated eval script (image-folder models), ending in a comparison
+  card ("their model on YOUR pictures: 62%") — generalization made
+  social.
+- **Animated wires** (`ui/canvas/painter.py`) — while RunStore is
+  RUNNING a single shared `WireFlowAnimator` timer crawls a teal dash
+  overlay along every pipe (pipes self-register in a WeakSet; only they
+  repaint).
+- **⌨️ blocks ↔ python** — a ⌨️ button in the canvas controls reveals a
+  code pane under the canvas (vertical splitter in the canvas card),
+  live-synced to the preview renderer through `context.side_code`.
+- Dataset paths the swap-test uses resolve to absolute at use time
+  (subprocesses run in temp workdirs); `run_script` runs now finish the
+  RunStore (FINISHED/FAILED) instead of dangling at RUNNING.
+
 ## What died in the rebuild
 
 - The 701-line / 37-method / ~20-concern MainWindow god object.

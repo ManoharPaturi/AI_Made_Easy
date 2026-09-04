@@ -10,9 +10,12 @@ tests/test_structure.py), so the painter patch lives here.
 """
 from __future__ import annotations
 
+import weakref
+
 from PySide6 import QtCore, QtGui
 
 from OdenGraphQt.qgraphics.node_base import NodeItem
+from OdenGraphQt.qgraphics.pipe import PipeItem
 from OdenGraphQt.qgraphics.port import PortItem
 
 INK = QtGui.QColor(26, 30, 38)          # label + selection ink on pastel fills
@@ -31,6 +34,7 @@ def install_flat_node_style() -> None:
     NodeItem.set_proxy_mode = _flat_set_proxy_mode
     NodeItem.auto_switch_mode = _flat_auto_switch_mode
     PortItem.paint = _flat_port_paint
+    PipeItem.paint = _flow_pipe_paint
     _orig_init = NodeItem.__init__
 
     def _flat_init(self, *args, **kwargs) -> None:  # noqa: ANN002, ANN003
@@ -41,6 +45,60 @@ def install_flat_node_style() -> None:
         self._proxy_mode_threshold = 0
 
     NodeItem.__init__ = _flat_init
+
+
+# --------------------------------------------------------------- wire flow
+# Marching-ants overlay while a run is active: one shared timer, dashes
+# crawl along every pipe. Pipes self-register (weakly) so the timer can
+# nudge exactly them — no whole-scene repaints.
+
+_flow = {"on": False, "phase": 0.0}
+_pipes: "weakref.WeakSet[PipeItem]" = weakref.WeakSet()
+
+
+class WireFlowAnimator(QtCore.QObject):
+    """Single shared timer; started/stopped by the canvas controller."""
+
+    def __init__(self, parent=None):  # noqa: ANN001
+        super().__init__(parent)
+        self._timer = QtCore.QTimer(self, interval=90,
+                                    timeout=self._tick)
+
+    def _tick(self) -> None:
+        _flow["phase"] = (_flow["phase"] + 2.4) % 16.0
+        for pipe in list(_pipes):
+            pipe.update()
+
+    def set_running(self, on: bool) -> None:
+        _flow["on"] = on
+        if on:
+            self._timer.start()
+        else:
+            self._timer.stop()
+            for pipe in list(_pipes):
+                pipe.update()
+
+
+_FLOW_PEN = QtGui.QPen(QtGui.QColor(99, 230, 190, 210), 2.6)
+_FLOW_PEN.setStyle(QtCore.Qt.PenStyle.DashLine)
+_FLOW_PEN.setDashPattern([5, 11])
+
+
+def _flow_pipe_paint(self, painter, option, widget) -> None:  # noqa: ANN001
+    _orig_pipe_paint(self, painter, option, widget)
+    _pipes.add(self)
+    if not _flow["on"]:
+        return
+    painter.save()
+    painter.setRenderHint(QtGui.QPainter.RenderHint.Antialiasing)
+    pen = QtGui.QPen(_FLOW_PEN)
+    pen.setDashOffset(-_flow["phase"])
+    painter.setPen(pen)
+    painter.drawPath(self.path())
+    painter.restore()
+
+
+_orig_pipe_paint = PipeItem.paint
 
 
 def _flat_auto_switch_mode(self) -> None:  # noqa: ANN001

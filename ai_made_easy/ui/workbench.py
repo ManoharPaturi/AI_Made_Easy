@@ -21,7 +21,7 @@ class Workbench(QtWidgets.QMainWindow):
     def __init__(self, ctx: "context_mod.AppContext"):
         super().__init__()
         self.ctx = ctx
-        self.setWindowTitle(_APP_TITLE)
+        self.setWindowTitle(self.tr(_APP_TITLE))  # i18n groundwork (tr pass)
         self.resize(1500, 900)
 
         self.actions = build_actions(ctx, self)
@@ -59,6 +59,10 @@ class Workbench(QtWidgets.QMainWindow):
 
         self.workspace = Workspace(self.ctx)
         self.setCentralWidget(self.workspace)
+        # ⌨️ blocks ↔ python: toggle lives on the canvas, pane in the workspace
+        self.ctx.canvas_controls.code_toggle_clicked.connect(
+            self.workspace.toggle_code_pane)
+        self.ctx.side_code.connect(self.workspace.set_side_code)
 
     def setup_menus(self) -> None:
         """Menus only assemble existing actions (Orange rule)."""
