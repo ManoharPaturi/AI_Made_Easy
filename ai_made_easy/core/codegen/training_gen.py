@@ -247,10 +247,10 @@ TRAIN_PYTORCH_TEMPLATE = '''\
 # - {{ w }}
 {% endfor %}
 {% endif %}
-import time
-{% if dataset_is_json %}
 import json as _json
-{% endif %}
+import os as _os
+import sys
+import time
 
 import numpy as np
 import torch
@@ -510,6 +510,73 @@ def _binary_auc(scores: torch.Tensor, pos: torch.Tensor) -> float:
 
 
 {% endif %}
+
+def _sample_file(loader, idx: int):
+    """Original file path for image datasets (for the Mistake Museum)."""
+    ds = loader.dataset
+    base = getattr(ds, "dataset", ds)
+    samples = getattr(base, "samples", None)
+    if samples is None:
+        return None
+    indices = getattr(ds, "indices", None)
+    real = indices[idx] if indices is not None else idx
+    try:
+        return samples[real][0]
+    except (IndexError, TypeError):
+        return None
+
+
+def _save_sample_png(t, path):
+    """Save a (C,H,W) float tensor as a normalized PNG."""
+    from PIL import Image
+
+    a = t.float().cpu().numpy()
+    lo, hi = float(a.min()), float(a.max())
+    a = ((a - lo) / (hi - lo + 1e-9) * 255).astype("uint8")
+    if a.shape[0] == 1:
+        a = a[0]
+    elif a.shape[0] == 3:
+        a = np.transpose(a, (1, 2, 0))
+    Image.fromarray(a).save(path)
+
+
+def dump_test_results(model, loader, device):
+    """predictions.json + mistakes.json — the Mistake Museum's raw data."""
+    model.eval()
+    items, idx = [], 0
+    with torch.no_grad():
+        for xb, yb in loader:
+            out = model(xb.to(device)).cpu()
+            probs = (out if out.shape[1] == 1 else torch.softmax(out, dim=1))
+            for i in range(len(yb)):
+                file = _sample_file(loader, idx)
+                if file is None and xb.ndim == 4 and xb.shape[1] in (1, 3):
+                    _os.makedirs("samples", exist_ok=True)
+                    cand = _os.path.join("samples", f"{idx}.png")
+                    try:
+                        _save_sample_png(xb[i], cand)
+                        file = cand
+                    except Exception:
+                        file = None
+                items.append({
+                    "index": idx,
+                    "true": int(yb[i]),
+                    "probs": [round(float(v), 4) for v in probs[i]],
+                    "file": file,
+                })
+                idx += 1
+            if idx >= 300:
+                break
+    with open("predictions.json", "w") as fh:
+        _json.dump(items[:300], fh, indent=1)
+    if items and len(items[0]["probs"]) > 1:
+        mistakes = [it for it in items
+                    if it["probs"].index(max(it["probs"])) != it["true"]]
+        with open("mistakes.json", "w") as fh:
+            _json.dump(mistakes[:50], fh, indent=1)
+    print(f"saved predictions.json ({len(items)} examples)")
+
+
 @torch.no_grad()
 def evaluate(model, loss_fn, loader, device):
     model.eval()
@@ -627,7 +694,7 @@ def predict_demo(model, loader, device):
 
 
 {% endif %}
-{% if spec.kfold %}
+{% if spec.kfold and not inspect_mode %}
 def kfold_cross_validate(train_loader, val_loader, device, loss_fn):
     """K-Fold Cross-Validation block: retrain K times, report mean +- std."""
     full = torch.utils.data.ConcatDataset(
@@ -680,6 +747,114 @@ def kfold_cross_validate(train_loader, val_loader, device, loss_fn):
 {% endif %}
 
 
+{% if inspect_mode %}
+def _grad_cam(model, x, layer, class_idx):
+    """Where did the model look? (last conv layer, ~20 lines, no deps)"""
+    import torch.nn.functional as F
+    stored = {}
+    def hook(mod, inp, out):
+        out.retain_grad()  # non-leaf tensors drop .grad without this
+        stored["acts"] = out
+    handle = layer.register_forward_hook(hook)
+    try:
+        model.zero_grad()
+        with torch.enable_grad():
+            out = model(x.clone())
+            score = out[0, class_idx]
+            score.backward()
+        acts = stored["acts"]
+        weights = acts.grad.mean(dim=(2, 3), keepdim=True)
+        cam = torch.relu((weights * acts).sum(1, keepdim=True))
+        cam = F.interpolate(cam, size=x.shape[2:], mode="bilinear",
+                            align_corners=False)[0, 0]
+        lo, hi = cam.min(), cam.max()
+        return ((cam - lo) / (hi - lo + 1e-9)).detach().numpy()
+    finally:
+        handle.remove()
+
+
+def _feature_grid(tensor, count=16):
+    """Tile the first conv layer's channels into one viewable grid."""
+    import torch.nn.functional as F
+    maps = tensor[0][:count]
+    maps = F.interpolate(maps.unsqueeze(1), size=(40, 40),
+                         mode="bilinear", align_corners=False)[:, 0]
+    lo = maps.amin(dim=(1, 2), keepdim=True)
+    hi = maps.amax(dim=(1, 2), keepdim=True)
+    maps = (maps - lo) / (hi - lo + 1e-9)
+    side = max(int(len(maps) ** 0.5), 1)
+    rows = []
+    for r in range(0, len(maps), side):
+        chunk = list(maps[r:r + side])          # each (40, 40)
+        while len(chunk) < side:
+            chunk.append(chunk[-1])
+        rows.append(torch.cat(chunk, dim=1))    # (40, side*40)
+    return torch.cat(rows, dim=0).numpy()       # (rows*40, side*40) 2-D grid
+
+
+def main():
+    """Inspect mode: load the trained checkpoint, explain one prediction."""
+    device = torch.device("cpu")
+    train_loader, val_loader, test_loader = make_loaders(str(device))
+    model = {{ class_name }}()
+    model.load_state_dict(torch.load(CHECKPOINT, map_location="cpu"))
+    model.eval()
+
+    args = sys.argv[1:]
+    image_path = None
+    if args and args[0] == "--image":
+        image_path = args[1]
+        from PIL import Image
+        base = getattr(test_loader.dataset, "dataset", test_loader.dataset)
+        transform = getattr(base, "transform", None)
+        pil = Image.open(image_path).convert("RGB")
+        x = transform(pil) if transform else torch.tensor(
+            np.asarray(pil), dtype=torch.float32).permute(2, 0, 1) / 255.0
+    else:
+        idx = int(args[0]) if args else 0
+        x, _y = test_loader.dataset[idx % len(test_loader.dataset)]
+    if x.dim() < 4:
+        x = x.unsqueeze(0)
+
+    first_conv = last_conv = None
+    for m in model.modules():
+        if isinstance(m, (nn.Conv2d, nn.Conv1d)):
+            first_conv = first_conv or m
+            last_conv = m
+    feats = {}
+    hooks = []
+    if first_conv is not None:
+        hooks.append(first_conv.register_forward_hook(
+            lambda mod, i, o: feats.__setitem__("first", o.detach())))
+    if last_conv is not None:
+        hooks.append(last_conv.register_forward_hook(
+            lambda mod, i, o: feats.__setitem__("acts", o.detach())))
+    with torch.no_grad():
+        out = model(x)
+        probs = out if out.shape[1] == 1 else torch.softmax(out, dim=1)
+    for h in hooks:
+        h.remove()
+
+    single = probs.shape[1] == 1
+    top = torch.topk(probs[0], k=min(3, probs.shape[1]))
+    result = {"image": image_path, "single": single,
+              "top": [{"class": int(c), "prob": round(float(v), 4)}
+                      for c, v in zip(top.indices, top.values)]}
+    np.save("input.npy", x[0].numpy())
+    if feats.get("first") is not None:
+        np.save("feats.npy", _feature_grid(feats["first"]))
+    cam = None
+    if last_conv is not None and not single:
+        cam = _grad_cam(model, x, last_conv, int(top.indices[0]))
+        np.save("cam.npy", cam)
+    with open("inspect.json", "w") as fh:
+        _json.dump(result, fh, indent=1)
+    print("inspect:", result)
+
+
+if __name__ == "__main__":
+    main()
+{% else %}
 def main():
     torch.manual_seed(SEED)
     np.random.seed(SEED)
@@ -740,6 +915,11 @@ def main():
 {% endif %}
     torch.save(model.state_dict(), CHECKPOINT)
     print(f"saved best weights to {CHECKPOINT}")
+    try:
+        dump_test_results(model, test_loader, device)
+    except Exception as exc:
+        print(f"(could not save predictions: {exc})")
+{% endif %}
 
 
 if __name__ == "__main__":
@@ -888,6 +1068,23 @@ def main():
         else:
             print(f"example {i + 1}: predicted class {int(np.argmax(p))} | actual {actual}")
 {% endif %}
+    try:
+        probs_all = model.predict(x_test[:300], verbose=0)
+        items = [{"index": i, "true": int(y_test[i]),
+                  "probs": [round(float(v), 4) for v in probs_all[i]],
+                  "file": None}
+                 for i in range(len(probs_all))]
+        with open("predictions.json", "w") as fh:
+            import json as _json
+            _json.dump(items, fh, indent=1)
+        if len(items[0]["probs"]) > 1:
+            mistakes = [it for it in items
+                        if it["probs"].index(max(it["probs"])) != it["true"]]
+            with open("mistakes.json", "w") as fh:
+                _json.dump(mistakes[:50], fh, indent=1)
+        print(f"saved predictions.json ({len(items)} examples)")
+    except Exception as exc:
+        print(f"(could not save predictions: {exc})")
     model.save("{{ spec.name }}_best.keras")
     print("saved model to {{ spec.name }}_best.keras")
 
@@ -1117,6 +1314,21 @@ def _base_ctx(graph: Graph, spec: TrainingSpec) -> dict:
         "scheduler_steps_per_batch": bool(spec.scheduler and spec.scheduler["kind"] == "train.one_cycle_lr"),
         "scheduler_step_arg": "val_loss" if (spec.scheduler and spec.scheduler["kind"] == "train.plateau_lr") else "",
     }
+
+
+def generate_inspect(graph: Graph) -> str:
+    """Inspect script: loads the checkpoint, explains one prediction with
+    Grad-CAM + a feature grid (runs in the training workdir)."""
+    if errors := [i for i in graph.validate() if i.severity == "error"]:
+        raise CodegenError(
+            "graph has validation errors:\n" + "\n".join(f"  - {e}" for e in errors)
+        )
+    spec = collect_spec(graph)
+    ctx = _base_ctx(graph, spec)
+    ctx["inspect_mode"] = True
+    ctx["loss_expr"] = _render_loss(spec)
+    ctx["optimizer_expr"] = _render_optimizer(spec)
+    return _env.from_string(TRAIN_PYTORCH_TEMPLATE).render(**ctx)
 
 
 def generate_training(graph: Graph, framework: str) -> str:

@@ -59,6 +59,23 @@ def main():
               batch_size=BATCH_SIZE, callbacks=callbacks, verbose=2)
     results = model.evaluate(x_test, y_test, verbose=0)
     print("test:", dict(zip(model.metrics_names, results)))
+    try:
+        probs_all = model.predict(x_test[:300], verbose=0)
+        items = [{"index": i, "true": int(y_test[i]),
+                  "probs": [round(float(v), 4) for v in probs_all[i]],
+                  "file": None}
+                 for i in range(len(probs_all))]
+        with open("predictions.json", "w") as fh:
+            import json as _json
+            _json.dump(items, fh, indent=1)
+        if len(items[0]["probs"]) > 1:
+            mistakes = [it for it in items
+                        if it["probs"].index(max(it["probs"])) != it["true"]]
+            with open("mistakes.json", "w") as fh:
+                _json.dump(mistakes[:50], fh, indent=1)
+        print(f"saved predictions.json ({len(items)} examples)")
+    except Exception as exc:
+        print(f"(could not save predictions: {exc})")
     model.save("mnist_mlp_best.keras")
     print("saved model to mnist_mlp_best.keras")
 

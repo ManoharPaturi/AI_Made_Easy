@@ -67,6 +67,16 @@ class CelebrationOverlay(QtWidgets.QWidget):
         painter.setRenderHint(QtGui.QPainter.RenderHint.Antialiasing)
         fade = max(0.0, 1.0 - max(self._ticks - 110, 0) / 40.0)
 
+        # confetti first — the headline card paints over anything falling
+        # behind it, so the message always stays readable
+        emoji_font = QtGui.QFont()
+        emoji_font.setPointSizeF(15)
+        painter.setFont(emoji_font)
+        for p in self._pieces:
+            alpha = int(255 * fade)
+            painter.setPen(QtGui.QColor(31, 35, 40, alpha))
+            painter.drawText(QtCore.QPointF(p.x, p.y), p.emoji)
+
         # headline card
         card_w, card_h = min(460, self.width() - 40), 96
         rect = QtCore.QRectF((self.width() - card_w) / 2, 18, card_w, card_h)
@@ -88,13 +98,4 @@ class CelebrationOverlay(QtWidgets.QWidget):
         painter.drawText(rect.adjusted(0, 42, 0, 0),
                          QtCore.Qt.AlignmentFlag.AlignHCenter
                          | QtCore.Qt.AlignmentFlag.AlignTop, self._sub)
-
-        # confetti
-        emoji_font = QtGui.QFont()
-        emoji_font.setPointSizeF(15)
-        painter.setFont(emoji_font)
-        for p in self._pieces:
-            alpha = int(255 * fade)
-            painter.setPen(QtGui.QColor(31, 35, 40, alpha))
-            painter.drawText(QtCore.QPointF(p.x, p.y), p.emoji)
         painter.end()

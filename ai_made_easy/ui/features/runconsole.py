@@ -33,6 +33,9 @@ class TrainingPage(QtWidgets.QWidget):
 
     train_clicked = QtCore.Signal()
     stop_clicked = QtCore.Signal()
+    museum_clicked = QtCore.Signal()
+    inspect_clicked = QtCore.Signal()
+    card_clicked = QtCore.Signal()
 
     def __init__(self, run_store: RunStore, parent=None):
         super().__init__(parent)
@@ -56,6 +59,25 @@ class TrainingPage(QtWidgets.QWidget):
         self.status = QtWidgets.QLabel("idle")
         row.addWidget(self.status, stretch=1)
         layout.addLayout(row)
+
+        # Wave-1 insight buttons — enabled once a run leaves artifacts
+        results = QtWidgets.QHBoxLayout()
+        self.museum_btn = QtWidgets.QPushButton("🔍 Mistake Museum")
+        self.museum_btn.setToolTip(
+            "Browse what the model got wrong and learn how to fix it")
+        self.inspect_btn = QtWidgets.QPushButton("👀 What is it looking at?")
+        self.inspect_btn.setToolTip(
+            "See WHERE the model looked (Grad-CAM heatmap + first layer)")
+        self.card_btn = QtWidgets.QPushButton("🪪 Report Card")
+        self.card_btn.setToolTip("A shareable card about your model")
+        for btn, sig in ((self.museum_btn, self.museum_clicked),
+                         (self.inspect_btn, self.inspect_clicked),
+                         (self.card_btn, self.card_clicked)):
+            btn.setEnabled(False)
+            btn.clicked.connect(sig.emit)
+            results.addWidget(btn)
+        results.addStretch(1)
+        layout.addLayout(results)
 
         plots = pg.GraphicsLayoutWidget()
         self.loss_plot = plots.addPlot(row=0, col=0, title="Loss")
@@ -93,6 +115,14 @@ class TrainingPage(QtWidgets.QWidget):
             self.status.setText(f"failed ({kind}) — see Console")
         elif state == RunStore.STOPPED:
             self.status.setText(f"stopped after {len(self._epoch_x)} epoch(s)")
+
+    def set_results_available(self, workdir) -> None:  # noqa: ANN001
+        """Enable the insight buttons once a run left artifacts behind."""
+        from pathlib import Path
+        wd = Path(workdir)
+        has = wd.joinpath("predictions.json").exists()
+        for btn in (self.museum_btn, self.inspect_btn, self.card_btn):
+            btn.setEnabled(has)
 
     # ------------------------------------------------------------- data
 

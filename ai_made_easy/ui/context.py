@@ -109,19 +109,6 @@ class AppContext(QtCore.QObject):
             lambda nid: self.canvas.select_and_center(nid))
         self.summary_page.fix_requested.connect(self._apply_fix)
 
-    def _apply_fix(self, issue) -> None:
-        from ai_made_easy.core.fixes import fix_for_issue
-
-        ir = self.graph_service.snapshot()
-        result = fix_for_issue(ir, issue)
-        if result is None:
-            self.log_bus.info("no automatic fix for this one — follow the 💡 tip")
-            return
-        label, description, fixed = result
-        self.graph_service.load(fixed)
-        self.log_bus.info(f"🔧 fixed: {description}")
-        self.status_message.emit(f"🔧 fixed — {description}")
-
         # inspector switching policy (selection -> Properties)
         graph = self.canvas.node_graph
         graph.node_selected.connect(lambda _n: self.inspector.show_properties())
@@ -153,6 +140,9 @@ class AppContext(QtCore.QObject):
         # training page buttons
         self.training_page.train_clicked.connect(self.act_train)
         self.training_page.stop_clicked.connect(self.process_service.stop)
+        self.training_page.museum_clicked.connect(self._open_mistake_museum)
+        self.training_page.inspect_clicked.connect(self._start_inspect)
+        self.training_page.card_clicked.connect(self._open_report_card)
 
         # run lifecycle: statusbar text, trainer node status, plots, header
         self.run_store.state_changed.connect(
@@ -181,6 +171,19 @@ class AppContext(QtCore.QObject):
         # preview target changes re-render through the service
         self.preview_page.target_changed.connect(
             lambda _t: self._refresh_preview(gs.snapshot()))
+
+    def _apply_fix(self, issue) -> None:
+        from ai_made_easy.core.fixes import fix_for_issue
+
+        ir = self.graph_service.snapshot()
+        result = fix_for_issue(ir, issue)
+        if result is None:
+            self.log_bus.info("no automatic fix for this one — follow the 💡 tip")
+            return
+        label, description, fixed = result
+        self.graph_service.load(fixed)
+        self.log_bus.info(f"🔧 fixed: {description}")
+        self.status_message.emit(f"🔧 fixed — {description}")
 
     def _boot_demo(self) -> None:
         import json
@@ -243,6 +246,75 @@ class AppContext(QtCore.QObject):
 
     # ============================================================= delight
 
+    # ------------------------------------------------- Wave-1 insights
+
+    def _run_workdir(self):
+        from pathlib import Path
+
+        wd = self.process_service.last_workdir
+        if wd and Path(wd).joinpath("predictions.json").exists():
+            return Path(wd)
+        return None
+
+    def _open_mistake_museum(self) -> None:
+        wd = self._run_workdir()
+        if wd is None:
+            self.log_bus.info("train first — the museum fills up after a run")
+            return
+        from ai_made_easy.ui.features.mistake_museum import MistakeMuseumDialog
+
+        MistakeMuseumDialog(None, wd).exec()
+
+    def _start_inspect(self, sample_arg: str = "0") -> None:
+        wd = self._run_workdir()
+        if wd is None:
+            self.log_bus.info("train first — then we can look inside the model")
+            return
+        from ai_made_easy.core.codegen.training_gen import generate_inspect
+
+        script = wd / "aime_inspect_run.py"
+        try:
+            script.write_text(generate_inspect(self.project_service.snapshot()))
+        except Exception as exc:
+            self.log_bus.error(f"inspect: {exc}")
+            return
+        self._inspect_workdir = wd
+        image_mode = sample_arg.startswith("--image")
+        arg = (sample_arg[len("--image"):].strip().strip("'\"")
+               if image_mode else sample_arg.strip())
+        launcher = wd / "aime_inspect_launch.py"
+        argv = (f"sys.argv = ['inspect.py', '--image', r'{arg}']" if image_mode
+                else f"sys.argv = ['inspect.py', '{arg}']")
+        launcher.write_text(
+            "import sys\n"
+            f"{argv}\n"
+            f"exec(open(r'{script}').read())\n")
+        self.log_bus.info("👀 inspecting — one moment…")
+        self.process_service.run_script(launcher, wd, "inspect")
+
+    def _open_inspect_results(self) -> None:
+        from ai_made_easy.ui.features.inspect_view import InspectDialog
+
+        wd = getattr(self, "_inspect_workdir", None)
+        if wd is None:
+            return
+        dialog = InspectDialog(None, wd)
+        dialog.rerun_requested.connect(self._start_inspect)
+        dialog.exec()
+
+    def _open_report_card(self) -> None:
+        from ai_made_easy.core.codegen.training_gen import (
+            _dataset_comment, collect_spec)
+        from ai_made_easy.ui.features.report_card import ReportCardDialog
+
+        try:
+            spec = collect_spec(self.project_service.snapshot())
+            ReportCardDialog(None, self.project_store.name,
+                             _dataset_comment(spec), spec.trainer,
+                             self._run_workdir()).exec()
+        except Exception as exc:
+            self.log_bus.error(f"report card: {exc}")
+
     def _open_mission(self, sample: str) -> None:
         from ai_made_easy.ui.services.project_service import ProjectService
 
@@ -272,6 +344,15 @@ class AppContext(QtCore.QObject):
 
     def _on_run_finished(self, code: int, kind: str) -> None:
         self.canvas.set_node_progress(_TRAINER_BLOCK, None)
+        if kind == "inspect":
+            if code == 0:
+                self._open_inspect_results()
+            else:
+                self.log_bus.error("inspect run failed — see Console")
+            return
+        if kind == "train":
+            self.training_page.set_results_available(
+                self.process_service.last_workdir or "")
         if code != 0 or kind != "train" \
                 or self.run_store.state != RunStore.FINISHED:
             return
@@ -281,7 +362,7 @@ class AppContext(QtCore.QObject):
             self._celebration = CelebrationOverlay(self.canvas_area)
         self._celebration.celebrate(
             "🎉 Training finished — great job!",
-            "Open 📈 Training below to see how your model learned")
+            "Open 📈 Training to see how your model learned")
         self.missions_panel.notify_run_finished()
 
     # ========================================================= act_* slots

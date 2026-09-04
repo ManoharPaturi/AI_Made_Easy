@@ -29,6 +29,7 @@ class ProcessService(QtCore.QObject):
         self._proc: QtCore.QProcess | None = None
         self._buf = ""
         self._kind = ""
+        self.last_workdir: Path | None = None
 
     # ------------------------------------------------------------ state
 
@@ -76,6 +77,7 @@ class ProcessService(QtCore.QObject):
             return
         workdir = Path(tempfile.mkdtemp(prefix="aime_train_"))
         script = export_training(graph, "pytorch", workdir)
+        self.last_workdir = workdir
         self.log.info(f"training started — workspace: {workdir}")
         self._start(script, workdir, "train")
 

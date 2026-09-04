@@ -105,6 +105,38 @@ ProjectStore.name_changed ⇄ HeaderBar.name_edit (loop-guarded two-way binding 
 LogBus.logged ─► ConsolePage (the only renderer)
 ```
 
+`AppContext._wire()` is the ONLY place signals are connected; everything a
+button can do depends on it having run. `tests/test_wave1.py::
+test_context_wiring_smoke` clicks/emit-probes every intent signal on a booted
+context — a regression there once shipped a GUI where Train did nothing
+while the methods beneath still worked.
+
+## Wave 1 — See Inside (post-training insight)
+
+After a training run the generated script dumps, into the run workspace:
+`predictions.json` (first 300 test examples, per-class probs), `mistakes.json`
+(first 50 misclassifications) and, when the dataset has no per-sample files
+(e.g. torchvision MNIST), `samples/<idx>.png` thumbnails rendered from the
+batch tensors themselves (`_save_sample_png`). Three insight buttons on
+📈 Training enable once `predictions.json` exists:
+
+- **🔍 Mistake Museum** (`features/mistake_museum.py`) — cards with thumbnail,
+  actual vs guessed, top-3 confidence bars, and "what went wrong?" remedy
+  chips with kid-worded advice.
+- **👀 What is it looking at?** (`generate_inspect` + `features/inspect_view.py`)
+  — regenerates the script in inspect mode and runs it as a subprocess:
+  manual Grad-CAM (forward hook with `out.retain_grad()`) heatmap overlay on
+  the input, a 2-D feature-map grid of the first conv layer, and a plain
+  sentence ("The model guessed class 5 (18%)…"). Sample stepper + "my own
+  image" re-run through the same launcher.
+- **🪪 Report Card** (`core/model_card.py` + `features/report_card.py`) —
+  auto-fills accuracy, dataset snapshot and worst confusions from the run
+  artifacts into a five-field kid card (two fields kid-written), markdown
+  preview, save as `.md`.
+
+`CelebrationOverlay` paints confetti *before* the headline card so falling
+emoji never obscure the message.
+
 ## What died in the rebuild
 
 - The 701-line / 37-method / ~20-concern MainWindow god object.
