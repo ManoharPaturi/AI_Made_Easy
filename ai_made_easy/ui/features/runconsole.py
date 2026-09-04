@@ -48,6 +48,7 @@ class TrainingPage(QtWidgets.QWidget):
         layout.setContentsMargins(4, 4, 4, 4)
 
         row = QtWidgets.QHBoxLayout()
+        row.setSpacing(8)
         self.start_btn = QtWidgets.QPushButton("▶ Train (PyTorch)")
         self.start_btn.setToolTip("Generate the training script and run it "
                                   "in a managed subprocess")
@@ -57,9 +58,12 @@ class TrainingPage(QtWidgets.QWidget):
         self.stop_btn.clicked.connect(self.stop_clicked.emit)
         row.addWidget(self.start_btn)
         row.addWidget(self.stop_btn)
+        row.addStretch(1)
         self.status = QtWidgets.QLabel("idle")
-        row.addWidget(self.status, stretch=1)
+        self.status.setProperty("chip", True)
+        row.addWidget(self.status)
         self.locked_chip = QtWidgets.QLabel("")
+        self.locked_chip.setProperty("chip", True)
         self.locked_chip.setToolTip(
             "the model's weights are fixed — it only changes when you "
             "retrain")
@@ -68,6 +72,7 @@ class TrainingPage(QtWidgets.QWidget):
 
         # Wave-1 insight buttons — enabled once a run leaves artifacts
         results = QtWidgets.QHBoxLayout()
+        results.setSpacing(8)
         self.museum_btn = QtWidgets.QPushButton("🔍 Mistake Museum")
         self.museum_btn.setToolTip(
             "Browse what the model got wrong and learn how to fix it")

@@ -227,6 +227,37 @@ emoji never obscure the message.
   (subprocesses run in temp workdirs); `run_script` runs now finish the
   RunStore (FINISHED/FAILED) instead of dangling at RUNNING.
 
+## Chrome & organization pass
+
+One vocabulary for the whole shell (`ui/theme.py` QSS, all theme-aware —
+no hardcoded widget colors):
+
+- **Header** — brand + "PROJECT" field left; then three hairline-divided
+  clusters: run (▶ Train primary, ⚡ Test Run, ✓ Validate), tools
+  (⤓ LLM Script, ⤢ Expand, 💾 Save Selection), export (⬇ PyTorch/⬇ Keras
+  menus with section titles). Every header button shares one 40px height;
+  the primary is the only filled button.
+- **Cards & tabs** — one pill-tab language for every panel (palette,
+  inspector, console/training); scroll arrows styled into the family.
+  `QLabel` and friends paint transparent so cards never show page-colour
+  patches.
+- **Chips** — run status and 🔒 model-lock are pill chips; the summary's
+  parameter count is a chip above the layer table (not a footer label at
+  the card's bottom edge).
+- **Sections** — the left card reads top-down: 🚀 Missions (hugs content)
+  → hairline → 🧱 Blocks (search + tabs) → 💡 drag hint footer. Inspector
+  tabs renamed short (📋 Summary / ⚙️ Block / 👁️ Code / 🤖 Coach) with
+  tooltips so they never elide.
+- **Statusbar** — page-coloured strip with a top hairline; transient
+  messages left, permanent "🌱 offline · your data stays on this computer"
+  trust line right. Assistant chat bubbles follow the active theme
+  instead of hardcoded dark hexes.
+
+Test-subprocess QSettings must pin `setOrganizationName/ApplicationName`
+before any `QSettings()` use — an unpinned `QSettings()` resolves to a
+different plist before vs after `QApplication` exists, which once made
+the predict-gate flag invisible and hung an offscreen modal forever.
+
 ## What died in the rebuild
 
 - The 701-line / 37-method / ~20-concern MainWindow god object.

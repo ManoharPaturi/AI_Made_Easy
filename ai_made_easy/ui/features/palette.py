@@ -46,16 +46,27 @@ class PaletteFeature(QtWidgets.QWidget):
         prettify_palette_tabs(palette_widget)
 
         layout = QtWidgets.QVBoxLayout(self)
-        layout.setContentsMargins(4, 4, 4, 4)
-        layout.setSpacing(4)
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(6)
 
         from ai_made_easy.ui.features.missions import MissionsPanel
 
+        # section 1 — guided missions
         self.missions = MissionsPanel()
         layout.addWidget(self.missions)
 
+        # section 2 — the block library, labelled like the missions above
+        rule = QtWidgets.QFrame()
+        rule.setProperty("hline", True)
+        rule.setFrameShape(QtWidgets.QFrame.Shape.NoFrame)
+        rule.setFixedHeight(1)
+        layout.addWidget(rule)
+        blocks_label = QtWidgets.QLabel("🧱 Blocks")
+        blocks_label.setObjectName("cardTitle")
+        layout.addWidget(blocks_label)
+
         self.box = QtWidgets.QLineEdit()
-        self.box.setPlaceholderText("Search blocks…  (⏎ places on canvas)")
+        self.box.setPlaceholderText("🔍 Search blocks…  ⏎ to place")
         self.box.setClearButtonEnabled(True)
         layout.addWidget(self.box)
 
@@ -65,6 +76,11 @@ class PaletteFeature(QtWidgets.QWidget):
         layout.addWidget(self.results)
 
         layout.addWidget(palette_widget, stretch=1)
+
+        hint = QtWidgets.QLabel("💡 drag blocks onto the paper")
+        hint.setObjectName("microLabel")
+        hint.setAlignment(QtCore.Qt.AlignmentFlag.AlignHCenter)
+        layout.addWidget(hint)
 
         self.box.textChanged.connect(self._search)
         self.box.returnPressed.connect(self._place_first)

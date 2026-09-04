@@ -32,9 +32,7 @@ class IssueRow(QtWidgets.QFrame):
     def __init__(self, issue, fix_available: bool, parent=None):  # noqa: ANN001
         super().__init__(parent)
         self.issue = issue
-        self.setProperty("card", False)
-        self.setStyleSheet(
-            "IssueRow { background: palette(window); border-radius: 8px; }")
+        self.setObjectName("issueRow")
         layout = QtWidgets.QHBoxLayout(self)
         layout.setContentsMargins(8, 4, 8, 4)
         glyph = "✖" if issue.severity == "error" else "⚠"
@@ -66,7 +64,7 @@ class SummaryPage(QtWidgets.QWidget):
 
         # guardrail checklist (hidden when everything is fine)
         self.issues_label = QtWidgets.QLabel("🩺 Checks")
-        self.issues_label.setStyleSheet("font-weight: 800; padding: 2px;")
+        self.issues_label.setObjectName("cardTitle")
         self.issues_host = QtWidgets.QWidget()
         self.issues_layout = QtWidgets.QVBoxLayout(self.issues_host)
         self.issues_layout.setContentsMargins(0, 0, 0, 0)
@@ -79,6 +77,13 @@ class SummaryPage(QtWidgets.QWidget):
         layout.addWidget(self.issues_label)
         layout.addWidget(self.issues_scroll)
 
+        # model size chip — the headline number, visible without scrolling
+        self.total = QtWidgets.QLabel("—")
+        self.total.setProperty("chip", True)
+        self.total.setToolTip("trainable parameters — how many little "
+                              "settings the model adjusts while learning")
+        layout.addWidget(self.total)
+
         self.table = QtWidgets.QTableWidget(0, 3)
         self.table.setHorizontalHeaderLabels(["Layer", "Output Shape", "Params"])
         self.table.horizontalHeader().setStretchLastSection(True)
@@ -86,9 +91,6 @@ class SummaryPage(QtWidgets.QWidget):
         self.table.setEditTriggers(
             QtWidgets.QAbstractItemView.EditTrigger.NoEditTriggers)
         layout.addWidget(self.table)
-        self.total = QtWidgets.QLabel("—")
-        self.total.setStyleSheet("font-weight: bold; padding: 2px;")
-        layout.addWidget(self.total)
 
     def set_issues(self, issues: list, graph=None) -> None:
         """Render the validation checklist: ✖/⚠ rows, 🔧 fix, ➤ locate."""
@@ -136,8 +138,9 @@ class SummaryPage(QtWidgets.QWidget):
                     item.setTextAlignment(QtCore.Qt.AlignmentFlag.AlignRight)
                 self.table.setItem(row, col, item)
         self.total.setText(
-            f"Total trainable parameters: {summary.total_params:,} "
+            f"🧠 {summary.total_params:,} parameters "
             f"({summary.total_params_display})")
+        self.table.resizeColumnsToContents()
 
 
 # ------------------------------------------------------------- preview
@@ -220,9 +223,16 @@ class PreviewPage(QtWidgets.QWidget):
 class AssistantPage(QtWidgets.QWidget):
     apply_requested = QtCore.Signal(dict)  # graph JSON proposed by the model
 
-    _CARD = ('<div style="background-color:#242933; border:1px solid #333a46;'
-             ' border-radius:8px; padding:10px 14px; margin:6px 0;'
-             ' color:#c9d1d9;">{}</div>')
+    @staticmethod
+    def _card_html(body: str) -> str:
+        """Chat bubble in the active chrome: light card on light themes."""
+        app = QtWidgets.QApplication.instance()
+        light = app is not None and "#F6F4ED" in app.styleSheet()
+        bg, border, fg = (("#EFECE2", "#E1DDCF", "#33312B") if light else
+                          ("#242933", "#333a46", "#c9d1d9"))
+        return (f'<div style="background-color:{bg}; border:1px solid {border};'
+                f' border-radius:8px; padding:10px 14px; margin:6px 0;'
+                f' color:{fg};">{body}</div>')
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -257,12 +267,12 @@ class AssistantPage(QtWidgets.QWidget):
     def _append_system_note(self) -> None:
         if assistant_core.is_configured():
             cfg = assistant_core.assistant_config()
-            self.view.append(self._CARD.format(
+            self.view.append(self._card_html(
                 f"Assistant ready — model <b>{cfg['model']}</b>.<br>"
                 "Ask about the graph; replies containing a corrected graph "
                 "get an <b>Apply graph</b> button."))
         else:
-            self.view.append(self._CARD.format(
+            self.view.append(self._card_html(
                 "Assistant is not configured. Set these environment variables "
                 "and restart the app:<br>"
                 "<code>AIME_ASSISTANT_BASE_URL</code> — OpenAI-compatible API<br>"
@@ -341,9 +351,13 @@ class InspectorStack(QtWidgets.QTabWidget):
         self.preview_page = preview_page
         self.assistant_page = assistant_page
         self.addTab(summary_page, "📋 Summary")
-        self.addTab(properties_page, "⚙️ Properties")
-        self.addTab(preview_page, "👁️ Preview")
-        self.addTab(assistant_page, "🤖 Assistant")
+        self.addTab(properties_page, "⚙️ Block")
+        self.addTab(preview_page, "👁️ Code")
+        self.addTab(assistant_page, "🤖 Coach")
+        self.setTabToolTip(0, "Summary — layers, shapes and health checks")
+        self.setTabToolTip(1, "Properties of the selected block")
+        self.setTabToolTip(2, "The Python code for these blocks")
+        self.setTabToolTip(3, "AI coach — ask about your graph")
 
     def show_properties(self) -> None:
         self.setCurrentWidget(self.properties_page)

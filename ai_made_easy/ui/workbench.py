@@ -30,6 +30,10 @@ class Workbench(QtWidgets.QMainWindow):
         self.setup_menus()
         self._restore()
         ctx.status_message.connect(self.statusBar().showMessage)
+        trust = QtWidgets.QLabel(self.tr("🌱 offline · your data stays on this "
+                                         "computer"))
+        trust.setObjectName("statusTrust")
+        self.statusBar().addPermanentWidget(trust)
 
     # ------------------------------------------------------------- phases
 

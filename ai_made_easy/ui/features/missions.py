@@ -205,6 +205,9 @@ class MissionsPanel(QtWidgets.QWidget):
         self._active: dict | None = None
         self._events: set[str] = set()
         self._quiz_done = False
+        # hug the mission list — the block library below takes the rest
+        self.setSizePolicy(QtWidgets.QSizePolicy.Policy.Preferred,
+                           QtWidgets.QSizePolicy.Policy.Maximum)
 
         self._root = QtWidgets.QVBoxLayout(self)
         self._root.setContentsMargins(6, 6, 6, 6)
@@ -226,7 +229,7 @@ class MissionsPanel(QtWidgets.QWidget):
         body.setSpacing(3)
         for band, label in (("🟢", "ages 8–10"), ("🔵", "ages 11–14")):
             tag = QtWidgets.QLabel(f"{band} <i>{label}</i>")
-            tag.setStyleSheet("color: #7A7565; font-size: 12px;")
+            tag.setObjectName("bandTag")
             body.addWidget(tag)
             for mission in MISSIONS:
                 if mission["band"] != band:

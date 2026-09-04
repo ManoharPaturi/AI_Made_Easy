@@ -297,6 +297,8 @@ import sys
 from ai_made_easy.ui.app import _ensure_qt_plugin_path
 _ensure_qt_plugin_path()
 from PySide6 import QtCore, QtWidgets
+QtCore.QCoreApplication.setOrganizationName("aime-tests")
+QtCore.QCoreApplication.setApplicationName("smoke")
 app = QtWidgets.QApplication([])
 QtCore.QSettings().setValue("aime/pedagogy/predict_gate", False)
 from ai_made_easy.ui.context import AppContext

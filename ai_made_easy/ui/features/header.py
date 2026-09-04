@@ -1,13 +1,25 @@
 """HeaderBar: identity + primary actions (Langflow flowbar logic).
 
-The project-name field is two-way bound to ProjectStore with a loop guard
-— the stale-name bug class dies here.
+Product-grade organisation: brand + project identity on the left, then
+three purposeful clusters to the right — run (Train leads, primary),
+tools, and export — separated by hairline dividers so the eye can parse
+the row at a glance. The project-name field stays two-way bound to
+ProjectStore with a loop guard — the stale-name bug class dies here.
 """
 from __future__ import annotations
 
 from PySide6 import QtCore, QtWidgets
 
 from ai_made_easy.ui.stores import ProjectStore
+
+
+def _vline() -> QtWidgets.QFrame:
+    """A 1px vertical hairline separating header clusters."""
+    line = QtWidgets.QFrame()
+    line.setProperty("vline", True)
+    line.setFrameShape(QtWidgets.QFrame.Shape.NoFrame)
+    line.setFixedWidth(1)
+    return line
 
 
 class HeaderBar(QtWidgets.QWidget):
@@ -26,17 +38,27 @@ class HeaderBar(QtWidgets.QWidget):
         self._guard = False
 
         layout = QtWidgets.QHBoxLayout(self)
-        layout.setContentsMargins(6, 2, 6, 2)
+        layout.setContentsMargins(8, 4, 8, 4)
+        layout.setSpacing(10)
 
+        # ---- identity: brand · divider · project field
         title = QtWidgets.QLabel("🧩 AI Made Easy")
         title.setObjectName("appTitle")
         layout.addWidget(title)
 
+        layout.addWidget(_vline())
+
+        project = QtWidgets.QVBoxLayout()
+        project.setSpacing(1)
+        micro = QtWidgets.QLabel("PROJECT")
+        micro.setObjectName("microLabel")
+        project.addWidget(micro)
         self.name_edit = QtWidgets.QLineEdit(project_store.name)
-        self.name_edit.setMinimumWidth(160)
-        self.name_edit.setMaximumWidth(220)
+        self.name_edit.setMinimumWidth(140)
+        self.name_edit.setMaximumWidth(190)
         self.name_edit.setToolTip("Project name (used in exports)")
-        layout.addWidget(self.name_edit)
+        project.addWidget(self.name_edit)
+        layout.addLayout(project)
 
         layout.addStretch(1)
 
@@ -49,6 +71,7 @@ class HeaderBar(QtWidgets.QWidget):
             layout.addWidget(btn)
             return btn
 
+        # ---- run cluster: the one primary action leads
         self.train_btn = action("▶ Train", "Generate the training script and "
                                 "run it in-app", self.train_clicked, primary=True)
         self.test_btn = action("⚡ Test Run", "Build the model and run one "
@@ -56,13 +79,18 @@ class HeaderBar(QtWidgets.QWidget):
                                self.test_clicked)
         action("✓ Validate", "Check the graph and report issues",
                self.validate_clicked)
+        layout.addWidget(_vline())
+
+        # ---- tools cluster
         action("⤓ LLM Script", "Generate a script from the LLM blocks on canvas "
                "(generation / LoRA fine-tune / RAG)", self.llm_clicked)
         action("⤢ Expand", "Expand selected architecture blocks into primitives",
                self.expand_clicked)
         action("💾 Save Selection", "Save the selected blocks as a reusable "
                "Custom block", self.save_selection_clicked)
+        layout.addWidget(_vline())
 
+        # ---- export cluster
         for label, framework in (("⬇ PyTorch", "pytorch"), ("⬇ Keras", "keras")):
             button = QtWidgets.QToolButton(self)
             button.setText(label)
@@ -70,17 +98,18 @@ class HeaderBar(QtWidgets.QWidget):
             button.setPopupMode(
                 QtWidgets.QToolButton.ToolButtonPopupMode.InstantPopup)
             menu = QtWidgets.QMenu(button)
+            _menu_section(menu, "Python scripts")
             _menu_btn(menu, "Export model (.py)",
                       lambda f=framework: self.export_requested.emit(f, "model"))
             _menu_btn(menu, "Export training script (.py)",
                       lambda f=framework: self.export_requested.emit(f, "train"))
             if framework == "pytorch":
                 menu.addSeparator()
+                _menu_section(menu, "Share formats")
                 _menu_btn(menu, "Export ONNX (.onnx)",
                           lambda: self.runtime_export_requested.emit("onnx"))
                 _menu_btn(menu, "Export TorchScript (.pt)",
                           lambda: self.runtime_export_requested.emit("jit"))
-                menu.addSeparator()
                 _menu_btn(menu, "Export web demo (.html)",
                           lambda: self.runtime_export_requested.emit("web"))
             button.setMenu(menu)
@@ -108,12 +137,10 @@ class HeaderBar(QtWidgets.QWidget):
 
 
 def _menu_btn(menu, text, handler) -> None:
-    btn = QtWidgets.QPushButton(text, menu)
-    btn.setFlat(True)
-    btn.setStyleSheet("text-align:left; padding:6px 20px; background:transparent;"
-                      " border:none; font-weight:400;")
-    btn.clicked.connect(handler)
-    btn.clicked.connect(menu.close)
-    action = QtWidgets.QWidgetAction(menu)
-    action.setDefaultWidget(btn)
-    menu.addAction(action)
+    act = menu.addAction(text)
+    act.triggered.connect(handler)
+
+
+def _menu_section(menu, text: str) -> None:
+    """Small non-interactive title that groups menu entries."""
+    menu.addAction(text).setEnabled(False)

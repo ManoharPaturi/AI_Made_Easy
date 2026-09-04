@@ -46,6 +46,8 @@ DEFAULT_THEME = "classroom"
 def _build_qss(t: dict) -> str:
     return f"""
 QWidget {{ background-color: {t['BG']}; color: {t['TEXT']}; font-size: 14px; }}
+/* text controls must never paint page-colour patches onto card surfaces */
+QLabel, QCheckBox, QRadioButton {{ background: transparent; }}
 QMainWindow::separator {{ background: {t['BORDER']}; width: 2px; height: 2px; }}
 
 #workspacePage {{ background-color: {t['BG']}; }}
@@ -53,18 +55,39 @@ QFrame[card="true"] {{
     background: {t['PANEL']}; border: 1px solid {t['BORDER']};
     border-radius: 14px;
 }}
+QFrame[hline="true"] {{ background: {t['BORDER']}; border: none; max-height: 1px; }}
+QFrame[vline="true"] {{ background: {t['BORDER']}; border: none; max-width: 1px; }}
+QFrame#issueRow {{ background: {t['INPUT']}; border-radius: 8px; }}
+
+#microLabel {{
+    color: {t['TEXT_DIM']}; font-size: 11px; font-weight: 700;
+    background: transparent; padding: 0 2px;
+}}
+#cardTitle {{ font-size: 14px; font-weight: 800; background: transparent; }}
+#bandTag {{
+    color: {t['TEXT_DIM']}; font-size: 12px; font-style: italic;
+    background: transparent;
+}}
+QLabel[chip="true"] {{
+    background: {t['INPUT']}; color: {t['TEXT_DIM']};
+    border: 1px solid {t['BORDER']}; border-radius: 999px;
+    padding: 4px 12px; font-size: 12px; font-weight: 600;
+}}
+
 QSplitter::handle {{ background: transparent; }}
 QSplitter::handle:horizontal {{ width: 8px; }}
 QSplitter::handle:vertical {{ height: 8px; }}
 QSplitter::handle:hover {{ background: {t['ACCENT']}; border-radius: 3px; }}
 
 QToolBar {{
-    background: {t['PANEL']}; border: none; padding: 8px 10px; spacing: 6px;
+    background: {t['PANEL']}; border: none;
+    border-bottom: 1px solid {t['BORDER']};
+    padding: 10px 14px; spacing: 8px;
 }}
 QToolBar QToolButton, QToolBar QPushButton {{
     background: transparent; color: {t['TEXT']};
     border: 1px solid transparent; border-radius: 10px;
-    padding: 8px 16px; font-weight: 600;
+    padding: 8px 16px; font-weight: 600; min-height: 40px;
 }}
 QToolBar QToolButton:hover, QToolBar QPushButton:hover {{
     background: {t['INPUT']}; border-color: {t['BORDER']};
@@ -75,7 +98,8 @@ QToolBar QToolButton:pressed, QToolBar QPushButton:pressed {{
 QToolBar QToolButton::menu-indicator {{ image: none; }}
 QToolBar QLineEdit {{
     background: {t['INPUT']}; border: 1px solid {t['BORDER']};
-    border-radius: 10px; padding: 6px 12px; font-weight: 600;
+    border-radius: 10px; padding: 5px 12px; font-weight: 600;
+    min-height: 30px; selection-background-color: {t['ACCENT']};
 }}
 
 QDockWidget {{ color: {t['TEXT_DIM']}; font-weight: 800; font-size: 13px; }}
@@ -84,6 +108,7 @@ QDockWidget::title {{ background: {t['PANEL']}; padding: 9px 12px; }}
 QMenu {{ background: {t['PANEL']}; border: 1px solid {t['BORDER']}; border-radius: 10px; padding: 6px; }}
 QMenu::item {{ padding: 8px 26px; border-radius: 6px; }}
 QMenu::item:selected {{ background: {t['INPUT']}; color: {t['TEXT']}; }}
+QMenu::item:disabled {{ color: {t['TEXT_DIM']}; font-size: 11px; font-weight: 700; }}
 QMenu::separator {{ height: 1px; background: {t['BORDER']}; margin: 5px 10px; }}
 
 QTextEdit, QPlainTextEdit, QTextBrowser {{
@@ -91,6 +116,7 @@ QTextEdit, QPlainTextEdit, QTextBrowser {{
     border: 1px solid {t['BORDER']}; border-radius: 8px;
     selection-background-color: {t['ACCENT']};
 }}
+#sideCode {{ font-family: 'Menlo', 'Courier New', monospace; font-size: 12px; }}
 QTableWidget, QTableWidget::item {{
     background: {t['SURFACE']}; alternate-background-color: {t['PANEL']};
     selection-background-color: {t['ACCENT']};
@@ -121,7 +147,7 @@ QCheckBox {{ spacing: 9px; }}
 
 QPushButton {{
     background: {t['INPUT']}; color: {t['TEXT']}; border: 1px solid {t['BORDER']};
-    border-radius: 10px; padding: 8px 18px; font-weight: 600;
+    border-radius: 10px; padding: 8px 18px; font-weight: 600; min-height: 38px;
 }}
 QPushButton:hover {{ border-color: {t['ACCENT']}; }}
 QPushButton:disabled {{ color: {t['TEXT_DIM']}; background: {t['PANEL']}; }}
@@ -129,7 +155,7 @@ QPushButton:disabled {{ color: {t['TEXT_DIM']}; background: {t['PANEL']}; }}
 #primaryBtn {{
     background: {t['PRIMARY_BG']}; color: #ffffff;
     border: 1px solid {t['PRIMARY_HOVER']}; border-radius: 12px;
-    padding: 9px 24px; font-size: 15px; font-weight: 700;
+    padding: 9px 26px; font-size: 15px; font-weight: 700; min-height: 40px;
 }}
 #primaryBtn:hover {{ background: {t['PRIMARY_HOVER']}; }}
 #primaryBtn:disabled {{
@@ -139,26 +165,52 @@ QPushButton:disabled {{ color: {t['TEXT_DIM']}; background: {t['PANEL']}; }}
 
 #appTitle {{ font-size: 18px; font-weight: 800; padding: 0 8px 0 4px; }}
 
-#canvasControls QPushButton {{ background: {t['PANEL']}; padding: 6px 11px; margin: 0; }}
+#canvasControls {{
+    background: {t['PANEL']}; border: 1px solid {t['BORDER']};
+    border-radius: 12px;
+}}
+#canvasControls QPushButton {{
+    background: transparent; color: {t['TEXT']};
+    border: 1px solid transparent; border-radius: 9px;
+    padding: 4px 10px; margin: 0; min-height: 30px; font-weight: 600;
+}}
+#canvasControls QPushButton:hover {{
+    background: {t['INPUT']}; border-color: {t['BORDER']};
+}}
+#canvasControls QPushButton:pressed {{ background: {t['BORDER']}; }}
 
-QScrollBar:vertical {{ background: transparent; width: 12px; margin: 2px; }}
+QScrollBar:vertical {{ background: transparent; width: 10px; margin: 2px; }}
 QScrollBar::handle:vertical {{
-    background: {t['BORDER']}; border-radius: 6px; min-height: 34px;
+    background: {t['BORDER']}; border-radius: 5px; min-height: 30px;
 }}
 QScrollBar::handle:vertical:hover {{ background: {t['ACCENT']}; }}
-QScrollBar:horizontal {{ background: transparent; height: 12px; margin: 2px; }}
-QScrollBar::handle:horizontal {{ background: {t['BORDER'] }; border-radius: 6px; }}
+QScrollBar:horizontal {{ background: transparent; height: 10px; margin: 2px; }}
+QScrollBar::handle:horizontal {{ background: {t['BORDER']}; border-radius: 5px; }}
 QScrollBar::add-line, QScrollBar::sub-line {{ width: 0; height: 0; }}
 
 QTabWidget::pane {{ border: none; }}
+QTabBar {{ font-size: 13px; font-weight: 600; background: transparent; }}
 QTabBar::tab {{
-    background: transparent; color: {t['TEXT_DIM']}; padding: 8px 16px;
-    border: 1px solid transparent; border-bottom: 2px solid transparent;
-    border-radius: 6px;
+    background: transparent; color: {t['TEXT_DIM']}; padding: 7px 10px;
+    margin: 5px 2px; border: 1px solid transparent; border-radius: 9px;
 }}
-QTabBar::tab:selected {{ color: {t['TEXT']}; border-bottom: 3px solid {t['ACCENT']}; }}
+QTabBar::tab:hover {{ background: {t['INPUT']}; color: {t['TEXT']}; }}
+QTabBar::tab:selected {{
+    background: {t['INPUT']}; color: {t['TEXT']};
+    border: 1px solid {t['BORDER']}; font-weight: 700;
+}}
+QTabBar QToolButton {{ /* tab-scroll arrows stay in the family */
+    background: transparent; color: {t['TEXT_DIM']};
+    border: none; border-radius: 6px; padding: 2px;
+}}
+QTabBar QToolButton:hover {{ background: {t['INPUT']}; color: {t['TEXT']}; }}
 
-QStatusBar {{ background: {t['PANEL']}; color: {t['TEXT_DIM']}; }}
+QStatusBar {{
+    background: {t['BG']}; color: {t['TEXT_DIM']};
+    border-top: 1px solid {t['BORDER']}; font-size: 13px; padding: 5px 12px;
+}}
+QStatusBar::item {{ border: none; }}
+#statusTrust {{ background: transparent; color: {t['TEXT_DIM']}; font-size: 12px; }}
 QToolTip {{
     background: {t['INPUT']}; color: {t['TEXT']};
     border: 1px solid {t['BORDER']}; border-radius: 6px; padding: 6px 8px;
