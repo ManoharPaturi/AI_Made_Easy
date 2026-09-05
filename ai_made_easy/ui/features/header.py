@@ -29,6 +29,7 @@ class HeaderBar(QtWidgets.QWidget):
     llm_clicked = QtCore.Signal()
     expand_clicked = QtCore.Signal()
     save_selection_clicked = QtCore.Signal()
+    quick_actions_clicked = QtCore.Signal()
     export_requested = QtCore.Signal(str, str)  # framework, kind
     runtime_export_requested = QtCore.Signal(str)  # onnx | jit
 
@@ -60,6 +61,14 @@ class HeaderBar(QtWidgets.QWidget):
         project.addWidget(self.name_edit)
         layout.addLayout(project)
 
+        layout.addStretch(1)
+
+        # ⌘K quick actions pill — centered, the fast way to reach anything
+        self.cmdk_btn = QtWidgets.QPushButton("⌘K  Quick actions")
+        self.cmdk_btn.setObjectName("kbdPill")
+        self.cmdk_btn.setToolTip("Search every action and block (⌘K)")
+        self.cmdk_btn.clicked.connect(self.quick_actions_clicked.emit)
+        layout.addWidget(self.cmdk_btn)
         layout.addStretch(1)
 
         def action(text, tip, signal, primary=False):

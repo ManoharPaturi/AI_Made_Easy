@@ -53,7 +53,7 @@ QMainWindow::separator {{ background: {t['BORDER']}; width: 2px; height: 2px; }}
 #workspacePage {{ background-color: {t['BG']}; }}
 QFrame[card="true"] {{
     background: {t['PANEL']}; border: 1px solid {t['BORDER']};
-    border-radius: 14px;
+    border-radius: 16px;
 }}
 QFrame[hline="true"] {{ background: {t['BORDER']}; border: none; max-height: 1px; }}
 QFrame[vline="true"] {{ background: {t['BORDER']}; border: none; max-width: 1px; }}
@@ -211,6 +211,38 @@ QStatusBar {{
 }}
 QStatusBar::item {{ border: none; }}
 #statusTrust {{ background: transparent; color: {t['TEXT_DIM']}; font-size: 12px; }}
+
+QProgressBar {{
+    background: {t['INPUT']}; border: none; border-radius: 4px;
+    min-height: 8px; max-height: 8px; text-align: center;
+}}
+QProgressBar::chunk {{ background: {t['ACCENT']}; border-radius: 4px; }}
+
+#kbdPill {{
+    background: transparent; color: {t['TEXT_DIM']};
+    border: 1px solid {t['BORDER']}; border-radius: 9px;
+    padding: 5px 12px; font-weight: 600; min-height: 40px;
+}}
+#kbdPill:hover {{ background: {t['INPUT']}; border-color: {t['ACCENT']}; color: {t['TEXT']}; }}
+
+QDialog#cmdPalette {{ background: {t['PANEL']}; border: 1px solid {t['BORDER']}; border-radius: 16px; }}
+#cmdInput {{
+    background: transparent; border: none; border-bottom: 1px solid {t['BORDER']};
+    border-radius: 0; font-size: 18px; padding: 14px 18px 12px 18px;
+    selection-background-color: {t['ACCENT']};
+}}
+#cmdInput:focus {{ border-bottom: 2px solid {t['ACCENT']}; }}
+#cmdList {{ background: transparent; border: none; padding: 6px; }}
+#cmdList::item {{ padding: 10px 14px; border-radius: 9px; font-size: 14px; }}
+#cmdList::item:hover {{ background: {t['INPUT']}; }}
+#cmdList::item:selected {{ background: {t['ACCENT']}; color: #ffffff; }}
+#cmdList::item:disabled {{ color: {t['TEXT_DIM']}; font-size: 11px; font-weight: 700; }}
+
+#toast {{
+    background: {t['PANEL']}; color: {t['TEXT']};
+    border: 1px solid {t['BORDER']}; border-radius: 12px;
+    padding: 10px 20px; font-size: 14px; font-weight: 600;
+}}
 QToolTip {{
     background: {t['INPUT']}; color: {t['TEXT']};
     border: 1px solid {t['BORDER']}; border-radius: 6px; padding: 6px 8px;

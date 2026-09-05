@@ -258,6 +258,28 @@ before any `QSettings()` use — an unpinned `QSettings()` resolves to a
 different plist before vs after `QApplication` exists, which once made
 the predict-gate flag invisible and hung an offscreen modal forever.
 
+## Elite chrome pass
+
+- **Unified title bar** — `setUnifiedTitleAndToolBarOnMac(True)`: the
+  header lives in the macOS title bar next to the traffic lights
+  (Xcode-style). Verified on the live screen — note `window.grab()`
+  renders the header EMPTY while run animations (busy progress / wire
+  flow) are ticking; the real screen is the ground truth, not grabs.
+- **⌘K Command palette** (`features/command_palette.py`) — fuzzy
+  launcher over menu actions + the header's core intents (Train / Test
+  run / Validate / LLM script, injected as pseudo-QActions by the
+  Workbench) + every registry block (⏎ places it, reusing the palette
+  search's placement). Centered "⌘K Quick actions" pill in the header
+  and a Help-menu entry; Ctrl+K works window-wide. Scoring: substring
+  > subsequence, prefix + consecutive-run bonuses.
+- **Toasts** (`features/toasts.py`) — `ToastLayer` overlays the window;
+  every `status_message` still lands in the statusbar AND floats as a
+  pill that fades in/out (click to dismiss, max 3 stacked, older ones
+  retired immediately).
+- **Learning progress** — slim 8px accent `QProgressBar` in Training:
+  indeterminate (busy) the moment a run starts, determinate `epoch/total`
+  once epochs stream, full on finish, hidden on fail/reset.
+
 ## What died in the rebuild
 
 - The 701-line / 37-method / ~20-concern MainWindow god object.

@@ -70,6 +70,13 @@ class TrainingPage(QtWidgets.QWidget):
         row.addWidget(self.locked_chip)
         layout.addLayout(row)
 
+        # learning progress — indeterminate until the first epoch reports
+        self.progress = QtWidgets.QProgressBar()
+        self.progress.setTextVisible(False)
+        self.progress.setRange(0, 0)
+        self.progress.hide()
+        layout.addWidget(self.progress)
+
         # Wave-1 insight buttons — enabled once a run leaves artifacts
         results = QtWidgets.QHBoxLayout()
         results.setSpacing(8)
@@ -120,6 +127,14 @@ class TrainingPage(QtWidgets.QWidget):
         running = state == RunStore.RUNNING
         self.start_btn.setEnabled(not running)
         self.stop_btn.setEnabled(running)
+        if state == RunStore.RUNNING:
+            self.progress.setRange(0, 0)   # busy until epochs arrive
+            self.progress.show()
+        elif state in (RunStore.FINISHED, RunStore.STOPPED):
+            self.progress.setRange(0, 1)
+            self.progress.setValue(1)
+        elif state == RunStore.FAILED:
+            self.progress.hide()
         if state == RunStore.IDLE:
             self.status.setText("idle")
         elif state == RunStore.RUNNING:
@@ -157,6 +172,8 @@ class TrainingPage(QtWidgets.QWidget):
     def reset(self) -> None:
         self._epoch_x.clear()
         self.locked_chip.setText("")  # retraining unlocks the model
+        self.progress.setRange(0, 0)
+        self.progress.hide()
         self._series.clear()
         for curves in (self._loss_curves, self._score_curves):
             for curve in curves.values():
@@ -186,6 +203,8 @@ class TrainingPage(QtWidgets.QWidget):
         ticks = [[(i, str(i)) for i in range(1, total + 1)]]
         self.loss_plot.getAxis("bottom").setTicks(ticks)
         self.score_plot.getAxis("bottom").setTicks(ticks)
+        self.progress.setRange(0, total)
+        self.progress.setValue(epoch)
         self.status.setText(f"running — epoch {epoch}/{total}")
 
 

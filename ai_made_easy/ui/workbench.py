@@ -42,6 +42,14 @@ class Workbench(QtWidgets.QMainWindow):
         for window in (self,):
             for action in self.actions.values():
                 window.addAction(action)  # shortcuts work app-window-wide
+
+        self.cmdk_action = QtGui.QAction(
+            self.tr("Quick &Actions..."), self)
+        self.cmdk_action.setShortcut(
+            QtGui.QKeySequence("Ctrl+K"))
+        self.cmdk_action.setToolTip("Search every action and block (⌘K)")
+        self.addAction(self.cmdk_action)
+
         classroom = self.actions.get("view.theme_classroom")
         dark = self.actions.get("view.theme_dark")
         light = self.actions.get("view.theme_light")
@@ -58,6 +66,9 @@ class Workbench(QtWidgets.QMainWindow):
         header_bar.setMovable(False)
         header_bar.setAllowedAreas(QtCore.Qt.ToolBarArea.TopToolBarArea)
         header_bar.addWidget(self.ctx.header)
+        # native mac feel: the header lives IN the title bar (Xcode-style)
+        self.setUnifiedTitleAndToolBarOnMac(True)
+        self.setProperty("unifiedHeader", True)
 
         from ai_made_easy.ui.features.workspace import Workspace
 
@@ -67,6 +78,35 @@ class Workbench(QtWidgets.QMainWindow):
         self.ctx.canvas_controls.code_toggle_clicked.connect(
             self.workspace.toggle_code_pane)
         self.ctx.side_code.connect(self.workspace.set_side_code)
+
+        # ⌘K quick actions: palette + header pill + shortcut, one behavior
+        from ai_made_easy.ui.features.command_palette import CommandPalette
+
+        # the header's core intents are palettable too (they aren't menus)
+        core = {}
+        for key, label, signal_name in (
+                ("run.train", "▶ Train the model", "train_clicked"),
+                ("run.test", "⚡ Test run — one forward pass", "test_clicked"),
+                ("graph.validate", "✓ Validate the graph", "validate_clicked"),
+                ("llm.script", "⤓ Generate LLM script", "llm_clicked")):
+            act = QtGui.QAction(label, self)
+            act.triggered.connect(
+                getattr(self.ctx.header, signal_name).emit)
+            core[key] = act
+        self.command_palette = CommandPalette(
+            {**core, **self.actions}, self)
+        self.command_palette.place_requested.connect(
+            self.ctx.palette.place_requested)
+        self.cmdk_action.triggered.connect(
+            lambda: self.command_palette.open_at(self))
+        self.ctx.header.quick_actions_clicked.connect(
+            lambda: self.command_palette.open_at(self))
+
+        # applause: every status message also floats as a toast
+        from ai_made_easy.ui.features.toasts import ToastLayer
+
+        self.toasts = ToastLayer(self)
+        self.ctx.status_message.connect(self.toasts.toast)
 
     def setup_menus(self) -> None:
         """Menus only assemble existing actions (Orange rule)."""
@@ -78,6 +118,9 @@ class Workbench(QtWidgets.QMainWindow):
                 menu.addAction(self.actions[spec.id])
                 if spec.separator_after:
                     menu.addSeparator()
+            if menu_name == "&Help":
+                menu.addSeparator()
+                menu.addAction(self.cmdk_action)
 
     # ---------------------------------------------------------- lifecycle
 
