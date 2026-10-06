@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from ai_made_easy.core.registry import get_registry
 from ai_made_easy.core import summary
-from ai_made_easy.core.spec import BlockDefinition, ParamSpec, PortSpec
+from ai_made_easy.core.spec import BlockDefinition, ParamSpec, PortSpec, ShapeError
 from ai_made_easy.core.blocks._palette import family_color
 
 reg = get_registry()

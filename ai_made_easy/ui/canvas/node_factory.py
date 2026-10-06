@@ -12,7 +12,6 @@ from OdenGraphQt import BaseNode
 from OdenGraphQt.constants import NodePropWidgetEnum
 from PySide6 import QtGui
 
-from ai_made_easy.core.registry import get_registry
 from ai_made_easy.core.spec import BlockDefinition
 from ai_made_easy.ui.canvas.painter import TEXT_COLOR, install_flat_node_style
 

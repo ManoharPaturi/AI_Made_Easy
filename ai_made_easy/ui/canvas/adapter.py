@@ -20,7 +20,6 @@ from ai_made_easy.core.registry import get_registry
 from ai_made_easy.core.spec import BlockDefinition
 from ai_made_easy.ui.canvas import templates as template_store
 from ai_made_easy.ui.canvas.node_factory import (
-    BLOCK_TO_NODE_TYPE,
     NODE_TYPE_TO_BLOCK,
     make_node_class,
     node_type_for,
@@ -309,7 +308,6 @@ class CanvasController:
         ox = node.x_pos() - first[0]
         oy = node.y_pos() - min_y + (first[1] - min_y)
 
-        prefix = f"n{len(self._graph.all_nodes())}_"
         id_map: dict[str, object] = {}
         for nd in frag.nodes:
             defn = get_registry().get(nd["type"])

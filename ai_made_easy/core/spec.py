@@ -10,7 +10,7 @@ Keras channels-last translation happens only at codegen time.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Callable
 
 # Param types supported by the property-panel generator and codegen.

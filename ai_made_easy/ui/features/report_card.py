@@ -2,7 +2,7 @@
 Card, let the learner write the two human fields, save as .md."""
 from __future__ import annotations
 
-from PySide6 import QtCore, QtWidgets
+from PySide6 import QtWidgets
 
 from ai_made_easy.core.model_card import build_card
 

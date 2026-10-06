@@ -14,12 +14,10 @@ from typing import Any
 
 from mcp.server.fastmcp import FastMCP
 
-from ai_made_easy.core.codegen import generate
-from ai_made_easy.core.codegen.llm_gen import generate_llm_script
-from ai_made_easy.core.codegen.training_gen import generate_training
 from ai_made_easy.core.composites import expand_in_graph
 from ai_made_easy.core.graph import Graph
 from ai_made_easy.core.registry import get_registry
+from ai_made_easy.core.targets import RENDERERS
 from ai_made_easy.core.runner.manager import RunManager
 from ai_made_easy.core.summary import summarize
 
@@ -28,13 +26,7 @@ mcp = FastMCP("ai-made-easy")
 SAMPLES_DIR = Path(__file__).parent.parent.parent / "samples"
 _runs = RunManager()
 
-_GENERATE_TARGETS = {
-    "pytorch_model": lambda g: generate(g, "pytorch"),
-    "keras_model": lambda g: generate(g, "keras"),
-    "pytorch_train": lambda g: generate_training(g, "pytorch"),
-    "keras_train": lambda g: generate_training(g, "keras"),
-    "llm": lambda g: generate_llm_script(g),
-}
+_GENERATE_TARGETS = RENDERERS
 
 
 # ------------------------------------------------------------ pure impls
