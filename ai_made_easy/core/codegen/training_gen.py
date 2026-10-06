@@ -16,8 +16,9 @@ from jinja2 import Environment
 
 from ai_made_easy.core.codegen import (
     CodegenError,
-    class_name_for,
-    emit_dag,
+    emit_graph,
+    require_framework,
+    template_context,
 )
 from ai_made_easy.core.graph import Graph
 from ai_made_easy.core.spec import shape_volume
@@ -263,6 +264,9 @@ import time
 import numpy as np
 import torch
 import torch.nn as nn
+{% if uses_functional %}
+import torch.nn.functional as F
+{% endif %}
 from torch.utils.data import DataLoader, TensorDataset
 
 # ------------------------------------------------------------------ config
@@ -298,6 +302,10 @@ def pick_device() -> str:
 
 
 # ------------------------------------------------------------------- model
+{% for helper in torch_helpers %}
+{{ helper }}
+
+{% endfor %}
 class {{ class_name }}(nn.Module):
     def __init__(self):
         super().__init__()
@@ -939,10 +947,15 @@ TRAIN_KERAS_TEMPLATE = '''\
 import numpy as np
 import keras
 from keras import layers
+{% if uses_ops %}
+from keras import ops
+{% endif %}
 
 # ------------------------------------------------------------------ config
 SEED = {{ spec.trainer.seed }}
 EPOCHS = {{ spec.trainer.epochs }}
+INPUT_SHAPE = {{ input_shape_literal }}  # per-sample, channels-first (as designed)
+KERAS_TRANSPOSE = {{ keras_transpose }}  # channels-first -> the model's Keras layout
 BATCH_SIZE = {{ loader_batch }}
 EARLY_STOP = {{ spec.trainer.early_stopping_patience }}
 VAL_FRACTION = {{ spec.split.val_fraction }}
@@ -950,8 +963,12 @@ TEST_FRACTION = {{ spec.split.test_fraction }}
 
 
 # ------------------------------------------------------------------- model
+{% for helper in keras_helpers %}
+{{ helper }}
+
+{% endfor %}
 def build_model() -> keras.Model:
-    inputs = keras.Input(shape={{ keras_input_shape }})
+    inputs = keras.Input(shape={{ keras_input_shape }}, dtype="{{ keras_input_dtype }}")
 {% for n in nodes %}
     {{ n.keras_expr }}
 {% endfor %}
@@ -990,7 +1007,7 @@ def make_arrays():
     y = rng.integers(0, k, size=n)
     x = (centers[y] + rng.normal(scale=0.5, size=(n, d))).astype(np.float32)
 {% if input_rank > 1 %}
-    x = x.reshape(n, *{{ keras_input_shape_literal }})
+    x = x.reshape(n, *INPUT_SHAPE)
 {% endif %}
     return x, y.astype(np.int64)
 
@@ -1027,9 +1044,16 @@ def make_arrays():
 {% else %}
     raise SystemExit("this dataset kind is not supported for Keras export")
 {% endif %}
+def to_model_layout(x):
+    """Reshape samples to the designed shape, then to the model's Keras layout."""
+    x = x.reshape(len(x), *INPUT_SHAPE)
+    return np.transpose(x, KERAS_TRANSPOSE) if KERAS_TRANSPOSE else x
+
+
 def main():
     keras.utils.set_random_seed(SEED)
     x, y = make_arrays()
+    x = to_model_layout(x)
 {% if spec.normalize %}
     x = (x - {{ norm_mean_expr }}) / {{ norm_std_expr }}
 {% endif %}
@@ -1244,11 +1268,6 @@ def _keras_lr_scheduler(spec: TrainingSpec) -> str | None:
     )
 
 
-def _keras_input_shape_str(ir_shape: list[int]) -> str:
-    dims = ", ".join(str(d) for d in reversed(ir_shape))
-    return f"({dims},)"
-
-
 def _py_literal(value) -> str:
     if isinstance(value, bool):
         return "True" if value else "False"
@@ -1276,21 +1295,17 @@ def _dataset_comment(spec: TrainingSpec) -> str:
 
 
 def _base_ctx(graph: Graph, spec: TrainingSpec) -> dict:
-    nodes, input_shape, (out_t, out_k) = emit_dag(graph)
+    plan = emit_graph(graph)
+    input_shape = plan.input_shape
     batch = spec.loader["batch_size"] or spec.trainer["batch_size"]
     ds_kind = spec.dataset.get("block")
     return {
+        **template_context(graph, plan),
+        "plan": plan,
         "spec": spec,
-        "class_name": class_name_for(graph.name),
-        "nodes": nodes,
-        "modules": [n for n in nodes if n["torch_module"]],
-        "output_var": out_t,
-        "keras_output_var": out_k,
-        "keras_input_shape": _keras_input_shape_str(input_shape),
-        "input_shape": input_shape,
         "input_rank": len(input_shape),
         "input_shape_literal": tuple(input_shape),
-        "keras_input_shape_literal": tuple(reversed(input_shape)),
+        "keras_transpose": plan.keras_input_transpose,
         "loader_batch": batch,
         "is_regression": spec.is_regression,
         "needs_prf": any(m in spec.metrics for m in ("precision", "recall", "f1")),
@@ -1346,6 +1361,7 @@ def generate_training(graph: Graph, framework: str) -> str:
         )
     spec = collect_spec(graph)
     ctx = _base_ctx(graph, spec)
+    require_framework(ctx["plan"], framework)
     if framework == "pytorch":
         ctx["loss_expr"] = _render_loss(spec)
         ctx["optimizer_expr"] = _render_optimizer(spec)

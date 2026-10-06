@@ -15,6 +15,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from ai_made_easy.ui.canvas.node_factory import node_type_for  # noqa: E402
 from ai_made_easy.core.graph import Edge, Graph, NodeInstance  # noqa: E402
 from ai_made_easy.core.registry import get_registry  # noqa: E402
 
@@ -159,16 +160,16 @@ def test_prompt_without_input_placeholder_warns():
 def test_lambda_expression_compile_check():
     g = _mlp([("lam", "core.lambda", {"expression": "t * "} )])
     issues = [i for i in g.validate() if i.node_id == "lam"]
-    assert any("Python typo" in i.message for i in issues)
+    assert any("syntax error" in i.message for i in issues)
     g.nodes["lam"].params["expression"] = "t.clamp(0, 1)"
-    assert not any("Python typo" in i.message
+    assert not any("syntax error" in i.message
                    for i in g.validate() if i.node_id == "lam")
 
 
 def test_lambda_ignoring_tensor_warns():
     g = _mlp([("lam", "core.lambda", {"expression": "42"})])
     issues = [i for i in g.validate() if i.node_id == "lam"
-              and "doesn't use 't'" in i.message]
+              and "does not reference" in i.message]
     assert issues and issues[0].severity == "warning"
 
 
@@ -199,11 +200,11 @@ def test_node_tooltip_carries_issues():
 
     controller = CanvasController()
     g = controller.node_graph
-    dense = g.create_node("aim.layers.DenseLinearNode")
+    dense = g.create_node(node_type_for("core.dense"))
     dense.set_property("units", -3)  # out of bounds → error issue
     ir = controller.to_ir()
     issues = ir.validate()
     err_ids = {i.node_id for i in issues if i.severity == "error" and i.node_id}
     controller.apply_validation(err_ids, set(), {}, issues)
     tip = dense.view.toolTip()
-    assert "units" in tip and "too small" in tip
+    assert "units" in tip and "below the minimum" in tip

@@ -1,8 +1,4 @@
-"""Colour-system rules: one colour per functional family, flat painter wired.
-
-The user's rule: activation functions share ONE colour; conv and transformer
-(model compute) blocks share ONE colour — professional per-family coding.
-"""
+"""Colour-system rules: one accent colour per functional family."""
 from __future__ import annotations
 
 from ai_made_easy.core.blocks._palette import FAMILY_COLORS
@@ -13,12 +9,16 @@ def _registry_blocks():
     return list(get_registry().all())
 
 
-def test_model_family_shares_one_colour():
-    """conv / transformer / attention / architectures are ONE family."""
-    blocks = {b.type_id: b for b in _registry_blocks()}
-    model_types = ["core.conv2d", "core.transformer_encoder", "arch.resnet18"]
-    colors = {blocks[t].color for t in model_types}
-    assert colors == {FAMILY_COLORS["model"]}, colors
+def test_categories_use_their_family_colour():
+    """Each layer category is drawn in its own family accent."""
+    expected = {"Linear": "model", "Convolution": "conv", "Pooling": "pool",
+                "Recurrent": "recurrent", "Attention": "attention",
+                "Normalization": "normalization", "Regularization": "regularization",
+                "Merge": "merge", "Tensor Ops": "tensor", "Input / Output": "io"}
+    for block in _registry_blocks():
+        family = expected.get(block.category)
+        if family:
+            assert block.color == FAMILY_COLORS[family], block.type_id
 
 
 def test_activations_share_one_colour():

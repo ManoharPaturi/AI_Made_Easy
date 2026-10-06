@@ -6,6 +6,8 @@ from keras import layers
 # ------------------------------------------------------------------ config
 SEED = 42
 EPOCHS = 10
+INPUT_SHAPE = (784,)  # per-sample, channels-first (as designed)
+KERAS_TRANSPOSE = None  # channels-first -> the model's Keras layout
 BATCH_SIZE = 32
 EARLY_STOP = 3
 VAL_FRACTION = 0.1
@@ -14,12 +16,12 @@ TEST_FRACTION = 0.1
 
 # ------------------------------------------------------------------- model
 def build_model() -> keras.Model:
-    inputs = keras.Input(shape=(784,))
-    x_dense_1 = layers.Dense(units=128, use_bias=True)(inputs)
-    x_relu_1 = layers.ReLU()(x_dense_1)
-    x_dropout_1 = layers.Dropout(rate=0.2)(x_relu_1)
-    x_dense_2 = layers.Dense(units=10, use_bias=True)(x_dropout_1)
-    return keras.Model(inputs=inputs, outputs=x_dense_2)
+    inputs = keras.Input(shape=(784,), dtype="float32")
+    x = layers.Dense(units=128, use_bias=True)(inputs)
+    x = layers.ReLU()(x)
+    x = layers.Dropout(rate=0.2)(x)
+    x = layers.Dense(units=10, use_bias=True)(x)
+    return keras.Model(inputs=inputs, outputs=x)
 
 
 # ----------------------------------------------------------------- dataset
@@ -33,9 +35,16 @@ def make_arrays():
     return x, y.astype(np.int64)
 
 
+def to_model_layout(x):
+    """Reshape samples to the designed shape, then to the model's Keras layout."""
+    x = x.reshape(len(x), *INPUT_SHAPE)
+    return np.transpose(x, KERAS_TRANSPOSE) if KERAS_TRANSPOSE else x
+
+
 def main():
     keras.utils.set_random_seed(SEED)
     x, y = make_arrays()
+    x = to_model_layout(x)
     n = len(x)
     idx = np.random.default_rng(SEED).permutation(n)
     n_val = int(n * VAL_FRACTION)

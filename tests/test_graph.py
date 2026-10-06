@@ -35,10 +35,12 @@ def test_registry_has_full_catalog():
     from ai_made_easy.core.registry import get_registry
 
     reg = get_registry()
-    # 112 built-ins; canvas-template tests may register extra custom blocks
-    assert len(reg.all()) >= 112
-    for cat in ("Data", "Preprocessing", "Layers", "Activations", "Attention",
-                "Tensor Ops", "Normalization", "Training", "Evaluation"):
+    # canvas-template tests may register extra custom blocks
+    assert len(reg.all()) >= 200
+    for cat in ("Input / Output", "Data", "Preprocessing", "Linear", "Convolution",
+                "Pooling", "Resizing", "Recurrent", "Attention", "Embedding",
+                "Activations", "Normalization", "Regularization", "Merge",
+                "Tensor Ops", "Training", "Evaluation", "Architectures"):
         assert cat in reg.by_category()
     schemas = reg.list_blocks()
     assert any(s["type_id"] == "core.dense" for s in schemas)
@@ -112,15 +114,24 @@ def test_lstm_and_embedding_shapes():
     assert shapes["m1"] == [16]
 
 
-def test_dense_rejects_multidimensional_input():
-    g = build(
+def test_dense_applies_to_last_axis_and_warns_on_images():
+    seq = build(
         ("in", "core.input", {"shape": "28, 28"}),
         ("d1", "core.dense", {"units": 10}),
         ("out", "core.output", {}),
     )
-    wire(g, ("in", "d1"), ("d1", "out"))
-    issues = g.validate()
-    assert any("Flatten" in i.message for i in issues)
+    wire(seq, ("in", "d1"), ("d1", "out"))
+    assert not [i for i in seq.validate() if i.severity == "error"]
+    assert seq.infer_shapes()["d1"] == [28, 10]
+
+    img = build(
+        ("in", "core.input", {"shape": "1, 28, 28"}),
+        ("d1", "core.dense", {"units": 10}),
+        ("out", "core.output", {}),
+    )
+    wire(img, ("in", "d1"), ("d1", "out"))
+    warnings = [i for i in img.validate() if i.severity == "warning"]
+    assert any("Flatten" in i.message and i.node_id == "d1" for i in warnings)
 
 
 def test_flatten_reconciles_shapes():

@@ -1,285 +1,308 @@
-"""Tensor-op blocks: merges (Add/Multiply/Concatenate) and shape surgery
-(Reshape/Permute/Squeeze/Unsqueeze/Lambda).
-
-Merge blocks have two explicit input ports (in1, in2) so edge order stays
-deterministic; chain a second merge block for 3+ inputs.
-"""
+"""Tensor operations: reshaping, axis surgery, reductions and math."""
 from __future__ import annotations
 
 from ai_made_easy.core.blocks import _shape
+from ai_made_easy.core.blocks._dsl import P, nn_block, norm_axis, passthrough, tuple_literal
 from ai_made_easy.core.registry import get_registry
-from ai_made_easy.core.spec import (
-    BlockDefinition,
-    ParamSpec,
-    PortSpec,
-    ShapeError,
-    shape_volume,
-)
-from ai_made_easy.core.blocks._palette import family_color
+from ai_made_easy.core.spec import ShapeError, shape_volume
 
 reg = get_registry()
 
-_OP_COLOR = family_color("tensor")
 
-_MERGE_PORTS = (PortSpec("in1"), PortSpec("in2"))
-_axis_param = ParamSpec(name="axis", type="int", default=-1, minimum=-4,
-                        help="IR axis (no batch dim); -1 = last")
-
-
-def _same_shapes(in_shapes, name):
-    a, b = in_shapes
-    if a != b:
-        raise ShapeError(f"{name} inputs must have identical shapes: {a} vs {b}")
-    return list(a)
+def _t_dim(axis: int, rank: int) -> int:
+    """IR axis -> torch dim (batch at 0), always non-negative."""
+    return norm_axis(axis, rank, "axis") + 1
 
 
-def _concat_shape(in_shapes, params):
-    a, b = in_shapes
-    axis = params["axis"]
-    axis = len(a) + axis if axis < 0 else axis
-    if len(a) != len(b):
-        raise ShapeError(f"Concatenate ranks differ: {a} vs {b}")
-    for d in range(len(a)):
-        if d != axis and a[d] != b[d]:
-            raise ShapeError(
-                f"Concatenate dims must match except along axis {axis}: {a} vs {b}"
-            )
-    out = list(a)
-    out[axis] = a[axis] + b[axis]
-    return out
+# ------------------------------------------------------------------ reshape
 
+reg.register(nn_block(
+    "core.flatten", "Flatten", "Tensor Ops", family="tensor",
+    shape=lambda s, p: [shape_volume(s[0])],
+    torch="nn.Flatten()", keras="layers.Flatten()",
+    desc="Collapses every non-batch axis into one feature vector.",
+))
 
-reg.register(
-    BlockDefinition(
-        type_id="core.add",
-        display_name="Add (skip connection)",
-        category="Tensor Ops",
-        color=_OP_COLOR,
-        inputs=_MERGE_PORTS,
-        outputs=(PortSpec("out"),),
-        shape_fn=lambda s, p: _same_shapes(s, "Add"),
-        pytorch_expr="{i0} + {i1}",
-        keras_expr="layers.Add()([{i0}, {i1}])",
-    )
-)
-
-reg.register(
-    BlockDefinition(
-        type_id="core.multiply",
-        display_name="Multiply (gating)",
-        category="Tensor Ops",
-        color=_OP_COLOR,
-        inputs=_MERGE_PORTS,
-        outputs=(PortSpec("out"),),
-        shape_fn=lambda s, p: _same_shapes(s, "Multiply"),
-        pytorch_expr="{i0} * {i1}",
-        keras_expr="layers.Multiply()([{i0}, {i1}])",
-    )
-)
-
-reg.register(
-    BlockDefinition(
-        type_id="core.concatenate",
-        display_name="Concatenate",
-        category="Tensor Ops",
-        color=_OP_COLOR,
-        params=(_axis_param,),
-        inputs=_MERGE_PORTS,
-        outputs=(PortSpec("out"),),
-        shape_fn=_concat_shape,
-        pytorch_expr="torch.cat([{i0}, {i1}], dim={torch_dim})",
-        keras_expr="layers.Concatenate(axis={keras_axis})([{i0}, {i1}])",
-    )
-)
-
-
-# ------------------------------------------------------------- shape surgery
 
 def _reshape_shape(in_shapes, params):
-    (s,) = in_shapes
     dims = _shape.parse_target(params["target"])
-    return _shape.resolve_target(dims, shape_volume(s))
+    return _shape.resolve_target(dims, shape_volume(in_shapes[0]))
 
 
-def _reshape_torch(ctx):
-    dims = _shape.parse_target(ctx["target"])
-    _shape.resolve_target(dims, shape_volume(ctx["in_shapes"][0]))
-    return f"torch.reshape({ctx['i0']}, ({ctx['i0']}.shape[0], {tuple(dims)}))"
-
-
-def _reshape_keras(ctx):
-    dims = _shape.parse_target(ctx["target"])
-    _shape.resolve_target(dims, shape_volume(ctx["in_shapes"][0]))
-    keras_dims = tuple(reversed(dims)) if len(dims) > 1 else tuple(dims)
-    return f"layers.Reshape({keras_dims})({ctx['i0']})"
-
-
-reg.register(
-    BlockDefinition(
-        type_id="core.reshape",
-        display_name="Reshape",
-        category="Tensor Ops",
-        color=_OP_COLOR,
-        params=(ParamSpec(name="target", type="str", default="784",
-                          help="Target sample shape, e.g. '784' or '28,28,1'; "
-                               "batch dim is preserved automatically"),),
-        inputs=(PortSpec("in"),),
-        outputs=(PortSpec("out"),),
-        shape_fn=_reshape_shape,
-        pytorch_expr=_reshape_torch,
-        keras_expr=_reshape_keras,
-    )
-)
+reg.register(nn_block(
+    "core.reshape", "Reshape", "Tensor Ops", family="tensor",
+    params=(P("target", "str", "784",
+              help="Target per-sample shape, e.g. '16,49'; total size must match"),),
+    shape=_reshape_shape, layout="ir",
+    torch_expr=lambda c: (f"{c['i0']}.reshape({c['i0']}.shape[0], "
+                          f"{', '.join(str(d) for d in _shape.parse_target(c['target']))})"),
+    keras_expr=lambda c: (f"layers.Reshape({tuple_literal(_shape.parse_target(c['target']))})"
+                          f"({c['i0']})"),
+    desc="Reinterprets the sample with a new shape of equal size.",
+))
 
 
 def _permute_shape(in_shapes, params):
-    (s,) = in_shapes
+    s = in_shapes[0]
     order = _shape.parse_order(params["order"], len(s))
     return [s[d] for d in order]
 
 
-def _permute_torch(ctx):
-    shape = ctx["in_shapes"][0]
-    order = _shape.parse_order(ctx["order"], len(shape))
-    dims = ", ".join(["0"] + [str(d + 1) for d in order])
-    return f"{ctx['i0']}.permute({dims})"
+reg.register(nn_block(
+    "core.permute", "Permute", "Tensor Ops", family="tensor",
+    params=(P("order", "str", "1, 0", help="New axis order, e.g. '1, 0' or '2, 0, 1'"),),
+    shape=_permute_shape, layout="ir",
+    torch_expr=lambda c: (f"{c['i0']}.permute(0, " + ", ".join(
+        str(d + 1) for d in _shape.parse_order(c["order"], c["in_rank"])) + ")"),
+    keras_expr=lambda c: (f"layers.Permute({tuple_literal(d + 1 for d in _shape.parse_order(c['order'], c['in_rank']))})"
+                          f"({c['i0']})"),
+    desc="Reorders the sample axes.",
+))
 
 
-def _permute_keras(ctx):
-    shape = ctx["in_shapes"][0]
-    rank = len(shape)
-    order = _shape.parse_order(ctx["order"], rank)
-    # IR dim k sits at NHWC index (k-1) % rank (0-based); Keras Permute is 1-based.
-    dims = ", ".join(str(((d - 1) % rank) + 1) for d in order)
-    return f"layers.Permute(dims=({dims}))({ctx['i0']})"
+def _transpose_shape(in_shapes, params):
+    s = list(in_shapes[0])
+    a = norm_axis(int(params["dim0"]), len(s), "Transpose")
+    b = norm_axis(int(params["dim1"]), len(s), "Transpose")
+    s[a], s[b] = s[b], s[a]
+    return s
 
 
-reg.register(
-    BlockDefinition(
-        type_id="core.permute",
-        display_name="Permute",
-        category="Tensor Ops",
-        color=_OP_COLOR,
-        params=(ParamSpec(name="order", type="str", default="1, 0",
-                          help="Sample-dim order, e.g. '2, 0, 1' for [C,H,W]"),),
-        inputs=(PortSpec("in"),),
-        outputs=(PortSpec("out"),),
-        shape_fn=_permute_shape,
-        pytorch_expr=_permute_torch,
-        keras_expr=_permute_keras,
-    )
-)
+def _transpose_keras(c):
+    rank = c["in_rank"]
+    order = list(range(rank))
+    a, b = norm_axis(int(c["dim0"]), rank, "T"), norm_axis(int(c["dim1"]), rank, "T")
+    order[a], order[b] = order[b], order[a]
+    return f"layers.Permute({tuple_literal(d + 1 for d in order)})({c['i0']})"
+
+
+reg.register(nn_block(
+    "core.transpose", "Transpose", "Tensor Ops", family="tensor",
+    params=(P("dim0", "int", 0, lo=-4, hi=3), P("dim1", "int", 1, lo=-4, hi=3)),
+    shape=_transpose_shape, layout="ir",
+    torch_expr=lambda c: (f"{c['i0']}.transpose({_t_dim(int(c['dim0']), c['in_rank'])}, "
+                          f"{_t_dim(int(c['dim1']), c['in_rank'])})"),
+    keras_expr=_transpose_keras,
+    desc="Swaps two sample axes (e.g. [C, L] ↔ [L, C]).",
+))
 
 
 def _squeeze_shape(in_shapes, params):
-    (s,) = in_shapes
-    dim = params["dim"]
-    dim = len(s) + dim if dim < 0 else dim
-    if not 0 <= dim < len(s):
-        raise ShapeError(f"squeeze dim {params['dim']} out of range for {s}")
+    s = in_shapes[0]
+    dim = norm_axis(int(params["dim"]), len(s), "Squeeze")
     if s[dim] != 1:
-        raise ShapeError(f"cannot squeeze dim {dim} of {s}: size is {s[dim]}, not 1")
+        raise ShapeError(f"Squeeze: axis {params['dim']} of {s} has size {s[dim]}, not 1")
     out = [d for i, d in enumerate(s) if i != dim]
     if not out:
-        raise ShapeError("cannot squeeze the only dim; use Unsqueeze elsewhere")
+        raise ShapeError("Squeeze cannot remove the only axis")
     return out
 
 
-def _squeeze_torch(ctx):
-    dim = ctx["dim"]
-    rank = len(ctx["in_shapes"][0])
-    tdim = dim + 1 if dim >= 0 else rank + dim + 1
-    return f"torch.squeeze({ctx['i0']}, dim={tdim})"
-
-
-reg.register(
-    BlockDefinition(
-        type_id="core.squeeze",
-        display_name="Squeeze",
-        category="Tensor Ops",
-        color=_OP_COLOR,
-        params=(ParamSpec(name="dim", type="int", default=0, minimum=-4,
-                          help="IR axis to remove (must have size 1)"),),
-        inputs=(PortSpec("in"),),
-        outputs=(PortSpec("out"),),
-        shape_fn=_squeeze_shape,
-        pytorch_expr=_squeeze_torch,
-    )
-)
+reg.register(nn_block(
+    "core.squeeze", "Squeeze", "Tensor Ops", family="tensor",
+    params=(P("dim", "int", 0, lo=-4, hi=3, help="Axis of size 1 to remove"),),
+    shape=_squeeze_shape, layout="ir",
+    torch_expr=lambda c: f"{c['i0']}.squeeze({_t_dim(int(c['dim']), c['in_rank'])})",
+    keras_expr=lambda c: f"ops.squeeze({c['i0']}, axis={_t_dim(int(c['dim']), c['in_rank'])})",
+    desc="Removes an axis of size 1.",
+))
 
 
 def _unsqueeze_shape(in_shapes, params):
-    (s,) = in_shapes
-    dim = params["dim"]
-    dim = len(s) + dim + 1 if dim < 0 else dim
-    if not 0 <= dim <= len(s):
-        raise ShapeError(f"unsqueeze dim {params['dim']} out of range for {s}")
-    return [*s[:dim], 1, *s[dim:]]
+    s = in_shapes[0]
+    dim = int(params["dim"])
+    idx = dim if dim >= 0 else len(s) + dim + 1
+    if not 0 <= idx <= len(s):
+        raise ShapeError(f"Unsqueeze: axis {dim} is out of range for {s}")
+    return [*s[:idx], 1, *s[idx:]]
 
 
-def _unsqueeze_torch(ctx):
-    dim = ctx["dim"]
-    rank = len(ctx["in_shapes"][0])
-    tdim = dim + 1 if dim >= 0 else rank + dim + 2
-    return f"torch.unsqueeze({ctx['i0']}, dim={tdim})"
+def _unsq_dim(c) -> int:
+    dim = int(c["dim"])
+    return (dim if dim >= 0 else c["in_rank"] + dim + 1) + 1
 
 
-def _unsqueeze_keras(ctx):
-    shape = list(ctx["in_shapes"][0])
-    dim = ctx["dim"]
-    dim = len(shape) + dim + 1 if dim < 0 else dim
-    new_shape = [*shape[:dim], 1, *shape[dim:]]
-    return f"layers.Reshape({tuple(reversed(new_shape))})({ctx['i0']})"
+reg.register(nn_block(
+    "core.unsqueeze", "Unsqueeze", "Tensor Ops", family="tensor",
+    params=(P("dim", "int", 0, lo=-5, hi=4, help="Where to insert the new size-1 axis"),),
+    shape=_unsqueeze_shape, layout="ir",
+    torch_expr=lambda c: f"{c['i0']}.unsqueeze({_unsq_dim(c)})",
+    keras_expr=lambda c: f"ops.expand_dims({c['i0']}, axis={_unsq_dim(c)})",
+    desc="Inserts an axis of size 1.",
+))
 
 
-reg.register(
-    BlockDefinition(
-        type_id="core.unsqueeze",
-        display_name="Unsqueeze",
-        category="Tensor Ops",
-        color=_OP_COLOR,
-        params=(ParamSpec(name="dim", type="int", default=0, minimum=-4,
-                          help="IR axis where a size-1 dim is inserted"),),
-        inputs=(PortSpec("in"),),
-        outputs=(PortSpec("out"),),
-        shape_fn=_unsqueeze_shape,
-        pytorch_expr=_unsqueeze_torch,
-        keras_expr=_unsqueeze_keras,
-    )
-)
+def _repeat_shape(in_shapes, params):
+    s = in_shapes[0]
+    if len(s) != 1:
+        raise ShapeError(f"Repeat Vector expects a vector [F], got {s}")
+    return [int(params["times"]), s[0]]
 
 
-def _lambda_checks(p: dict) -> list[tuple[str, str]]:
-    """Compile-only syntax check of the custom expression (never executes)."""
-    expr = str(p.get("expression", ""))
-    if not expr.strip():
-        return [("error", "the expression is empty — write something like 't * 2.0'")]
-    try:
-        compile(expr, "<lambda>", "eval")
-    except SyntaxError as exc:
-        return [("error",
-                 f"the expression has a Python typo on line {exc.lineno}: "
-                 f"{exc.msg} — check quotes, brackets and colons")]
-    if "t" not in expr:
-        return [("warning",
-                 "the expression doesn't use 't' — it ignores the tensor "
-                 "coming in")]
+reg.register(nn_block(
+    "core.repeat_vector", "Repeat Vector", "Tensor Ops", family="tensor",
+    params=(P("times", "int", 8, lo=1, help="Sequence length to produce"),),
+    shape=_repeat_shape, layout="ir",
+    torch_expr="{i0}.unsqueeze(1).expand(-1, {times}, -1)",
+    keras="layers.RepeatVector({times})",
+    desc="Repeats a vector [F] into a sequence [times, F].",
+))
+
+
+def _slice_shape(in_shapes, params):
+    s = list(in_shapes[0])
+    axis = norm_axis(int(params["dim"]), len(s), "Slice")
+    start, end = int(params["start"]), int(params["end"])
+    size = s[axis]
+    lo = start if start >= 0 else size + start
+    hi = (end if end > 0 else size + end) if end != 0 else size
+    if not 0 <= lo < hi <= size:
+        raise ShapeError(f"Slice [{start}:{end}] is empty or out of range for axis "
+                         f"{params['dim']} of size {size}")
+    s[axis] = hi - lo
+    return s
+
+
+def _slice_expr(c):
+    rank = c["in_rank"]
+    axis = norm_axis(int(c["dim"]), rank, "Slice")
+    end = int(c["end"])
+    sl = f"{c['start']}:{end if end != 0 else ''}"
+    parts = [":"] * (rank + 1)
+    parts[axis + 1] = sl
+    return f"{c['i0']}[{', '.join(parts)}]"
+
+
+reg.register(nn_block(
+    "core.slice", "Slice", "Tensor Ops", family="tensor",
+    params=(P("dim", "int", 0, lo=-4, hi=3), P("start", "int", 0, lo=-100000),
+            P("end", "int", 0, lo=-100000, help="0 = to the end; negatives count back")),
+    shape=_slice_shape, layout="ir", torch_expr=_slice_expr, keras_expr=_slice_expr,
+    desc="Takes a contiguous range of one axis.",
+))
+
+
+# ---------------------------------------------------------------- reductions
+
+_REDUCE = {"mean": ("mean", "mean"), "sum": ("sum", "sum"), "max": ("amax", "max"),
+           "min": ("amin", "min"), "prod": ("prod", "prod"), "std": ("std", "std"),
+           "var": ("var", "var")}
+
+
+def _reduce_shape(in_shapes, params):
+    s = list(in_shapes[0])
+    axis = norm_axis(int(params["dim"]), len(s), "Reduce")
+    if params["keepdim"]:
+        s[axis] = 1
+        return s
+    out = [d for i, d in enumerate(s) if i != axis]
+    if not out:
+        raise ShapeError("Reduce would remove the only axis; enable keepdim")
+    return out
+
+
+def _reduce_torch(c):
+    op = _REDUCE[c["op"]][0]
+    dim = _t_dim(int(c["dim"]), c["in_rank"])
+    keep = ", keepdim=True" if c["keepdim"] else ""
+    extra = ", correction=0" if op in ("std", "var") else ""
+    if op == "prod":
+        return f"torch.prod({c['i0']}, dim={dim}{keep})"
+    return f"torch.{op}({c['i0']}, dim={dim}{keep}{extra})"
+
+
+def _reduce_keras(c):
+    op = _REDUCE[c["op"]][1]
+    dim = _t_dim(int(c["dim"]), c["in_rank"])
+    keep = ", keepdims=True" if c["keepdim"] else ""
+    return f"ops.{op}({c['i0']}, axis={dim}{keep})"
+
+
+reg.register(nn_block(
+    "core.reduce", "Reduce", "Tensor Ops", family="tensor",
+    params=(P("op", "enum", "mean", options=tuple(_REDUCE)),
+            P("dim", "int", -1, lo=-4, hi=3), P("keepdim", "bool", False)),
+    shape=_reduce_shape, layout="ir", torch_expr=_reduce_torch, keras_expr=_reduce_keras,
+    desc="Mean / sum / max / min / product / std / variance over one axis.",
+))
+
+
+# ---------------------------------------------------------------------- math
+
+def _clamp_checks(p):
+    if float(p["min"]) > float(p["max"]):
+        return [("error", f"min {p['min']} is greater than max {p['max']}")]
     return []
 
 
-reg.register(
-    BlockDefinition(
-        type_id="core.lambda",
-        display_name="Lambda (custom expr)",
-        category="Tensor Ops",
-        color=_OP_COLOR,
-        checks_fn=_lambda_checks,
-        params=(ParamSpec(name="expression", type="str", default="t * 2.0",
-                          help="Python expression over 't' (torch/Keras tensor)"),),
-        inputs=(PortSpec("in"),),
-        outputs=(PortSpec("out"),),
-        shape_fn=lambda s, p: list(s[0]),
-        pytorch_expr="(lambda t: {expression})({i0})",
-        keras_expr="layers.Lambda(lambda t: {expression})({i0})",
-    )
-)
+reg.register(nn_block(
+    "core.clamp", "Clamp", "Tensor Ops", family="tensor",
+    params=(P("min", "float", -1.0, lo=-1e12), P("max", "float", 1.0, lo=-1e12)),
+    shape=passthrough, checks=_clamp_checks,
+    torch_expr="torch.clamp({i0}, min={min}, max={max})",
+    keras_expr="ops.clip({i0}, {min}, {max})",
+    desc="Limits values to [min, max].",
+))
+
+reg.register(nn_block(
+    "core.scale", "Scale & Shift", "Tensor Ops", family="tensor",
+    params=(P("scale", "float", 1.0, lo=-1e12), P("shift", "float", 0.0, lo=-1e12)),
+    shape=passthrough,
+    torch_expr="{i0} * {scale} + {shift}", keras_expr="{i0} * {scale} + {shift}",
+    desc="Affine transform with constants: x · scale + shift.",
+))
+
+_UNARY = {"abs": ("torch.abs", "ops.abs"), "exp": ("torch.exp", "ops.exp"),
+          "log": ("torch.log", "ops.log"), "log1p": ("torch.log1p", "ops.log1p"),
+          "sqrt": ("torch.sqrt", "ops.sqrt"), "square": ("torch.square", "ops.square"),
+          "negative": ("torch.neg", "ops.negative"), "reciprocal": ("torch.reciprocal", "ops.reciprocal"),
+          "sin": ("torch.sin", "ops.sin"), "cos": ("torch.cos", "ops.cos"),
+          "sign": ("torch.sign", "ops.sign")}
+
+reg.register(nn_block(
+    "core.math", "Math (unary)", "Tensor Ops", family="tensor",
+    params=(P("op", "enum", "abs", options=tuple(_UNARY)),),
+    shape=passthrough,
+    torch_expr=lambda c: f"{_UNARY[c['op']][0]}({c['i0']})",
+    keras_expr=lambda c: f"{_UNARY[c['op']][1]}({c['i0']})",
+    desc="Elementwise math function.",
+))
+
+
+def _l2_shape(in_shapes, params):
+    norm_axis(int(params["dim"]), len(in_shapes[0]), "L2 Normalize")
+    return list(in_shapes[0])
+
+
+reg.register(nn_block(
+    "core.l2_normalize", "L2 Normalize", "Tensor Ops", family="tensor",
+    params=(P("dim", "int", -1, lo=-4, hi=3),), shape=_l2_shape,
+    torch_expr="nn.functional.normalize({i0}, p=2.0, dim={torch_dim})",
+    keras_expr="layers.UnitNormalization(axis={keras_axis})({i0})",
+    desc="Scales vectors along an axis to unit Euclidean length.",
+))
+
+
+def _lambda_checks(p):
+    expr = str(p.get("expression", ""))
+    if not expr.strip():
+        return [("error", "expression is empty")]
+    try:
+        compile(expr, "<lambda>", "eval")
+    except SyntaxError as exc:
+        return [("error", f"expression syntax error: {exc.msg} (line {exc.lineno})")]
+    if "t" not in expr:
+        return [("warning", "expression does not reference the input tensor 't'")]
+    return []
+
+
+reg.register(nn_block(
+    "core.lambda", "Lambda", "Tensor Ops", family="tensor",
+    params=(P("expression", "str", "t * 2.0",
+              help="Python expression over the input tensor 't'. The output shape must "
+                   "equal the input shape. Use operators for portability."),),
+    shape=passthrough, checks=_lambda_checks,
+    torch_expr="(lambda t: {expression})({i0})",
+    keras_expr="layers.Lambda(lambda t: {expression})({i0})",
+    desc="Custom shape-preserving expression.",
+))

@@ -27,8 +27,8 @@ def _mlp():
 def test_glu_odd_dim_raises_shape_error_not_name_error():
     glu = get_registry().get("core.glu")
     with pytest.raises(ShapeError):
-        glu.shape_fn([[7]], {})
-    assert glu.shape_fn([[8]], {}) == [4]
+        glu.shape_fn([[7]], {"dim": -1})
+    assert glu.shape_fn([[8]], {"dim": -1}) == [4]
 
 
 def test_kfold_does_not_hide_missing_optimizer_warning():
@@ -37,14 +37,14 @@ def test_kfold_does_not_hide_missing_optimizer_warning():
     g.add_node(NodeInstance("kf", "train.kfold"))
     warns = [i.message for i in g.validate()
              if i.severity == "warning" and i.node_id == "tr"]
-    assert any("Optimizer" in m for m in warns)
+    assert any("no optimizer configured" in m for m in warns)
 
 
 def test_kfold_alone_is_not_flagged_as_orphan_scheduler():
     g = _mlp()
     g.add_node(NodeInstance("kf", "train.kfold"))
     assert not [i for i in g.validate() if i.node_id == "kf"
-                and "no Trainer" in i.message]
+                and "without a Trainer" in i.message]
 
 
 def test_optimizer_present_silences_warning():
@@ -52,7 +52,7 @@ def test_optimizer_present_silences_warning():
     g.add_node(NodeInstance("tr", "train.trainer", {"epochs": 1}))
     g.add_node(NodeInstance("opt", "train.adam"))
     warns = [i.message for i in g.validate() if i.node_id == "tr"]
-    assert not any("Optimizer" in m for m in warns)
+    assert not any("optimizer" in m for m in warns)
 
 
 def test_single_target_table_shared_by_ui_and_mcp():

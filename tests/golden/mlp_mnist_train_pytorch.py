@@ -42,11 +42,11 @@ class MnistMlp(nn.Module):
         self.dense_2 = nn.Linear(in_features=128, out_features=10, bias=True)
 
     def forward(self, x):
-        v_dense_1 = self.dense_1(x)
-        v_relu_1 = self.relu_1(v_dense_1)
-        v_dropout_1 = self.dropout_1(v_relu_1)
-        v_dense_2 = self.dense_2(v_dropout_1)
-        return v_dense_2
+        x = self.dense_1(x)
+        x = self.relu_1(x)
+        x = self.dropout_1(x)
+        x = self.dense_2(x)
+        return x
 
 
 # ----------------------------------------------------------------- dataset

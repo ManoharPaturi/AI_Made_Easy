@@ -36,28 +36,28 @@ def pick_device() -> str:
 class Cifar10Cnn(nn.Module):
     def __init__(self):
         super().__init__()
-        self.conv2d_1 = nn.Conv2d(in_channels=3, out_channels=32, kernel_size=3, stride=1, padding=1, dilation=1)
+        self.conv2d_1 = nn.Conv2d(in_channels=3, out_channels=32, kernel_size=3, stride=1, padding=1)
         self.batch_norm2d_1 = nn.BatchNorm2d(num_features=32, eps=1e-05, momentum=0.1)
         self.relu_1 = nn.ReLU()
         self.maxpool2d_1 = nn.MaxPool2d(kernel_size=2, stride=2, padding=0)
-        self.conv2d_2 = nn.Conv2d(in_channels=32, out_channels=64, kernel_size=3, stride=1, padding=1, dilation=1)
+        self.conv2d_2 = nn.Conv2d(in_channels=32, out_channels=64, kernel_size=3, stride=1, padding=1)
         self.batch_norm2d_2 = nn.BatchNorm2d(num_features=64, eps=1e-05, momentum=0.1)
         self.relu_2 = nn.ReLU()
         self.dropout_1 = nn.Dropout(p=0.3)
         self.dense_1 = nn.Linear(in_features=64, out_features=10, bias=True)
 
     def forward(self, x):
-        v_conv2d_1 = self.conv2d_1(x)
-        v_batch_norm2d_1 = self.batch_norm2d_1(v_conv2d_1)
-        v_relu_1 = self.relu_1(v_batch_norm2d_1)
-        v_maxpool2d_1 = self.maxpool2d_1(v_relu_1)
-        v_conv2d_2 = self.conv2d_2(v_maxpool2d_1)
-        v_batch_norm2d_2 = self.batch_norm2d_2(v_conv2d_2)
-        v_relu_2 = self.relu_2(v_batch_norm2d_2)
-        v_global_avgpool2d_1 = torch.mean(v_relu_2, dim=(2, 3))
-        v_dropout_1 = self.dropout_1(v_global_avgpool2d_1)
-        v_dense_1 = self.dense_1(v_dropout_1)
-        return v_dense_1
+        x = self.conv2d_1(x)
+        x = self.batch_norm2d_1(x)
+        x = self.relu_1(x)
+        x = self.maxpool2d_1(x)
+        x = self.conv2d_2(x)
+        x = self.batch_norm2d_2(x)
+        x = self.relu_2(x)
+        x = torch.mean(x, dim=(2, 3))
+        x = self.dropout_1(x)
+        x = self.dense_1(x)
+        return x
 
 
 # ----------------------------------------------------------------- dataset

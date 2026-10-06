@@ -132,7 +132,7 @@ class Graph:
         outputs = [n for n in self.nodes.values() if n.type_id == "core.output"]
         if len(inputs) != 1 or len(outputs) != 1:
             raise GraphError(
-                f"v1 requires exactly one Input and one Output "
+                f"a model needs exactly one Input and one Output "
                 f"(found {len(inputs)} input(s), {len(outputs)} output(s))"
             )
         entry = inputs[0]
@@ -148,9 +148,18 @@ class Graph:
                     reach.add(e.target_id)
                     frontier.append(e.target_id)
         if outputs[0].instance_id not in reach:
-            raise GraphError("Output is not reachable from Input via tensor connections")
+            raise GraphError("Output is not reachable from Input")
+        # keep only nodes that also lead to the Output (prunes dead branches)
+        live = {outputs[0].instance_id}
+        frontier = [outputs[0].instance_id]
+        while frontier:
+            nid = frontier.pop()
+            for e in self.incoming(nid):
+                if e.source_id in reach and e.source_id not in live:
+                    live.add(e.source_id)
+                    frontier.append(e.source_id)
         order = self.topo_order()
-        return [self.nodes[nid] for nid in order if nid in reach]
+        return [self.nodes[nid] for nid in order if nid in live]
 
     # -------------------------------------------------------- shape + check
 
@@ -194,8 +203,8 @@ class Graph:
                 issues.append(
                     ValidationIssue(
                         "error",
-                        f"{node.instance_id} ({defn.display_name}) is an architecture "
-                        "macro — select it and press ⤢ Expand to turn it into blocks",
+                        f"{defn.display_name} is an architecture template; expand it "
+                        "(Model ▸ Expand Architecture) before export",
                         node.instance_id,
                     )
                 )
@@ -204,8 +213,8 @@ class Graph:
                 issues.append(
                     ValidationIssue(
                         "error",
-                        f"{node.instance_id} ({defn.display_name}) is a config block; "
-                        "it cannot sit in the model flow",
+                        f"{defn.display_name} is a configuration block and cannot be "
+                        "part of the tensor flow; disconnect its wires",
                         node.instance_id,
                     )
                 )
@@ -263,14 +272,14 @@ class Graph:
                     if spec.minimum is not None and value < float(spec.minimum):
                         issues.append(ValidationIssue(
                             "error",
-                            f"{spec.name} = {value:g} is too small "
-                            f"(minimum {spec.minimum:g})",
+                            f"{spec.name} = {value:g} is below the minimum "
+                            f"{spec.minimum:g}",
                             node.instance_id))
                     if spec.maximum is not None and value > float(spec.maximum):
                         issues.append(ValidationIssue(
                             "error",
-                            f"{spec.name} = {value:g} is too big "
-                            f"(maximum {spec.maximum:g})",
+                            f"{spec.name} = {value:g} exceeds the maximum "
+                            f"{spec.maximum:g}",
                             node.instance_id))
                 elif spec.type == "enum" and spec.options and value not in spec.options:
                     issues.append(ValidationIssue(
@@ -303,8 +312,8 @@ class Graph:
             if spec is not None and not spec.multi:
                 issues.append(ValidationIssue(
                     "error",
-                    f"input '{port}' has {count} wires — a block input takes "
-                    "one wire (use a Concat/Merge block to combine tensors)",
+                    f"input '{port}' has {count} connections but accepts one; "
+                    "combine tensors with a Merge block (Add, Concatenate, ...)",
                     tid))
 
         inputs = [n for n in self.nodes.values() if n.type_id == "core.input"]
@@ -317,10 +326,10 @@ class Graph:
                 "error", "only one Output block is allowed", n.instance_id))
         if not inputs:
             issues.append(ValidationIssue(
-                "error", "add an Input block — every model starts with one"))
+                "error", "the model has no Input block"))
         if not outputs:
             issues.append(ValidationIssue(
-                "error", "add an Output block — every model ends with one"))
+                "error", "the model has no Output block"))
 
         chain: set[str] = set()
         if len(inputs) == 1 and len(outputs) == 1:
@@ -329,8 +338,8 @@ class Graph:
                 if outputs[0].instance_id not in chain:
                     issues.append(ValidationIssue(
                         "error",
-                        "the Output block is not reachable from the Input "
-                        "block — connect your blocks into one chain",
+                        "the Output is not reachable from the Input; connect "
+                        "them through the model's layers",
                         outputs[0].instance_id))
             except GraphError:
                 chain = set()
@@ -343,9 +352,8 @@ class Graph:
                         and node.type_id not in ("core.input", "core.output")):
                     issues.append(ValidationIssue(
                         "warning",
-                        f"{node.definition().display_name} is not connected "
-                        "to your model — wire it in (Input → … → Output) or "
-                        "delete it",
+                        f"{node.definition().display_name} is not on the path "
+                        "from Input to Output and will not be exported",
                         node.instance_id))
 
         # training-config completeness (rule 11)
@@ -368,20 +376,20 @@ class Graph:
             if not losses:
                 issues.append(ValidationIssue(
                     "warning",
-                    "no Loss block on the canvas — training will fall back "
-                    "to a default loss (CrossEntropy)", trainers[0].instance_id))
+                    "no loss function configured; training defaults to "
+                    "CrossEntropyLoss", trainers[0].instance_id))
             if not optimizers:
                 issues.append(ValidationIssue(
                     "warning",
-                    "no Optimizer block (Adam…) on the canvas — training "
-                    "will fall back to a default optimizer",
+                    "no optimizer configured; training defaults to Adam "
+                    "(lr = 1e-3)",
                     trainers[0].instance_id))
         else:
             for n in schedulers:
                 issues.append(ValidationIssue(
                     "warning",
-                    f"{n.definition().display_name} has no Trainer block to "
-                    "configure", n.instance_id))
+                    f"{n.definition().display_name} has no effect without a "
+                    "Trainer block", n.instance_id))
 
         # LLM completeness: LLM blocks are useless without a model block
         llm_nodes = [n for n in self.nodes.values()
@@ -390,42 +398,9 @@ class Graph:
                                  for n in self.nodes.values()):
             issues.append(ValidationIssue(
                 "warning",
-                "every LLM workflow needs an 'HF Model' block — add one from "
-                "the 💬 LLM palette", llm_nodes[0].instance_id))
+                "LLM workflow has no HF Model block; add one from the LLM "
+                "category", llm_nodes[0].instance_id))
         return issues, chain
-
-    def _dataset_issues(self, chain: set[str]) -> list[ValidationIssue]:
-        """Rule 12: a dataset block's feature count must match the Input
-        block's shape."""
-        from ai_made_easy.core.spec import shape_volume
-
-        issues: list[ValidationIssue] = []
-        input_nodes = [n for n in self.nodes.values() if n.type_id == "core.input"]
-        if len(input_nodes) != 1 or not chain:
-            return issues
-        try:
-            want = shape_volume(
-                parse_shape(input_nodes[0].resolved_params()["shape"]))
-        except ValueError:
-            return issues
-        for node in self.nodes.values():
-            if not node.type_id.startswith("data."):
-                continue
-            resolved = node.resolved_params()
-            features = resolved.get("features")
-            if features is None:
-                continue
-            try:
-                got = int(features)
-            except (TypeError, ValueError):
-                continue
-            if got != want:
-                issues.append(ValidationIssue(
-                    "error",
-                    f"{node.definition().display_name} has {got} features but "
-                    f"the Input block's shape holds {want} — make them match",
-                    input_nodes[0].instance_id))
-        return issues
 
     def validate(self) -> list[ValidationIssue]:
         issues: list[ValidationIssue] = []
@@ -479,9 +454,12 @@ class Graph:
         flow_issues, chain = self._flow_issues()
         issues += flow_issues
         if chain:
-            issues += self._dataset_issues(chain)
-            _, shape_issues = self.infer_shapes_detailed()
+            shapes, shape_issues = self.infer_shapes_detailed()
             issues += shape_issues
+            if not shape_issues:
+                from ai_made_easy.core.lints import run_lints
+
+                issues += run_lints(self, self.model_nodes(), shapes)
         from ai_made_easy.core.suggestions import add_tips
         return add_tips(issues, self)
 

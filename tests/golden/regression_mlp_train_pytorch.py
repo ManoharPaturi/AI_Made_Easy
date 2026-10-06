@@ -44,13 +44,13 @@ class RegressionMlp(nn.Module):
         self.dense_3 = nn.Linear(in_features=32, out_features=1, bias=True)
 
     def forward(self, x):
-        v_dense_1 = self.dense_1(x)
-        v_layer_norm_1 = self.layer_norm_1(v_dense_1)
-        v_relu_1 = self.relu_1(v_layer_norm_1)
-        v_dense_2 = self.dense_2(v_relu_1)
-        v_relu_2 = self.relu_2(v_dense_2)
-        v_dense_3 = self.dense_3(v_relu_2)
-        return v_dense_3
+        x = self.dense_1(x)
+        x = self.layer_norm_1(x)
+        x = self.relu_1(x)
+        x = self.dense_2(x)
+        x = self.relu_2(x)
+        x = self.dense_3(x)
+        return x
 
 
 # ----------------------------------------------------------------- dataset

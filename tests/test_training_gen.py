@@ -138,8 +138,10 @@ def test_training_script_actually_trains(tmp_path: Path):
                                        "early_stopping_patience": 0}),
         ("f1", "eval.f1", {"average": "macro"}),
     )
+    g.edges = [e for e in g.edges if e.target_id != "out"]
     g.add_edge(Edge("d1", "out", "r1", "in"))
     g.add_edge(Edge("r1", "out", "d2", "in"))
+    g.add_edge(Edge("d2", "out", "out", "in"))
     assert g.validate() == []
 
     script = export_training(g, "pytorch", tmp_path)
