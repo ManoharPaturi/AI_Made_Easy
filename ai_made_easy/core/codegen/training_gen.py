@@ -18,7 +18,6 @@ from ai_made_easy.core.codegen import (
     CodegenError,
     class_name_for,
     emit_dag,
-    sanitize_identifier,
 )
 from ai_made_easy.core.graph import Graph
 from ai_made_easy.core.spec import shape_volume

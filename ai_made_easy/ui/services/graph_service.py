@@ -53,7 +53,6 @@ class GraphService(QtCore.QObject):
         self.graph_settled.emit(ir)
 
     def snapshot(self) -> Graph:
-        from ai_made_easy.ui.stores import ProjectStore
 
         return self.adapter.to_ir()
 

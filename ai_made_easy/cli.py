@@ -17,7 +17,7 @@ import json
 import subprocess
 import sys
 
-from ai_made_easy.core.codegen import FRAMEWORKS, export, export_training, generate
+from ai_made_easy.core.codegen import FRAMEWORKS, export, export_training
 from ai_made_easy.core.codegen import sanitize_identifier as sanitize_name
 from ai_made_easy.core.graph import Graph
 from ai_made_easy.core.registry import get_registry

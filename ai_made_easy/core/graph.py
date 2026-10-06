@@ -355,18 +355,15 @@ class Graph:
                 issues.append(ValidationIssue(
                     "error", "only one Trainer block is allowed",
                     n.instance_id))
+        # same lists codegen uses, so validation and codegen never disagree
+        # (local import: training_gen imports this module)
+        from ai_made_easy.core.codegen.training_gen import _OPTIMIZERS, _SCHEDULERS
         optimizers = [n for n in self.nodes.values()
-                      if n.type_id.startswith("train.")
-                      and "loss" not in n.type_id
-                      and n.type_id not in ("train.trainer",)
-                      and "lr" not in n.type_id.split(".")[-1]]
+                      if n.type_id in _OPTIMIZERS]
         losses = [n for n in self.nodes.values()
                   if n.type_id.startswith("train.loss")]
         schedulers = [n for n in self.nodes.values()
-                      if n.type_id.startswith("train.")
-                      and n.type_id not in ("train.trainer",)
-                      and not n.type_id.startswith("train.loss")
-                      and n not in optimizers]
+                      if n.type_id in _SCHEDULERS]
         if trainers:
             if not losses:
                 issues.append(ValidationIssue(

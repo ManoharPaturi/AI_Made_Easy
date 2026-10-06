@@ -1,38 +1,15 @@
-"""ExportService: the SINGLE codegen dispatch used everywhere (files,
-preview, LLM scripts) — one target table instead of parallel ones.
+"""ExportService: writes generated code to disk. The target table itself
+lives in core/targets.py, shared with the MCP server.
 """
 from __future__ import annotations
 
 from pathlib import Path
 
-from ai_made_easy.core.codegen import export, export_training, generate
-from ai_made_easy.core.codegen.llm_gen import generate_llm_script
-from ai_made_easy.core.codegen.training_gen import generate_training
 from ai_made_easy.core.graph import Graph
+from ai_made_easy.core.targets import (  # noqa: F401  (re-exported)
+    RENDERERS, preview_targets, target_label)
 
-# the one dispatch table: target id -> renderer
-RENDERERS = {
-    "pytorch_model": lambda g: generate(g, "pytorch"),
-    "keras_model": lambda g: generate(g, "keras"),
-    "pytorch_train": lambda g: generate_training(g, "pytorch"),
-    "keras_train": lambda g: generate_training(g, "keras"),
-    "llm": lambda g: generate_llm_script(g),
-}
-
-PREVIEW_TARGETS = ("pytorch_model", "keras_model", "pytorch_train",
-                   "keras_train", "llm")
-
-_TARGET_LABELS = {
-    "pytorch_model": "PyTorch model",
-    "keras_model": "Keras model",
-    "pytorch_train": "PyTorch training script",
-    "keras_train": "Keras training script",
-    "llm": "LLM workflow script",
-}
-
-
-def target_label(target: str) -> str:
-    return _TARGET_LABELS.get(target, target)
+PREVIEW_TARGETS = preview_targets()
 
 
 class ExportService:

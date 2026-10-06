@@ -529,7 +529,6 @@ class AppContext(QtCore.QObject):
             except Exception:
                 card_md = None
         thumb = self.canvas_area.grab().scaledToWidth(640).toImage()
-        import io
 
         buf = QtCore.QBuffer()
         buf.open(QtCore.QIODevice.OpenModeFlag.WriteOnly)
