@@ -36,16 +36,16 @@ def pick_device() -> str:
 class LstmClassifier(nn.Module):
     def __init__(self):
         super().__init__()
-        self.lstm_1 = nn.LSTM(input_size=32, hidden_size=48, num_layers=1, bias=True, batch_first=True, bidirectional=False)
+        self.lstm_1 = nn.LSTM(input_size=32, hidden_size=48, num_layers=1, batch_first=True)
         self.dropout_1 = nn.Dropout(p=0.2)
         self.dense_1 = nn.Linear(in_features=48, out_features=5, bias=True)
 
     def forward(self, x):
-        v_lstm_1 = self.lstm_1(x)[0]
-        v_dropout_1 = self.dropout_1(v_lstm_1)
-        v_mean_over_time_1 = torch.mean(v_dropout_1, dim=1)
-        v_dense_1 = self.dense_1(v_mean_over_time_1)
-        return v_dense_1
+        x = self.lstm_1(x)[0]
+        x = self.dropout_1(x)
+        x = torch.mean(x, dim=1)
+        x = self.dense_1(x)
+        return x
 
 
 # ----------------------------------------------------------------- dataset

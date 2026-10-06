@@ -105,6 +105,28 @@ class BlockDefinition:
     pytorch_expr: str = ""
     keras_layer: str = ""
     keras_expr: str = ""
+    # Keras tensor layout this block consumes:
+    #   "cl"  — channels-last view of a channels-first IR tensor (conv/pool/BN)
+    #   "ir"  — same axis order as the IR (sequences, axis-addressed ops)
+    #   "any" — layout-agnostic (elementwise); output keeps the input layout
+    keras_layout: str = "any"
+    # Helper definitions the generated file must include (see codegen helpers)
+    pytorch_helpers: tuple[str, ...] = ()
+    keras_helpers: tuple[str, ...] = ()
+    # One-line technical description shown in the library and inspector
+    description: str = ""
+    # Library the block maps to (shown as a badge): "PyTorch", "Keras", ...
+    library: str = ""
+    # Input tensor dtype accepted: "float" or "int" (index tensors)
+    input_dtype: str = "float"
+
+    def supports(self, framework: str) -> bool:
+        """True when the block can be emitted for ``framework``."""
+        if framework == "pytorch":
+            return bool(self.pytorch_layer or self.pytorch_expr)
+        if framework == "keras":
+            return bool(self.keras_layer or self.keras_expr)
+        return False
 
     def __post_init__(self) -> None:
         if self.params and not isinstance(self.params, tuple):
@@ -130,6 +152,8 @@ class BlockDefinition:
             "category": self.category,
             "color": self.color,
             "composite": self.builder is not None,
+            "description": self.description,
+            "frameworks": [f for f in ("pytorch", "keras") if self.supports(f)],
             "params": [p.to_dict() for p in self.params],
             "inputs": [
                 {"name": p.name, "dtype": p.dtype, "multi": p.multi} for p in self.inputs

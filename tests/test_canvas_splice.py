@@ -11,6 +11,7 @@ pytest.importorskip("PySide6")
 
 from PySide6 import QtWidgets  # noqa: E402
 
+from ai_made_easy.ui.canvas.node_factory import node_type_for  # noqa: E402
 from ai_made_easy.core.codegen import generate  # noqa: E402
 
 
@@ -32,12 +33,12 @@ def _make_canvas(qapp):
 def test_expand_selected_splices_wires(qapp):
     canvas = _make_canvas(qapp)
     graph = canvas.node_graph
-    inp = graph.create_node("aim.data.InputNode", name="Input", pos=(-400.0, 0.0))
-    macro = graph.create_node("aim.architectures.MLPNode", name="MLP",
+    inp = graph.create_node(node_type_for("core.input"), name="Input", pos=(-400.0, 0.0))
+    macro = graph.create_node(node_type_for("arch.mlp"), name="MLP",
                               pos=(-100.0, 0.0))
     macro.set_property("hidden", "8")
     macro.set_property("num_classes", 3)
-    out = graph.create_node("aim.data.OutputNode", name="Output", pos=(900.0, 0.0))
+    out = graph.create_node(node_type_for("core.output"), name="Output", pos=(900.0, 0.0))
     inp.output_ports()[0].connect_to(macro.input_ports()[0])
     macro.output_ports()[0].connect_to(out.input_ports()[0])
 
@@ -50,7 +51,7 @@ def test_expand_selected_splices_wires(qapp):
     assert macro.id not in ir.nodes
     assert ir.validate() == []
     code = generate(ir, "pytorch")
-    assert "self.dense_" in code and "return v_dense_" in code
+    assert "self.dense_" in code and "return x" in code
 
 
 def test_save_selection_roundtrip(qapp, tmp_path: Path, monkeypatch):
@@ -63,9 +64,9 @@ def test_save_selection_roundtrip(qapp, tmp_path: Path, monkeypatch):
     ir = canvas.to_ir("demo")
     # pick the conv..gap run as selection
     graph = canvas.node_graph
-    first_conv = next(n for n in graph.all_nodes() if n.type_ == "aim.layers.Conv2DNode")
-    relu = next(n for n in graph.all_nodes() if n.type_ == "aim.activations.ReLUNode")
-    pool = next(n for n in graph.all_nodes() if n.type_ == "aim.layers.MaxPool2DNode")
+    first_conv = next(n for n in graph.all_nodes() if n.type_ == node_type_for("core.conv2d"))
+    relu = next(n for n in graph.all_nodes() if n.type_ == node_type_for("core.relu"))
+    pool = next(n for n in graph.all_nodes() if n.type_ == node_type_for("core.maxpool2d"))
     for n in graph.all_nodes():
         n.set_selected(False)
     for n in (first_conv, relu, pool):
@@ -93,7 +94,7 @@ def test_save_selection_roundtrip(qapp, tmp_path: Path, monkeypatch):
 def test_node_view_color_is_flat_rgba(qapp):
     """Regression: set_color(r, g, b) — a nested color tuple breaks paint."""
     canvas = _make_canvas(qapp)
-    n = canvas.node_graph.create_node("aim.layers.Conv2DNode", name="Conv",
+    n = canvas.node_graph.create_node(node_type_for("core.conv2d"), name="Conv",
                                       pos=(0.0, 0.0))
     color = n.view.color
     assert isinstance(color, tuple) and len(color) == 4

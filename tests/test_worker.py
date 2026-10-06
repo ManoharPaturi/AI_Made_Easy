@@ -42,7 +42,7 @@ def test_parse_event_is_tolerant():
 def test_worker_streams_epochs_from_real_training(tmp_path: Path):
     g = build(
         ("in", "core.input", {"shape": "16"}),
-        ("d1", "core.dense", {"units": 8}),
+        ("d1", "core.dense", {"units": 3}),
         ("out", "core.output", {}),
         ("data", "data.synthetic", {"kind": "classification", "n_samples": 240,
                                      "n_features": 16, "n_classes": 3,

@@ -2,7 +2,7 @@
 
 Rules 1-14 of docs/ARCHITECTURE.md "Guardrails": param domains, cross-param
 checks, wire multiplicity, single Input/Output, off-path + training-config
-warnings, dataset/shape match, node-attributed shape errors, 💡 tips, the
+warnings, dataset/shape match, node-attributed shape errors, fix hints, the
 canvas wire guard, the properties-panel patches, and Train gating.
 """
 from __future__ import annotations
@@ -14,6 +14,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from ai_made_easy.ui.canvas.node_factory import node_type_for  # noqa: E402
 from ai_made_easy.core.graph import (  # noqa: E402
     Edge,
     Graph,
@@ -112,7 +113,7 @@ def test_duplicate_wires_into_one_input_is_an_error():
     g = make_mlp()
     g.add_edge(Edge("i", "out", "d", "in"))  # second wire, same ports
     issues = [i for i in g.validate() if i.node_id == "d"]
-    assert any("one wire" in i.message for i in issues)
+    assert any("accepts one" in i.message for i in issues)
 
 
 def test_second_input_block_is_an_error_with_node_id():
@@ -129,7 +130,7 @@ def test_off_path_tensor_block_warns():
     g.add_node(NodeInstance("orphan", "core.relu"))
     warns = [i for i in g.validate()
              if i.node_id == "orphan" and i.severity == "warning"]
-    assert warns and "not connected to your model" in warns[0].message
+    assert warns and "is not on the path" in warns[0].message
 
 
 # ------------------------------------- rule 11: training completeness
@@ -139,8 +140,8 @@ def test_trainer_without_loss_and_optimizer_warns():
     g.add_node(NodeInstance("tr", "train.trainer", {"epochs": 3}))
     warns = [i for i in g.validate() if i.severity == "warning"
              and i.node_id == "tr"]
-    assert any("Loss" in i.message for i in warns)
-    assert any("Optimizer" in i.message for i in warns)
+    assert any("no loss function" in i.message for i in warns)
+    assert any("no optimizer" in i.message for i in warns)
 
 
 def test_two_trainers_is_an_error():
@@ -164,10 +165,10 @@ def test_scheduler_without_trainer_warns():
 def test_dataset_features_must_match_input_shape():
     g = make_mlp()  # input holds 784 numbers
     g.add_node(NodeInstance("ds", "data.synthetic",
-                            {"features": 100, "classes": 10}))
+                            {"n_features": 100, "n_classes": 10}))
     issues = [i for i in g.validate() if "features" in i.message]
     assert issues and issues[0].severity == "error"
-    g.nodes["ds"].params["features"] = 784
+    g.nodes["ds"].params["n_features"] = 784
     assert not [i for i in g.validate() if "features" in i.message]
 
 
@@ -186,11 +187,10 @@ def test_shape_error_points_at_the_failing_block():
 
 
 def test_infer_shapes_still_raises_for_codegen():
-    g = wire(build(("i", "core.input", {"shape": "1,28,28"}),
+    g = wire(build(("i", "core.input", {"shape": "784"}),
                    ("c", "core.conv2d", {"out_channels": 8}),
-                   ("d", "core.dense", {"units": 10}),
                    ("o", "core.output")),
-             ("i", "c"), ("c", "d"), ("d", "o"))
+             ("i", "c"), ("c", "o"))
     with pytest.raises(GraphError):
         g.infer_shapes()
 
@@ -199,7 +199,7 @@ def test_disconnected_input_gets_a_wire_tip():
     g = build(("d", "core.dense", {"units": 4}), ("o", "core.output"))
     g.add_edge(Edge("d", "out", "o", "in"))
     issues = [i for i in g.validate() if "not connected" in i.message]
-    assert issues and "💡" in issues[0].message
+    assert issues and "Fix:" in issues[0].message
 
 
 def test_valid_mlp_has_no_issues():
@@ -242,8 +242,8 @@ class _StubPort:
 def test_wire_guard_undoes_dtype_mismatch():
     app, controller = _canvas()
     g = controller.node_graph
-    in_node = g.create_node("aim.data.InputNode")
-    dense = g.create_node("aim.layers.DenseLinearNode")
+    in_node = g.create_node(node_type_for("core.input"))
+    dense = g.create_node(node_type_for("core.dense"))
     rec: list = []
     # fabricate ports with mismatched dtypes (tensor out -> config in)
     out_port = _StubPort(in_node, "out", "out", "tensor", rec)
@@ -279,7 +279,7 @@ def test_prop_spin_patches_fix_the_properties_bin():
 
     area = CanvasArea(controller)
     prop_bin = area.make_properties_widget()
-    node = controller.node_graph.create_node("aim.layers.DenseLinearNode")
+    node = controller.node_graph.create_node(node_type_for("core.dense"))
     prop_bin.add_node(node)  # crashed with AttributeError before the patch
     w = prop_bin  # panel populated without raising
     assert w is not None

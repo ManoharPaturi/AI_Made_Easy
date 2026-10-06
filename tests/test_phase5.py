@@ -126,7 +126,7 @@ def test_torchscript_round_trip(tmp_path: Path):
                             capture_output=True, text=True, timeout=300)
     assert result.returncode == 0, result.stdout + result.stderr
     assert jit_path.exists()
-    assert "reload smoke test OK" in result.stdout
+    assert "reload check OK" in result.stdout
 
 
 def test_template_fragment_roundtrip(tmp_path: Path, monkeypatch):

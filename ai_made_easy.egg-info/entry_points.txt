@@ -1,0 +1,3 @@
+[console_scripts]
+aime = ai_made_easy.cli:main
+aime-mcp = ai_made_easy.mcp.server:main

@@ -69,7 +69,7 @@ def test_summary_matches_torch_lstm():
 
 def test_summary_matches_torch_embedding_conv_mha():
     g = build(
-        ("in", "core.input", {"shape": "50"}),
+        ("in", "core.input", {"shape": "50", "dtype": "int64"}),
         ("emb", "core.embedding", {"num_embeddings": 500, "embedding_dim": 32}),
         ("mha", "core.multihead_attention", {"embed_dim": 0, "num_heads": 4,
                                               "dropout": 0.0}),

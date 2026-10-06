@@ -10,6 +10,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from ai_made_easy.ui.canvas.node_factory import node_type_for  # noqa: E402
 from ai_made_easy.core.fixes import fix_for_issue  # noqa: E402
 from ai_made_easy.core.graph import Edge, Graph, NodeInstance  # noqa: E402
 from ai_made_easy.core.registry import get_registry  # noqa: E402
@@ -57,7 +58,7 @@ def test_fix_inserts_flatten_for_rank_mismatch():
 def test_fix_clamps_out_of_range_params():
     g = _mlp()
     g.nodes["d"].params["units"] = -7
-    issue = next(i for i in g.validate() if "too small" in i.message)
+    issue = next(i for i in g.validate() if "below the minimum" in i.message)
     _, _, fixed = fix_for_issue(g, issue)
     assert fixed.nodes["d"].params["units"] == 1
 
@@ -84,8 +85,8 @@ def test_fix_halves_splitter_overlap():
 def test_fix_matches_input_shape_to_dataset():
     g = _mlp()
     g.add_node(NodeInstance("ds", "data.synthetic",
-                            {"features": 64, "classes": 10}))
-    issue = next(i for i in g.validate() if "features but" in i.message)
+                            {"n_features": 64, "n_classes": 8}))
+    issue = next(i for i in g.validate() if "features per sample" in i.message)
     _, _, fixed = fix_for_issue(g, issue)
     inputs = [n for n in fixed.nodes.values() if n.type_id == "core.input"]
     assert inputs[0].params["shape"] == "64"
@@ -95,7 +96,7 @@ def test_fix_removes_off_path_block():
     g = _mlp()
     g.add_node(NodeInstance("orphan", "core.relu", {}, (200, 150)))
     issue = next(i for i in g.validate()
-                 if i.severity == "warning" and "not connected to your model"
+                 if i.severity == "warning" and "is not on the path"
                  in i.message)
     _, _, fixed = fix_for_issue(g, issue)
     assert "orphan" not in fixed.nodes
@@ -112,7 +113,7 @@ def test_fix_wires_lonely_disconnected_block():
     issue = next(i for i in g.validate()
                  if i.node_id == "d" and "is not connected" in i.message)
     result = fix_for_issue(g, issue)
-    assert result is not None and "Wire" in result[0]
+    assert result is not None and result[0] == "Connect"
     wired = any(e.target_id == "d" for e in result[2].edges)
     assert wired
 
@@ -148,7 +149,7 @@ def test_trainer_progress_sets_node_attr():
     from ai_made_easy.ui.canvas.adapter import CanvasController
 
     controller = CanvasController()
-    trainer = controller.node_graph.create_node("aim.training.TrainerNode")
+    trainer = controller.node_graph.create_node(node_type_for("train.trainer"))
     controller.set_node_progress("train.trainer", 0.42)
     assert trainer.view._aime_progress == pytest.approx(0.42)
     controller.set_node_progress("train.trainer", None)

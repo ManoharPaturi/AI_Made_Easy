@@ -103,7 +103,7 @@ def test_mlp_runs_and_matches_design():
     out, code = _run_torch(make_mlp(), torch.randn(4, 784))
     assert tuple(out.shape) == (4, 10)
     assert "nn.Linear(in_features=784, out_features=128" in code
-    assert "return v_dense_2" in code
+    assert "return x" in code  # straight chain reuses x
 
 
 def test_cnn_runs_and_matches_design():
@@ -117,7 +117,7 @@ def test_cnn_runs_and_matches_design():
 def test_skip_connection_dag_runs():
     out, code = _run_torch(make_skip(), torch.randn(4, 8))
     assert tuple(out.shape) == (4, 8)
-    assert "= v_relu_1 + x" in code  # merge consumes input var directly
+    assert "x = relu_1 + x" in code  # branch keeps its own name, merge reuses x
 
 
 def test_lstm_sequence_runs():
@@ -134,19 +134,21 @@ def test_keras_functional_syntax_all_models():
         _syntax_ok(code)
         assert "keras.Model(inputs=inputs" in code
     keras_code = generate(make_cnn(), "keras")
-    assert "keras.Input(shape=(28, 28, 1,))" in keras_code  # NHWC translation
+    assert "keras.Input(shape=(28, 28, 1)" in keras_code  # NHWC translation
+    assert 'padding="same"' in keras_code  # torch padding=1, k=3 -> same
     assert "filters=16" in keras_code
 
 
 def test_keras_unsupported_block_raises():
     g = build(
-        ("in", "core.input", {"shape": "4, 16, 16"}),
-        ("a1", "core.adaptive_avgpool2d", {"output_height": 2, "output_width": 2}),
+        ("in", "core.input", {"shape": "4, 15, 15"}),
+        ("a1", "core.adaptive_avgpool2d", {"output_size": 2}),
         ("out", "core.output", {}),
     )
     wire(g, ("in", "a1"), ("a1", "out"))
     assert g.validate() == []
-    with pytest.raises(CodegenError, match="cannot be exported to Keras"):
+    generate(g, "pytorch")  # a Keras gap never blocks PyTorch
+    with pytest.raises(CodegenError, match="no Keras equivalent.*not divisible"):
         generate(g, "keras")
 
 
@@ -163,7 +165,7 @@ def test_generated_script_runs_as_subprocess(tmp_path: Path):
         [sys.executable, str(out)], capture_output=True, text=True, timeout=120
     )
     assert result.returncode == 0, result.stderr
-    assert "(1, 10)" in result.stdout
+    assert "(2, 10)" in result.stdout
 
 
 def test_export_writes_file(tmp_path: Path):
