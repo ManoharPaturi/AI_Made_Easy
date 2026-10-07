@@ -437,6 +437,32 @@ def training_setup(ctx: LintContext):
     return out
 
 
+IMAGENET_MEAN = (0.485, 0.456, 0.406)
+
+
+def pretrained_needs_imagenet_norm(ctx: LintContext):
+    out = []
+    for n in ctx.nodes_of("core.pretrained_backbone"):
+        if n.resolved_params()["weights"] != "imagenet":
+            continue
+        norm = ctx.nodes_of("prep.normalize")
+        ok = False
+        if norm:
+            p = norm[0].resolved_params()
+            try:
+                mean = tuple(round(float(v), 3) for v in str(p["mean"]).split(",") if v.strip())
+            except ValueError:
+                mean = ()
+            ok = p["mode"] == "fixed" and mean == IMAGENET_MEAN
+        if not ok and any(d.type_id.startswith("data.") for d in ctx.graph.nodes.values()):
+            out.append(_issue(
+                "warning",
+                "ImageNet weights expect inputs normalized with mean 0.485, 0.456, 0.406 and "
+                "std 0.229, 0.224, 0.225: add Standardize in fixed mode with these values",
+                n.instance_id))
+    return out
+
+
 def _registry():
     from ai_made_easy.core.registry import get_registry
 
@@ -459,6 +485,7 @@ RULES: list[Callable[[LintContext], list]] = [
     dataset_matches_input,
     loss_output_pairing,
     training_setup,
+    pretrained_needs_imagenet_norm,
 ]
 
 

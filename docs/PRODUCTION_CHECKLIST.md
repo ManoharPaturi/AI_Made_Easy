@@ -55,7 +55,7 @@ into `main` with a merge commit.
       tokenizer vocab ↔ Embedding, time-series window/horizon ↔ model, modality checks,
       param relations (split fractions, Nesterov, scale ranges, odd kernels, ...)
 - [x] End-to-end tests run generated training scripts for every modality (PyTorch + Keras)
-- [ ] Pretrained backbones (torchvision): ResNet, MobileNet, EfficientNet, ConvNeXt, ViT, …
+- [x] Pretrained models: 16 ImageNet backbones (torchvision + keras.applications) and 8 Hugging Face text encoders, frozen or fine-tuned, with input constraints + normalization rule
 - [x] Classic ML family: 55 estimators — linear models, SVMs, neighbors, naive Bayes,
       discriminant analysis, trees & ensembles, sklearn MLPs, clustering (k-Means, DBSCAN,
       HDBSCAN, GMM, ...), anomaly detection; 12 transformers (polynomial, spline, power,

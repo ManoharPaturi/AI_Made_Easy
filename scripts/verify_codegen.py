@@ -54,10 +54,17 @@ VARIANTS: dict[str, list[dict]] = {
     "core.embedding": [{"padding_idx": 0}],
     "core.math": [{"op": "square"}, {"op": "sin"}],
     "core.reshape": [{"target": "4, 8"}, {"target": "8, 2, 16"}],
+    "core.pretrained_backbone": [{"architecture": a, "weights": "none"} for a in (
+        "mobilenet_v3_small", "efficientnet_b0", "densenet121", "convnext_tiny", "vgg16")],
     "core.squeeze": [{"dim": 0}],
 }
 
-CANDIDATE_SHAPES = ([32], [8, 16], [4, 16, 16], [4, 8, 8, 8], [8, 16, 16], [1, 16])
+# defaults that would download weights are replaced for offline verification
+DEFAULT_OVERRIDES = {"core.pretrained_backbone": {"weights": "none"},
+                     "core.hf_text_encoder": None}
+
+CANDIDATE_SHAPES = ([32], [8, 16], [4, 16, 16], [4, 8, 8, 8], [8, 16, 16], [1, 16],
+                    [3, 64, 64])
 
 
 def _graph_for(type_id: str, shape: list[int], params: dict | None = None) -> Graph:
@@ -83,7 +90,10 @@ def block_cases(extra_params: dict | None = None):
             continue
         if defn.type_id in ("core.input", "core.output"):
             continue
-        variants = [{}] + list((extra_params or {}).get(defn.type_id, []))
+        if DEFAULT_OVERRIDES.get(defn.type_id, {}) is None:
+            continue  # needs network downloads (covered by tests that opt in)
+        variants = [DEFAULT_OVERRIDES.get(defn.type_id, {})] + list(
+            (extra_params or {}).get(defn.type_id, []))
         for params in variants:
             for shape in CANDIDATE_SHAPES:
                 g = _graph_for(defn.type_id, shape, params)
