@@ -1,0 +1,98 @@
+{
+  "schema_version": 1,
+  "name": "breast_cancer_rf",
+  "nodes": [
+    {
+      "id": "sklearn_0",
+      "type": "data.sklearn",
+      "params": {
+        "dataset": "breast_cancer"
+      },
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "normalize_1",
+      "type": "prep.normalize",
+      "params": {},
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "class_balance_2",
+      "type": "prep.class_balance",
+      "params": {},
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "random_forest_classifier_3",
+      "type": "ml.random_forest_classifier",
+      "params": {
+        "n_estimators": 300
+      },
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "kfold_4",
+      "type": "train.kfold",
+      "params": {
+        "k": 5
+      },
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "accuracy_5",
+      "type": "eval.accuracy",
+      "params": {},
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "f1_6",
+      "type": "eval.f1",
+      "params": {},
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "roc_auc_7",
+      "type": "eval.roc_auc",
+      "params": {},
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "confusion_matrix_8",
+      "type": "eval.confusion_matrix",
+      "params": {},
+      "position": [
+        0,
+        0
+      ]
+    }
+  ],
+  "edges": [],
+  "meta": {
+    "title": "Breast Cancer \u2014 Random Forest",
+    "description": "scikit-learn Random Forest with standardization, class weights and 5-fold CV."
+  }
+}

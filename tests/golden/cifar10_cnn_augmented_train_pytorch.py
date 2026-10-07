@@ -37,6 +37,8 @@ PIN_MEMORY = True
 DROP_LAST = False
 INPUT_SHAPE = (3, 32, 32)
 NUM_CLASSES = 10
+NORM_MEAN = [0.4914, 0.4822, 0.4465]
+NORM_STD = [0.247, 0.243, 0.261]
 CHECKPOINT = "cifar10_cnn_best.pt"
 CLASS_NAMES = None
 
@@ -116,7 +118,7 @@ def make_datasets():
     idx = np.random.default_rng(SPLIT_SEED).permutation(len(pool))
     n_val = int(len(pool) * VAL_FRACTION)
     train_idx, val_idx, test_idx = idx[n_val:], idx[:n_val], None
-    mean = std = None
+    mean, std = NORM_MEAN, NORM_STD
     eval_tf = build_transforms(train=False, mean=mean, std=std)
     train = TransformedSubset(pool, train_idx, build_transforms(train=True, mean=mean, std=std))
     val = TransformedSubset(pool, val_idx, eval_tf)

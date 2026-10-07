@@ -108,6 +108,7 @@
   ],
   "meta": {
     "framework": "pytorch",
-    "description": "Dense + LayerNorm skip connection via Add"
+    "description": "Dense + LayerNorm block with an additive skip connection.",
+    "title": "Residual MLP"
   }
 }

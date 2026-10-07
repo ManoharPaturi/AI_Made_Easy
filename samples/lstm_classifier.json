@@ -155,6 +155,7 @@
   ],
   "meta": {
     "framework": "pytorch",
-    "description": "LSTM \u2192 mean-over-time head with OneCycle"
+    "description": "LSTM over 50-step sequences with a mean-over-time head (synthetic data).",
+    "title": "Sequence Classifier \u2014 LSTM"
   }
 }

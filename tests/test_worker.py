@@ -24,7 +24,7 @@ def run_worker(script: Path, cwd: Path) -> list[dict]:
         [sys.executable, str(worker_script_path()), str(script)],
         capture_output=True, text=True, timeout=300, cwd=cwd,
     )
-    events = [e for e in (parse_event(l) for l in proc.stdout.splitlines()) if e]
+    events = [e for e in (parse_event(line) for line in proc.stdout.splitlines()) if e]
     assert proc.returncode == 0, proc.stderr
     return events
 
@@ -79,7 +79,7 @@ def test_worker_reports_crashes_as_error_events(tmp_path: Path):
         [sys.executable, str(worker_script_path()), str(bad)],
         capture_output=True, text=True, timeout=60, cwd=tmp_path,
     )
-    events = [e for e in (parse_event(l) for l in proc.stdout.splitlines()) if e]
+    events = [e for e in (parse_event(line) for line in proc.stdout.splitlines()) if e]
     errors = [e for e in events if e["type"] == "error"]
     assert errors and "RuntimeError: boom" in errors[0]["traceback"]
     assert events[-1]["type"] == "done" and events[-1]["returncode"] == 1

@@ -123,30 +123,31 @@ import sys
 from ai_made_easy.ui.app import _ensure_qt_plugin_path
 _ensure_qt_plugin_path()
 from PySide6 import QtWidgets, QtCore
+QtCore.QCoreApplication.setOrganizationName("aime-tests")
+QtCore.QCoreApplication.setApplicationName("smoke")
 app = QtWidgets.QApplication([])
-from ai_made_easy.ui.theme import ThemeService
-ThemeService().apply(app, "dark")
 from ai_made_easy.ui.context import AppContext
 from ai_made_easy.ui.workbench import Workbench
 ctx = AppContext()
 win = Workbench(ctx)
 win.show()
 def check():
-    panels = [win.findChild(QtWidgets.QFrame, n)
-              for n in ("panel.blocks", "panel.canvas",
-                        "panel.inspector", "panel.runconsole")]
-    assert all(p is not None for p in panels), panels
-    assert not win.findChildren(QtWidgets.QDockWidget), "docks are gone"
+    docks = {d.objectName() for d in win.findChildren(QtWidgets.QDockWidget)}
+    assert docks == {"dock.library", "dock.inspector", "dock.problems", "dock.output",
+                     "dock.training"}, docks
     menus = [m.text() for m in win.menuBar().actions() if m.text()]
-    assert menus == ["&File", "&Edit", "&View", "&Help"], menus
-    assert len(win.actions) >= 16
-    assert ctx.validation_store.valid or ctx.validation_store.issues is not None
+    assert menus == ["&File", "&Edit", "&View", "&Model", "&Run", "E&xport", "&Help"], menus
+    assert len(win.actions) >= 40
+    assert ctx.validation_store.valid, [str(i) for i in ctx.validation_store.issues]
+    assert ctx.canvas.node_graph.all_nodes(), "demo project should be loaded"
+    assert not ctx.project_store.dirty, "opening a project must not mark it dirty"
     ok = win.grab().save("/tmp/aime_workbench_smoke.png")
     assert ok
     print("SMOKE-OK", flush=True)
+    ctx.project_store.mark_clean()
     app.quit()
-QtCore.QTimer.singleShot(1500, check)
-QtCore.QTimer.singleShot(10000, app.quit)
+QtCore.QTimer.singleShot(2000, check)
+QtCore.QTimer.singleShot(20000, app.quit)
 app.exec()
 """
 

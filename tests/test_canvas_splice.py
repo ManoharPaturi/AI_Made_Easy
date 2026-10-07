@@ -61,7 +61,6 @@ def test_save_selection_roundtrip(qapp, tmp_path: Path, monkeypatch):
 
     canvas = _make_canvas(qapp)
     canvas.seed_demo()
-    ir = canvas.to_ir("demo")
     # pick the conv..gap run as selection
     graph = canvas.node_graph
     first_conv = next(n for n in graph.all_nodes() if n.type_ == node_type_for("core.conv2d"))

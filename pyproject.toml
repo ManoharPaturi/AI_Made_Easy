@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ai-made-easy"
-version = "0.1.0"
-description = "AI Made Easy - a visual block-based AI model builder: design, train, and export PyTorch/Keras code"
+version = "1.0.0"
+description = "Visual model builder: design neural networks and classic ML pipelines, train them, and export clean PyTorch, Keras and scikit-learn code"
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
@@ -31,7 +31,13 @@ llm = [
     "faiss-cpu>=1.8",
     "sentence-transformers>=3.0",
 ]
-dev = ["pytest>=8.0", "pytest-qt>=4.4", "pillow>=10"]
+vision = ["torchvision>=0.17", "pillow>=10"]
+data = ["pandas>=2.0", "pyarrow>=14", "openpyxl>=3.1"]
+classic = ["scikit-learn>=1.4", "joblib>=1.3", "xgboost>=2.0", "lightgbm>=4.0",
+           "catboost>=1.2", "pandas>=2.0"]
+keras = ["keras>=3.6"]
+all = ["ai-made-easy[torch,vision,data,classic,keras,llm,mcp-server]"]
+dev = ["pytest>=8.0", "pytest-qt>=4.4", "pillow>=10", "ruff>=0.6"]
 perception = ["sounddevice>=0.4"]
 mcp-server = ["mcp[cli]>=1.0,<2"]
 
@@ -44,3 +50,15 @@ include = ["ai_made_easy*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+extend-exclude = ["tests/golden", "reference", "exports"]
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "B006", "B008", "B905"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["E402"]
+"scripts/*" = ["E402"]

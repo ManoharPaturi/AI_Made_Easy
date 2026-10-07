@@ -1,0 +1,167 @@
+{
+  "schema_version": 1,
+  "name": "iris_mlp",
+  "nodes": [
+    {
+      "id": "input",
+      "type": "core.input",
+      "params": {
+        "shape": "4",
+        "dtype": "float32"
+      },
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "dense_0",
+      "type": "core.dense",
+      "params": {
+        "units": 32
+      },
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "relu_1",
+      "type": "core.relu",
+      "params": {},
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "dropout_2",
+      "type": "core.dropout",
+      "params": {
+        "p": 0.1
+      },
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "dense_3",
+      "type": "core.dense",
+      "params": {
+        "units": 3
+      },
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "output",
+      "type": "core.output",
+      "params": {},
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "sklearn_c0",
+      "type": "data.sklearn",
+      "params": {
+        "dataset": "iris"
+      },
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "normalize_c1",
+      "type": "prep.normalize",
+      "params": {
+        "mode": "fit"
+      },
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "loss_cross_entropy_c2",
+      "type": "train.loss_cross_entropy",
+      "params": {},
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "adamw_c3",
+      "type": "train.adamw",
+      "params": {
+        "lr": 0.01
+      },
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "trainer_c4",
+      "type": "train.trainer",
+      "params": {
+        "epochs": 60,
+        "batch_size": 16
+      },
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "accuracy_c5",
+      "type": "eval.accuracy",
+      "params": {},
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "f1_c6",
+      "type": "eval.f1",
+      "params": {},
+      "position": [
+        0,
+        0
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "from": "input/out",
+      "to": "dense_0/in"
+    },
+    {
+      "from": "dense_0/out",
+      "to": "relu_1/in"
+    },
+    {
+      "from": "relu_1/out",
+      "to": "dropout_2/in"
+    },
+    {
+      "from": "dropout_2/out",
+      "to": "dense_3/in"
+    },
+    {
+      "from": "dense_3/out",
+      "to": "output/in"
+    }
+  ],
+  "meta": {
+    "title": "Iris \u2014 Tabular Neural Network",
+    "description": "Small MLP on the Iris measurements with standardization and k-fold validation."
+  }
+}

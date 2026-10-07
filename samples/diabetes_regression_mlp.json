@@ -1,0 +1,201 @@
+{
+  "schema_version": 1,
+  "name": "diabetes_mlp",
+  "nodes": [
+    {
+      "id": "input",
+      "type": "core.input",
+      "params": {
+        "shape": "10",
+        "dtype": "float32"
+      },
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "dense_0",
+      "type": "core.dense",
+      "params": {
+        "units": 64
+      },
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "gelu_1",
+      "type": "core.gelu",
+      "params": {},
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "dense_2",
+      "type": "core.dense",
+      "params": {
+        "units": 32
+      },
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "gelu_3",
+      "type": "core.gelu",
+      "params": {},
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "dense_4",
+      "type": "core.dense",
+      "params": {
+        "units": 1
+      },
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "output",
+      "type": "core.output",
+      "params": {},
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "sklearn_c0",
+      "type": "data.sklearn",
+      "params": {
+        "dataset": "diabetes"
+      },
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "normalize_c1",
+      "type": "prep.normalize",
+      "params": {
+        "mode": "fit"
+      },
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "loss_huber_c2",
+      "type": "train.loss_huber",
+      "params": {},
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "adamw_c3",
+      "type": "train.adamw",
+      "params": {
+        "lr": 0.003
+      },
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "warmup_cosine_lr_c4",
+      "type": "train.warmup_cosine_lr",
+      "params": {
+        "warmup_epochs": 5
+      },
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "trainer_c5",
+      "type": "train.trainer",
+      "params": {
+        "epochs": 120,
+        "batch_size": 32,
+        "early_stopping_patience": 15
+      },
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "mae_c6",
+      "type": "eval.mae",
+      "params": {},
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "rmse_c7",
+      "type": "eval.rmse",
+      "params": {},
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "r2_c8",
+      "type": "eval.r2",
+      "params": {},
+      "position": [
+        0,
+        0
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "from": "input/out",
+      "to": "dense_0/in"
+    },
+    {
+      "from": "dense_0/out",
+      "to": "gelu_1/in"
+    },
+    {
+      "from": "gelu_1/out",
+      "to": "dense_2/in"
+    },
+    {
+      "from": "dense_2/out",
+      "to": "gelu_3/in"
+    },
+    {
+      "from": "gelu_3/out",
+      "to": "dense_4/in"
+    },
+    {
+      "from": "dense_4/out",
+      "to": "output/in"
+    }
+  ],
+  "meta": {
+    "title": "Diabetes \u2014 Regression Network",
+    "description": "MLP regressor on the diabetes progression dataset with Huber loss."
+  }
+}

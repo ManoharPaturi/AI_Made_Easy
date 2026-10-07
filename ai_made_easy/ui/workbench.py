@@ -1,168 +1,179 @@
-"""Workbench: the shell, and ONLY the shell (Orange CanvasMainWindow logic).
+"""Workbench: the main window shell — layout, chrome and lifecycle only.
 
-Build phases in order — setup_actions() -> setup_ui() -> setup_menus() —
-then restore saved geometry/state. All behavior lives in AppContext
-services; this class owns layout, chrome, and lifecycle only.
+Build phases: setup_actions() → setup_ui() → setup_menus(), then restore the
+saved layout. All behaviour lives in AppContext; this class arranges the
+toolbar, dock panels, menus and status bar around the canvas.
 """
 from __future__ import annotations
 
 from PySide6 import QtCore, QtGui, QtWidgets
 
+from ai_made_easy import __version__
 from ai_made_easy.ui import context as context_mod
-from ai_made_easy.ui.actions_catalog import CATALOG, MENU_ORDER, build_actions
+from ai_made_easy.ui import icons
+from ai_made_easy.ui.actions_catalog import CATALOG, MENU_ORDER, TOOLBAR, build_actions
 
 _SETTINGS_KEY = "aime/workbench"
-SETTINGS_VERSION = 2  # v2: dock state -> one-page workspace splitters
+SETTINGS_VERSION = 3  # v3: dock-based professional workbench
 
-_APP_TITLE = "AI Made Easy — Visual Model Builder"
+_APP_TITLE = "AI Made Easy"
 
 
 class Workbench(QtWidgets.QMainWindow):
     def __init__(self, ctx: "context_mod.AppContext"):
         super().__init__()
         self.ctx = ctx
-        self.setWindowTitle(self.tr(_APP_TITLE))  # i18n groundwork (tr pass)
-        self.resize(1500, 900)
-
+        self.setWindowTitle(_APP_TITLE)
+        self.resize(1560, 940)
+        self.setDockNestingEnabled(True)
         self.actions = build_actions(ctx, self)
         self.setup_actions()
         self.setup_ui()
         self.setup_menus()
         self._restore()
-        ctx.status_message.connect(self.statusBar().showMessage)
-        trust = QtWidgets.QLabel(self.tr("🌱 offline · your data stays on this "
-                                         "computer"))
-        trust.setObjectName("statusTrust")
-        self.statusBar().addPermanentWidget(trust)
+        ctx.attach_window(self)
 
     # ------------------------------------------------------------- phases
 
     def setup_actions(self) -> None:
-        """QActions exist before UI and menus reference them (Orange rule)."""
-        for window in (self,):
-            for action in self.actions.values():
-                window.addAction(action)  # shortcuts work app-window-wide
-
-        self.cmdk_action = QtGui.QAction(
-            self.tr("Quick &Actions..."), self)
-        self.cmdk_action.setShortcut(
-            QtGui.QKeySequence("Ctrl+K"))
-        self.cmdk_action.setToolTip("Search every action and block (⌘K)")
+        for action in self.actions.values():
+            self.addAction(action)
+        self.cmdk_action = QtGui.QAction("Command Palette…", self)
+        self.cmdk_action.setShortcut(QtGui.QKeySequence("Ctrl+K"))
+        self.cmdk_action.setIcon(icons.icon("search"))
         self.addAction(self.cmdk_action)
-
-        classroom = self.actions.get("view.theme_classroom")
-        dark = self.actions.get("view.theme_dark")
-        light = self.actions.get("view.theme_light")
         group = QtGui.QActionGroup(self)
-        for act in (classroom, dark, light):
-            if act is not None:
-                group.addAction(act)
-        if classroom is not None:
-            classroom.setChecked(ctx_theme_is(self.ctx, "classroom"))
+        for key in ("view.theme_dark", "view.theme_light"):
+            group.addAction(self.actions[key])
+        self.actions[f"view.theme_{self.ctx.theme.active()}"].setChecked(True)
 
     def setup_ui(self) -> None:
-        header_bar = self.addToolBar("Header")
-        header_bar.setObjectName("toolbar.header")
-        header_bar.setMovable(False)
-        header_bar.setAllowedAreas(QtCore.Qt.ToolBarArea.TopToolBarArea)
-        header_bar.addWidget(self.ctx.header)
-        # native mac feel: the header lives IN the title bar (Xcode-style)
-        self.setUnifiedTitleAndToolBarOnMac(True)
-        self.setProperty("unifiedHeader", True)
+        bar = QtWidgets.QToolBar("Main")
+        bar.setObjectName("toolbar.main")
+        bar.setMovable(False)
+        bar.setIconSize(QtCore.QSize(18, 18))
+        bar.setToolButtonStyle(QtCore.Qt.ToolButtonStyle.ToolButtonIconOnly)
+        self.addToolBar(QtCore.Qt.ToolBarArea.TopToolBarArea, bar)
+        bar.addWidget(self.ctx.project_field)
+        bar.addSeparator()
+        for key in TOOLBAR:
+            if key == "|":
+                bar.addSeparator()
+                continue
+            bar.addAction(self.actions[key])
+            button = bar.widgetForAction(self.actions[key])
+            if key == "run.train":
+                button.setObjectName("primaryAction")
+                button.setToolButtonStyle(QtCore.Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+                self.actions[key].setIcon(icons.icon("play", color="#ffffff"))
+            elif key == "run.stop":
+                button.setObjectName("stopAction")
+        export = QtWidgets.QToolButton()
+        export.setText("Export")
+        export.setIcon(icons.icon("download"))
+        export.setToolButtonStyle(QtCore.Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        export.setPopupMode(QtWidgets.QToolButton.ToolButtonPopupMode.InstantPopup)
+        self.export_menu = QtWidgets.QMenu(export)
+        export.setMenu(self.export_menu)
+        bar.addWidget(export)
+        spacer = QtWidgets.QWidget()
+        spacer.setObjectName("toolbarSpacer")
+        spacer.setSizePolicy(QtWidgets.QSizePolicy.Policy.Expanding,
+                             QtWidgets.QSizePolicy.Policy.Preferred)
+        bar.addWidget(spacer)
+        palette_button = QtWidgets.QToolButton()
+        palette_button.setDefaultAction(self.cmdk_action)
+        palette_button.setText("Search  ⌘K")
+        palette_button.setToolButtonStyle(QtCore.Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        bar.addWidget(palette_button)
 
-        from ai_made_easy.ui.features.workspace import Workspace
+        self.setCentralWidget(self.ctx.canvas_area)
+        self.docks = {}
+        for key, title, widget, area in (
+                ("library", "Block Library", self.ctx.library,
+                 QtCore.Qt.DockWidgetArea.LeftDockWidgetArea),
+                ("inspector", "Inspector", self.ctx.inspector_tabs,
+                 QtCore.Qt.DockWidgetArea.RightDockWidgetArea),
+                ("problems", "Problems", self.ctx.problems,
+                 QtCore.Qt.DockWidgetArea.BottomDockWidgetArea),
+                ("output", "Output", self.ctx.output_page,
+                 QtCore.Qt.DockWidgetArea.BottomDockWidgetArea),
+                ("training", "Training", self.ctx.training_page,
+                 QtCore.Qt.DockWidgetArea.BottomDockWidgetArea)):
+            dock = QtWidgets.QDockWidget(title, self)
+            dock.setObjectName(f"dock.{key}")
+            dock.setWidget(widget)
+            dock.setFeatures(QtWidgets.QDockWidget.DockWidgetFeature.DockWidgetMovable
+                             | QtWidgets.QDockWidget.DockWidgetFeature.DockWidgetClosable
+                             | QtWidgets.QDockWidget.DockWidgetFeature.DockWidgetFloatable)
+            self.addDockWidget(area, dock)
+            self.docks[key] = dock
+        self.tabifyDockWidget(self.docks["problems"], self.docks["output"])
+        self.tabifyDockWidget(self.docks["output"], self.docks["training"])
+        self.docks["problems"].raise_()
+        self.resizeDocks([self.docks["library"], self.docks["inspector"]], [270, 360],
+                         QtCore.Qt.Orientation.Horizontal)
+        self.resizeDocks([self.docks["problems"]], [230], QtCore.Qt.Orientation.Vertical)
 
-        self.workspace = Workspace(self.ctx)
-        self.setCentralWidget(self.workspace)
-        # ⌨️ blocks ↔ python: toggle lives on the canvas, pane in the workspace
-        self.ctx.canvas_controls.code_toggle_clicked.connect(
-            self.workspace.toggle_code_pane)
-        self.ctx.side_code.connect(self.workspace.set_side_code)
+        status = self.statusBar()
+        status.setSizeGripEnabled(False)
+        for chip in self.ctx.status_chips:
+            status.addPermanentWidget(chip)
 
-        # ⌘K quick actions: palette + header pill + shortcut, one behavior
         from ai_made_easy.ui.features.command_palette import CommandPalette
-
-        # the header's core intents are palettable too (they aren't menus)
-        core = {}
-        for key, label, signal_name in (
-                ("run.train", "▶ Train the model", "train_clicked"),
-                ("run.test", "⚡ Test run — one forward pass", "test_clicked"),
-                ("graph.validate", "✓ Validate the graph", "validate_clicked"),
-                ("llm.script", "⤓ Generate LLM script", "llm_clicked")):
-            act = QtGui.QAction(label, self)
-            act.triggered.connect(
-                getattr(self.ctx.header, signal_name).emit)
-            core[key] = act
-        self.command_palette = CommandPalette(
-            {**core, **self.actions}, self)
-        self.command_palette.place_requested.connect(
-            self.ctx.palette.place_requested)
-        self.cmdk_action.triggered.connect(
-            lambda: self.command_palette.open_at(self))
-        self.ctx.header.quick_actions_clicked.connect(
-            lambda: self.command_palette.open_at(self))
-
-        # applause: every status message also floats as a toast
         from ai_made_easy.ui.features.toasts import ToastLayer
 
+        self.command_palette = CommandPalette(self.actions, self)
+        self.command_palette.place_requested.connect(self.ctx.place_block)
+        self.cmdk_action.triggered.connect(lambda: self.command_palette.open_at(self))
         self.toasts = ToastLayer(self)
-        self.ctx.status_message.connect(self.toasts.toast)
 
     def setup_menus(self) -> None:
-        """Menus only assemble existing actions (Orange rule)."""
         for menu_name in MENU_ORDER:
             menu = self.menuBar().addMenu(menu_name)
             for spec in CATALOG:
                 if spec.menu != menu_name:
                     continue
                 menu.addAction(self.actions[spec.id])
+                if spec.menu == "E&xport":
+                    self.export_menu.addAction(self.actions[spec.id])
                 if spec.separator_after:
                     menu.addSeparator()
-            if menu_name == "&Help":
+                    if spec.menu == "E&xport":
+                        self.export_menu.addSeparator()
+            if menu_name == "&View":
+                panels = menu.addMenu("Panels")
+                for dock in self.docks.values():
+                    panels.addAction(dock.toggleViewAction())
+            if menu_name == "&Edit":
                 menu.addSeparator()
                 menu.addAction(self.cmdk_action)
 
     # ---------------------------------------------------------- lifecycle
 
     def closeEvent(self, event) -> None:  # noqa: N802 (Qt name)
-        if self.ctx.run_store.is_running:
-            self.ctx.process_service.stop()
-        if self.ctx.project_store.dirty and not self._confirm_discard():
+        if not self.ctx.confirm_close(self):
             event.ignore()
             return
         self._save_state()
         super().closeEvent(event)
 
-    def _confirm_discard(self) -> bool:
-        answer = QtWidgets.QMessageBox.question(
-            self, "Unsaved changes",
-            f"'{self.ctx.project_store.name}' has unsaved changes.",
-            QtWidgets.QMessageBox.StandardButton.Save
-            | QtWidgets.QMessageBox.StandardButton.Discard
-            | QtWidgets.QMessageBox.StandardButton.Cancel)
-        if answer == QtWidgets.QMessageBox.StandardButton.Save:
-            self.ctx.act_save()
-            return not self.ctx.project_store.dirty
-        return answer == QtWidgets.QMessageBox.StandardButton.Discard
-
     def _save_state(self) -> None:
         settings = QtCore.QSettings(_SETTINGS_KEY)
-        settings.beginGroup("workbench")
         settings.setValue("version", SETTINGS_VERSION)
         settings.setValue("geometry", self.saveGeometry())
-        self.workspace.save_state(settings)
-        settings.endGroup()
+        settings.setValue("state", self.saveState(SETTINGS_VERSION))
+        settings.setValue("theme", self.ctx.theme.active())
 
     def _restore(self) -> None:
         settings = QtCore.QSettings(_SETTINGS_KEY)
-        settings.beginGroup("workbench")
-        if int(settings.value("version", 0)) == SETTINGS_VERSION:
-            geometry = settings.value("geometry")
-            if geometry:
-                self.restoreGeometry(geometry)
-            self.workspace.restore_state(settings)
-        settings.endGroup()
+        if int(settings.value("version", 0) or 0) != SETTINGS_VERSION:
+            return
+        geometry, state = settings.value("geometry"), settings.value("state")
+        if geometry:
+            self.restoreGeometry(geometry)
+        if state:
+            self.restoreState(state, SETTINGS_VERSION)
 
-
-def ctx_theme_is(ctx, name: str) -> bool:
-    return ctx.theme.active() == name
+    def version(self) -> str:
+        return __version__

@@ -1,4 +1,4 @@
-"""ToastLayer: floating top-centre notifications (the app's applause).
+"""ToastLayer: transient top-centre notifications.
 
 One transparent overlay child of the main window; every ``status_message``
 also lands here as a soft pill that fades in, lives ~3s, fades out, and

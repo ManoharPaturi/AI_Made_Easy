@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from ai_made_easy.core.codegen import CodegenError, export_training
+from ai_made_easy.core.codegen import export_training
 from ai_made_easy.core.codegen.training_gen import collect_spec, generate_training
 from ai_made_easy.core.graph import Edge, Graph, NodeInstance
 from ai_made_easy.core.summary import summarize

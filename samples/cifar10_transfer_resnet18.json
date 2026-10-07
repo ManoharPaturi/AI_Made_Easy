@@ -1,0 +1,168 @@
+{
+  "schema_version": 1,
+  "name": "cifar10_transfer",
+  "nodes": [
+    {
+      "id": "input",
+      "type": "core.input",
+      "params": {
+        "shape": "3, 64, 64",
+        "dtype": "float32"
+      },
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "pretrained_backbone_0",
+      "type": "core.pretrained_backbone",
+      "params": {
+        "architecture": "resnet18"
+      },
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "dropout_1",
+      "type": "core.dropout",
+      "params": {
+        "p": 0.2
+      },
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "dense_2",
+      "type": "core.dense",
+      "params": {
+        "units": 10
+      },
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "output",
+      "type": "core.output",
+      "params": {},
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "torchvision_c0",
+      "type": "data.torchvision",
+      "params": {
+        "dataset": "cifar10"
+      },
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "resize_c1",
+      "type": "prep.resize",
+      "params": {
+        "height": 64,
+        "width": 64
+      },
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "random_flip_c2",
+      "type": "prep.random_flip",
+      "params": {},
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "normalize_c3",
+      "type": "prep.normalize",
+      "params": {
+        "mode": "fixed",
+        "mean": "0.485, 0.456, 0.406",
+        "std": "0.229, 0.224, 0.225"
+      },
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "loss_cross_entropy_c4",
+      "type": "train.loss_cross_entropy",
+      "params": {},
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "adam_c5",
+      "type": "train.adam",
+      "params": {
+        "lr": 0.001
+      },
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "trainer_c6",
+      "type": "train.trainer",
+      "params": {
+        "epochs": 5,
+        "batch_size": 128
+      },
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "accuracy_c7",
+      "type": "eval.accuracy",
+      "params": {},
+      "position": [
+        0,
+        0
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "from": "input/out",
+      "to": "pretrained_backbone_0/in"
+    },
+    {
+      "from": "pretrained_backbone_0/out",
+      "to": "dropout_1/in"
+    },
+    {
+      "from": "dropout_1/out",
+      "to": "dense_2/in"
+    },
+    {
+      "from": "dense_2/out",
+      "to": "output/in"
+    }
+  ],
+  "meta": {
+    "title": "CIFAR-10 \u2014 Transfer Learning (ResNet-18)",
+    "description": "Frozen ImageNet ResNet-18 features with a trainable linear classifier."
+  }
+}

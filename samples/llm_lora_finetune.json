@@ -118,6 +118,7 @@
   ],
   "meta": {
     "framework": "llm",
-    "description": "LoRA SFT from a text file"
+    "description": "Parameter-efficient supervised fine-tuning with LoRA.",
+    "title": "LLM \u2014 LoRA Fine-Tuning"
   }
 }

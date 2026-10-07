@@ -33,7 +33,7 @@ def test_spec_collects_config_blocks():
     assert spec.trainer["epochs"] == 10
     assert spec.trainer["early_stopping_patience"] == 3
     assert "accuracy" in spec.metric_keys
-    assert spec.task == "multiclass" and spec.modality == "tabular"  # synthetic default
+    assert spec.task == "multiclass" and spec.modality == "image"
     assert collect_spec(load("cifar10_cnn_augmented.json")).modality == "image"
 
 

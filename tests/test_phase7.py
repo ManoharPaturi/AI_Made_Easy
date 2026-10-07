@@ -248,7 +248,7 @@ def test_themes_apply_and_canvas_colors_follow(qapp):
     canvas = CanvasController()
     for name in ("light", "dark"):
         service.apply(app, name)
-        canvas.apply_theme(service.canvas_colors())
+        canvas.apply_theme(service.tokens())
         bg, _grid = service.canvas_colors()
         assert bg == THEMES[name]["CANVAS_BG"]
         assert service.active() == name

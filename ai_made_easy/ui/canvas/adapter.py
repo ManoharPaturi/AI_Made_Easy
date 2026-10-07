@@ -11,8 +11,8 @@ from __future__ import annotations
 from pathlib import Path
 
 from OdenGraphQt import NodeGraph
-from OdenGraphQt.constants import PipeLayoutEnum
-from PySide6 import QtGui
+from OdenGraphQt.constants import MIME_TYPE, URN_SCHEME, PipeLayoutEnum
+from PySide6 import QtCore, QtGui
 
 from ai_made_easy.core.composites import Fragment
 from ai_made_easy.core.graph import Edge, Graph, NodeInstance
@@ -23,20 +23,38 @@ from ai_made_easy.ui.canvas.node_factory import (
     NODE_TYPE_TO_BLOCK,
     make_node_class,
     node_type_for,
+    prop_name,
 )
 
-_ERROR_COLOR = (255, 73, 73, 255)
+
+
+def _fmt(value) -> str:
+    if isinstance(value, bool):
+        return "on" if value else "off"
+    if isinstance(value, float):
+        return f"{value:g}"
+    return str(value)
+
+
+def block_mime_data(type_id: str) -> QtCore.QMimeData:
+    """Drag payload understood by the canvas: dropping creates the block."""
+    mime = QtCore.QMimeData()
+    node_type = node_type_for(type_id) or ""
+    mime.setData(MIME_TYPE, QtCore.QByteArray(f"{URN_SCHEME}node:{node_type}".encode()))
+    return mime
 
 
 class CanvasController:
     def __init__(self) -> None:
-        from ai_made_easy.ui.theme import CANVAS_BG, CANVAS_GRID
+        from ai_made_easy.ui.theme import DEFAULT_THEME, THEMES
 
         self._graph = NodeGraph()
         self._graph.set_acyclic(True)
-        self._graph.set_background_color(*CANVAS_BG)
-        self._graph.set_grid_color(*CANVAS_GRID)
         self._graph.set_pipe_style(PipeLayoutEnum.CURVED.value)
+        from PySide6 import QtWidgets
+
+        self._graph.viewer().setFrameShape(QtWidgets.QFrame.Shape.NoFrame)
+        self.apply_theme(THEMES[DEFAULT_THEME])
         for block in get_registry().all():
             self._graph.register_node(make_node_class(block))
         template_store.register_user_templates(
@@ -62,8 +80,8 @@ class CanvasController:
                 return
             names = (out_port.node().name(), in_port.node().name())
             out_port.disconnect_from(in_port)
-            msg = (f"✋ undone: {names[0]} and {names[1]} speak different "
-                   "languages (data vs settings) — they can't be wired together")
+            msg = (f"Connection removed: {names[0]} and {names[1]} have incompatible "
+                   "ports (tensor vs configuration)")
         except Exception:  # never break the canvas over a guard hiccup
             return
         for notify in self.guard_notifiers:
@@ -83,15 +101,79 @@ class CanvasController:
         type_id = NODE_TYPE_TO_BLOCK.get(node.type_)
         return get_registry().get(type_id) if type_id else None
 
-    def apply_theme(self, canvas_colors=None) -> None:
-        if canvas_colors is None:
-            from ai_made_easy.ui.theme import THEMES
+    def apply_theme(self, tokens: dict) -> None:
+        """Adopt theme tokens for the canvas background, grid and nodes."""
+        from ai_made_easy.ui.canvas import painter
 
-            t = THEMES.get("dark")
-            canvas_colors = (t["CANVAS_BG"], t["CANVAS_GRID"])
-        bg, grid = canvas_colors
-        self._graph.set_background_color(*bg)
-        self._graph.set_grid_color(*grid)
+        painter.set_theme(tokens)
+        self._graph.set_background_color(*tokens["CANVAS_BG"])
+        self._graph.set_grid_color(*tokens["CANVAS_GRID"])
+        self._graph.viewer().scene().update()
+
+    # ------------------------------------------------------- node access
+
+    def _node(self, node_id: str):
+        for node in self._graph.all_nodes():
+            if node.id == node_id:
+                return node
+        return None
+
+    def block_of(self, node_id: str) -> BlockDefinition | None:
+        node = self._node(node_id)
+        return self.definition_of(node) if node is not None else None
+
+    def params_of(self, node_id: str) -> dict:
+        node = self._node(node_id)
+        return self._node_params(node) if node is not None else {}
+
+    def set_param(self, node_id: str, name: str, value) -> None:
+        node = self._node(node_id)
+        if node is not None and node.get_property(prop_name(name)) != value:
+            node.set_property(prop_name(name), value)
+
+    def node_title(self, node_id: str) -> str:
+        node = self._node(node_id)
+        return node.name() if node is not None else ""
+
+    def selected_ids(self) -> list[str]:
+        return [n.id for n in self._graph.selected_nodes()]
+
+    def delete_selected(self) -> int:
+        nodes = self._graph.selected_nodes()
+        if nodes:
+            self._graph.delete_nodes(nodes)
+        return len(nodes)
+
+    def select_all(self) -> None:
+        for node in self._graph.all_nodes():
+            node.set_selected(True)
+
+    def auto_layout(self, graph: Graph) -> None:
+        """Layered left-to-right layout: model flow by depth, config blocks below."""
+        depth: dict[str, int] = {}
+        try:
+            order = graph.topo_order()
+        except Exception:  # noqa: BLE001 — cycles are reported by validation
+            return
+        for nid in order:
+            preds = [e.source_id for e in graph.incoming(nid)]
+            depth[nid] = max((depth[p] + 1 for p in preds if p in depth), default=0)
+        flow = [nid for nid in order if graph.incoming(nid) or graph.outgoing(nid)]
+        config = [nid for nid in order if nid not in flow]
+        columns: dict[int, list[str]] = {}
+        for nid in flow:
+            columns.setdefault(depth[nid], []).append(nid)
+        for col, ids in columns.items():
+            for row, nid in enumerate(ids):
+                node = self._node(nid)
+                if node is not None:
+                    node.set_pos(col * 250.0, row * 120.0 - (len(ids) - 1) * 60.0)
+        base_y = max((len(ids) for ids in columns.values()), default=1) * 60.0 + 140.0
+        for i, nid in enumerate(config):
+            node = self._node(nid)
+            if node is not None:
+                node.set_pos((i % 5) * 230.0, base_y + (i // 5) * 100.0)
+        self.center_view()
 
     # ------------------------------------------------------ canvas <-> IR
 
@@ -104,7 +186,7 @@ class CanvasController:
                 continue  # backdrop / note nodes
             params = {}
             for spec in reg.get(type_id).params:
-                params[spec.name] = node.get_property(spec.name)
+                params[spec.name] = node.get_property(prop_name(spec.name))
             g.add_node(NodeInstance(node.id, type_id, params,
                                     (node.x_pos(), node.y_pos())))
         for node in self._graph.all_nodes():
@@ -131,7 +213,7 @@ class CanvasController:
                 cls_type, name=inst.definition().display_name,
                 pos=inst.position, selected=False)
             for key, value in inst.params.items():
-                node.set_property(key, value)
+                node.set_property(prop_name(key), value)
             canvas_nodes[inst.instance_id] = node
         for edge in graph.edges:
             src = canvas_nodes[edge.source_id]
@@ -141,7 +223,6 @@ class CanvasController:
             if port_out is not None and port_in is not None:
                 port_out.connect_to(port_in)
         self.center_view()
-        self.thicken_pipes()
 
     def load_demo(self, demo_path: Path | None = None) -> None:
         import json
@@ -178,25 +259,19 @@ class CanvasController:
     def zoom(self, steps: int) -> None:
         self._graph.set_zoom(self._graph.viewer().get_zoom() + steps)
 
-    def place_block(self, type_id: str) -> str:
-        """Create a block at the viewport center; returns its display name."""
+    def place_block(self, type_id: str, pos: tuple[float, float] | None = None) -> str:
+        """Create a block (default: viewport centre); returns its display name."""
         cls_type = node_type_for(type_id)
         if cls_type is None:
             raise ValueError(f"unknown block type {type_id}")
-        x, y = self.scene_center()
+        x, y = pos if pos is not None else self.scene_center()
         node = self._graph.create_node(cls_type,
                                        name=get_registry().get(type_id).display_name,
                                        pos=(x, y))
         return node.name()
 
-    def thicken_pipes(self) -> None:
-        from OdenGraphQt.qgraphics.pipe import PipeItem
-
-        for item in self._graph.viewer().scene().items():
-            if isinstance(item, PipeItem):
-                color = item.pen().color()
-                item.set_pipe_styling((color.red(), color.green(), color.blue(),
-                                       color.alpha()), width=2.6)
+    def thicken_pipes(self) -> None:  # styling now lives in the painter
+        return
 
     # -------------------------------------------------- validation visuals
 
@@ -204,37 +279,35 @@ class CanvasController:
                          warning_node_ids: set | None = None,
                          shapes: dict | None = None,
                          issues: list | None = None) -> None:
-        """Red ports + ✖ badge on error nodes, ⚠ badge on warnings; family
-        shade otherwise. The tooltip carries the output shape (Orange's
-        state-summary idea) plus this node's issues (its severity-icon
-        tooltip idea)."""
+        """Outline nodes with problems and show live shapes / settings on each card."""
         warning_node_ids = warning_node_ids or set()
         msgs: dict[str, list[str]] = {}
         for i in issues or []:
             if i.node_id:
-                glyph = "✖" if i.severity == "error" else "⚠"
-                msgs.setdefault(i.node_id, []).append(f"{glyph} {i.message}")
+                msgs.setdefault(i.node_id, []).append(
+                    f"{'Error' if i.severity == 'error' else 'Warning'}: {i.message}")
         for node in self._graph.all_nodes():
             node_def = self.definition_of(node)
-            badge = None
-            if node.id in error_node_ids:
-                color = _ERROR_COLOR
-                badge = "error"
-            elif node.id in warning_node_ids:
-                color = (QtGui.QColor(node_def.color).darker(135).getRgb()
-                         if node_def is not None else (180, 180, 90, 255))
-                badge = "warning"
-            elif node_def is not None:
-                color = QtGui.QColor(node_def.color).darker(135).getRgb()
-            else:
-                color = (180, 180, 90, 255)
-            for port in [*node.input_ports(), *node.output_ports()]:
-                port.color = color
             view = node.view
-            view._aime_badge = badge
+            view._aime_badge = ("error" if node.id in error_node_ids else
+                                "warning" if node.id in warning_node_ids else None)
+            subtitle = ""
+            if node_def is not None:
+                if shapes and node.id in shapes:
+                    subtitle = "[" + ", ".join(str(d) for d in shapes[node.id]) + "]"
+                elif node_def.shape_fn is not None and node.id in error_node_ids:
+                    subtitle = "shape error"
+                elif node_def.shape_fn is None and node_def.type_id != "core.output":
+                    params = self._node_params(node)
+                    shown = [f"{k} {_fmt(v)}" for k, v in list(params.items())[:2]
+                             if v not in ("", None)]
+                    subtitle = " · ".join(shown)
+            view._aime_subtitle = subtitle
             lines = [node_def.display_name if node_def else node.name()]
+            if node_def is not None and node_def.description:
+                lines.append(node_def.description)
             if shapes and node.id in shapes:
-                lines.append(f"output {list(shapes[node.id])}")
+                lines.append(f"Output shape: {list(shapes[node.id])}")
             lines += msgs.get(node.id, [])
             view.setToolTip("\n".join(lines))
             view.update()
@@ -267,12 +340,22 @@ class CanvasController:
         self._flow_animator.set_running(running)
 
     def select_and_center(self, node_id: str) -> None:
-        """Select a block by IR id and bring it into view (issue jump-to)."""
-        for node in self._graph.all_nodes():
-            if node.id == node_id:
-                node.setSelected(True)
-                self._graph.center_on([node])
-                return
+        """Select a block by IR id and bring it into view (problem jump-to)."""
+        node = self._node(node_id)
+        if node is None:
+            return
+        self._graph.clear_selection()
+        node.set_selected(True)
+        self._graph.center_on([node])
+
+    def has_overlaps(self) -> bool:
+        """True when any two block cards intersect (e.g. legacy layouts)."""
+        rects = [n.view.sceneBoundingRect() for n in self._graph.all_nodes()]
+        for i, a in enumerate(rects):
+            for b in rects[i + 1:]:
+                if a.intersects(b):
+                    return True
+        return False
 
     # -------------------------------------------------------- composites
 
@@ -284,7 +367,7 @@ class CanvasController:
                 continue
             params = {}
             for spec in defn.params:
-                params[spec.name] = node.get_property(spec.name)
+                params[spec.name] = node.get_property(prop_name(spec.name))
             try:
                 frag = defn.builder(defn.default_params() | params)
             except Exception as exc:
@@ -297,7 +380,7 @@ class CanvasController:
         defn = self.definition_of(node)
         if defn is None:
             return {}
-        return {spec.name: node.get_property(spec.name) for spec in defn.params}
+        return {spec.name: node.get_property(prop_name(spec.name)) for spec in defn.params}
 
     def _splice_fragment(self, node, frag: Fragment) -> None:
         ext_in = [cp for port in node.input_ports() for cp in port.connected_ports()]
@@ -316,7 +399,7 @@ class CanvasController:
                 pos=(nd["position"][0] + ox, nd["position"][1] + oy),
                 selected=False)
             for key, value in nd.get("params", {}).items():
-                new_node.set_property(key, value)
+                new_node.set_property(prop_name(key), value)
             id_map[nd["id"]] = new_node
 
         for src, src_port, dst, dst_port in frag.edges:
@@ -333,7 +416,6 @@ class CanvasController:
             exit_.output_ports()[0].connect_to(tp)
 
         self._graph.delete_node(node)
-        self.thicken_pipes()
 
     # --------------------------------------------------- selection -> IR
 
@@ -383,7 +465,7 @@ class CanvasController:
 
     def export_canvas_png(self, path, on_done=None) -> None:
         """Deferred whole-scene render (needs the event loop)."""
-        from PySide6 import QtCore, QtGui
+        from PySide6 import QtCore
 
         viewer = self._graph.viewer()
         rect = viewer.scene().itemsBoundingRect().adjusted(-40, -40, 40, 40)
