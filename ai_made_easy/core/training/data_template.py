@@ -1,0 +1,544 @@
+"""Framework-neutral data layer emitted into every generated training script.
+
+Produces ``make_arrays() -> {"train": (x, y), "val": ..., "test": ...}`` with all
+preprocessing fitted on the training split only. Image datasets in PyTorch
+scripts use torchvision pipelines instead (see ``torch_script``); everything
+else — tables, arrays, text, audio, time series, and images in Keras scripts —
+flows through this numpy code.
+"""
+
+DATA_TEMPLATE = r'''
+# ================================================================== data
+{% if d.block == "data.csv" or d.block == "data.text_csv" or d.block == "data.timeseries_csv" %}
+def read_table(path: str, fmt: str) -> "pd.DataFrame":
+    import pandas as pd
+
+    readers = {"csv": pd.read_csv, "tsv": lambda p: pd.read_csv(p, sep="\t"),
+               "parquet": pd.read_parquet, "excel": pd.read_excel,
+               "json": lambda p: pd.read_json(p, lines=str(p).endswith(".jsonl"))}
+    return readers[fmt](path)
+
+
+{% endif %}
+{% if needs_wav %}
+def read_wav(path: str, sample_rate: int, n_samples: int) -> np.ndarray:
+    """Mono float32 waveform, resampled and padded/trimmed to n_samples."""
+    import wave
+
+    with wave.open(path, "rb") as fh:
+        rate, width, channels = fh.getframerate(), fh.getsampwidth(), fh.getnchannels()
+        raw = fh.readframes(fh.getnframes())
+    dtype = {1: np.uint8, 2: np.int16, 4: np.int32}[width]
+    audio = np.frombuffer(raw, dtype=dtype).astype(np.float32)
+    if width == 1:
+        audio = (audio - 128.0) / 128.0
+    else:
+        audio /= float(np.iinfo(dtype).max)
+    if channels > 1:
+        audio = audio.reshape(-1, channels).mean(axis=1)
+    if rate != sample_rate and len(audio) > 1:
+        target_len = max(int(round(len(audio) * sample_rate / rate)), 1)
+        audio = np.interp(np.linspace(0, len(audio) - 1, target_len),
+                          np.arange(len(audio)), audio).astype(np.float32)
+    if len(audio) < n_samples:
+        audio = np.pad(audio, (0, n_samples - len(audio)))
+    return audio[:n_samples]
+
+
+{% endif %}
+def load_raw():
+    """Load {{ comment }}. Returns (features, targets, class names or None)."""
+{% if d.block == "data.synthetic" %}
+    rng = np.random.default_rng({{ d.seed }})
+    n = {{ d.n_samples }}
+{% if d.kind == "moons" %}
+    t = rng.uniform(0, np.pi, size=(n // 2, 1))
+    a = np.hstack([np.cos(t), np.sin(t)])
+    b = np.hstack([1 - np.cos(t), 0.5 - np.sin(t)])
+    x = np.vstack([a, b]) + rng.normal(0, {{ d.noise }}, (2 * (n // 2), 2))
+    y = np.repeat([0, 1], n // 2)
+    return x.astype(np.float32), y, ["0", "1"]
+{% elif d.kind == "circles" %}
+    angles = rng.uniform(0, 2 * np.pi, (2 * (n // 2), 1))
+    radius = np.repeat([0.5, 1.0], n // 2)[:, None]
+    x = np.hstack([radius * np.cos(angles), radius * np.sin(angles)])
+    x += rng.normal(0, {{ d.noise }}, x.shape)
+    y = np.repeat([0, 1], n // 2)
+    return x.astype(np.float32), y, ["0", "1"]
+{% elif d.kind == "regression" %}
+    d = {{ d.n_features }}
+    w = rng.normal(size=(d, {{ n_targets }}))
+    x = rng.normal(size=(n, d)).astype(np.float32)
+    y = (x @ w + rng.normal(0, {{ d.noise }}, (n, {{ n_targets }}))).astype(np.float32)
+    return x, (y[:, 0] if {{ n_targets }} == 1 else y), None
+{% else %}
+    d, k = {{ d.n_features }}, {{ d.n_classes }}
+    centers = rng.normal(scale=2.0, size=(k, d))
+    y = rng.integers(0, k, size=n)
+    x = centers[y] + rng.normal(scale=0.5 + {{ d.noise }}, size=(n, d))
+{% if task == "multilabel" %}
+    y = (rng.random((n, {{ n_outputs }})) < 0.3).astype(np.float32)
+    y[np.arange(n), rng.integers(0, {{ n_outputs }}, size=n)] = 1.0
+    x = y @ rng.normal(size=({{ n_outputs }}, d)) + rng.normal(scale=0.5, size=(n, d))
+    return x.astype(np.float32), y, [str(i) for i in range({{ n_outputs }})]
+{% endif %}
+    return x.astype(np.float32), y, [str(i) for i in range(k)]
+{% endif %}
+{% elif d.block == "data.sklearn" %}
+    from sklearn import datasets as skds
+
+    bunch = skds.{{ sk_loader }}()
+    names = [str(n) for n in getattr(bunch, "target_names", [])] or None
+    return bunch.data.astype(np.float32), bunch.target, names
+{% elif d.block == "data.csv" %}
+    frame = read_table({{ d.path | repr }}, {{ d.format | repr }})
+    target = {{ d.target_column | repr }}
+    if target not in frame.columns:
+        raise SystemExit(f"target column {target!r} not found; columns: {list(frame.columns)}")
+    y = frame.pop(target)
+{% if feature_columns %}
+    frame = frame[{{ feature_columns | repr }}]
+{% endif %}
+{% if classification %}
+    classes = sorted(y.astype(str).unique())
+    return frame, y.astype(str).map({c: i for i, c in enumerate(classes)}).to_numpy(), classes
+{% else %}
+    return frame, y.to_numpy(dtype=np.float32), None
+{% endif %}
+{% elif d.block == "data.numpy" %}
+    archive = np.load({{ d.path | repr }})
+    x, y = archive[{{ d.x_key | repr }}], archive[{{ d.y_key | repr }}]
+    return x.astype(np.float32), y, None
+{% elif d.block == "data.json" %}
+    import json
+
+    text = Path({{ d.path | repr }}).read_text().strip()
+    records = json.loads(text) if text.startswith("[") else [
+        json.loads(line) for line in text.splitlines() if line.strip()]
+    x = np.asarray([r[{{ d.x_field | repr }}] for r in records], dtype=np.float32)
+    y = np.asarray([r[{{ d.y_field | repr }}] for r in records])
+    return x, y, None
+{% elif d.block == "data.huggingface" %}
+    from datasets import load_dataset
+
+    ds = load_dataset({{ d.repo_id | repr }}, split={{ d.split | repr }})
+    x = np.asarray([np.asarray(v, dtype=np.float32) for v in ds[{{ d.x_field | repr }}]])
+    if x.ndim == 3:  # grayscale images (N, H, W) -> (N, 1, H, W)
+        x = x[:, None] / 255.0
+    elif x.ndim == 4 and x.shape[-1] in (1, 3):  # (N, H, W, C) -> channels-first
+        x = x.transpose(0, 3, 1, 2) / 255.0
+    return x.astype(np.float32), np.asarray(ds[{{ d.y_field | repr }}]), None
+{% elif d.block == "data.text_csv" %}
+    frame = read_table({{ d.path | repr }}, {{ d.format | repr }})
+    texts = frame[{{ d.text_column | repr }}].fillna("").astype(str).tolist()
+    labels = frame[{{ d.label_column | repr }}]
+{% if classification %}
+    classes = sorted(labels.astype(str).unique())
+    index = {c: i for i, c in enumerate(classes)}
+    return texts, labels.astype(str).map(index).to_numpy(), classes
+{% else %}
+    return texts, labels.to_numpy(dtype=np.float32), None
+{% endif %}
+{% elif d.block == "data.text_folder" %}
+    root = Path({{ d.root | repr }})
+    classes = sorted(p.name for p in root.iterdir() if p.is_dir())
+    if not classes:
+        raise SystemExit(f"no class subfolders under {root}")
+    texts, labels = [], []
+    for ci, cls in enumerate(classes):
+        for file in sorted((root / cls).glob("*.txt")):
+            texts.append(file.read_text(errors="ignore"))
+            labels.append(ci)
+    return texts, np.asarray(labels), classes
+{% elif d.block == "data.audio_folder" %}
+    root = Path({{ d.root | repr }})
+    classes = sorted(p.name for p in root.iterdir() if p.is_dir())
+    if not classes:
+        raise SystemExit(f"no class subfolders under {root}")
+    n_samples = int(round({{ d.duration }} * {{ d.sample_rate }}))
+    waves, labels = [], []
+    for ci, cls in enumerate(classes):
+        for file in sorted((root / cls).glob("*.wav")):
+            waves.append(read_wav(str(file), {{ d.sample_rate }}, n_samples))
+            labels.append(ci)
+    return np.stack(waves), np.asarray(labels), classes
+{% elif d.block == "data.timeseries_csv" %}
+    frame = read_table({{ d.path | repr }}, "csv")
+    targets = {{ ts_targets | repr }}
+    missing = [c for c in targets if c not in frame.columns]
+    if missing:
+        raise SystemExit(f"target columns {missing} not found; columns: {list(frame.columns)}")
+{% if feature_columns %}
+    features = {{ feature_columns | repr }}
+{% else %}
+    features = [c for c in frame.columns if np.issubdtype(frame[c].dtype, np.number)]
+{% endif %}
+    return frame[features].to_numpy(np.float32), frame[targets].to_numpy(np.float32), None
+{% elif d.block in ("data.image_folder", "data.torchvision") %}
+{% if d.block == "data.image_folder" %}
+    from PIL import Image
+
+    root = Path({{ d.root | repr }})
+    classes = sorted(p.name for p in root.iterdir() if p.is_dir())
+    if not classes:
+        raise SystemExit(f"no class subfolders under {root}")
+    mode = "L" if INPUT_SHAPE[0] == 1 else "RGB"
+    images, labels = [], []
+    for ci, cls in enumerate(classes):
+        for file in sorted((root / cls).iterdir()):
+            if file.suffix.lower() not in (".png", ".jpg", ".jpeg", ".bmp", ".gif", ".webp"):
+                continue
+            img = Image.open(file).convert(mode).resize((INPUT_SHAPE[2], INPUT_SHAPE[1]))
+            arr = np.asarray(img, dtype=np.float32) / 255.0
+            images.append(arr[None] if arr.ndim == 2 else arr.transpose(2, 0, 1))
+            labels.append(ci)
+    return np.stack(images), np.asarray(labels), classes
+{% else %}
+    (x_train, y_train), (x_test, y_test) = keras.datasets.{{ keras_dataset }}.load_data()
+    x = np.concatenate([x_train, x_test]).astype(np.float32) / 255.0
+    x = x[:, None] if x.ndim == 3 else x.transpose(0, 3, 1, 2)
+    return x, np.concatenate([y_train, y_test]).reshape(-1), None
+{% endif %}
+{% endif %}
+
+
+def split_indices(n: int, y) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Train / validation / test indices{% if chronological %} (chronological){% endif %}."""
+    n_val, n_test = int(n * VAL_FRACTION), int(n * TEST_FRACTION)
+{% if chronological %}
+    idx = np.arange(n)
+    return idx[: n - n_val - n_test], idx[n - n_val - n_test: n - n_test], idx[n - n_test:]
+{% else %}
+    rng = np.random.default_rng(SPLIT_SEED)
+{% if stratify %}
+    if y is not None and np.ndim(y) == 1 and len(np.unique(y)) < max(n // 5, 2):
+        train, val, test = [], [], []
+        for c in np.unique(y):
+            members = np.flatnonzero(y == c)
+            rng.shuffle(members)
+            cv, ct = int(round(len(members) * VAL_FRACTION)), int(round(len(members) * TEST_FRACTION))
+            val += list(members[:cv])
+            test += list(members[cv:cv + ct])
+            train += list(members[cv + ct:])
+        return (rng.permutation(train), rng.permutation(val).astype(int),
+                rng.permutation(test).astype(int))
+{% endif %}
+    idx = {{ "rng.permutation(n)" if shuffle else "np.arange(n)" }}
+    return idx[n_val + n_test:], idx[:n_val], idx[n_val:n_val + n_test]
+{% endif %}
+{% if table_steps %}
+
+
+def preprocess_tables(train: "pd.DataFrame", frames: list) -> list[np.ndarray]:
+    """Column-level preprocessing fitted on the training frame only."""
+    import pandas as pd
+
+{% if steps["prep.drop_columns"] %}
+    drop = {{ drop_columns | repr }}
+    train = train.drop(columns=[c for c in drop if c in train.columns])
+    frames = [f.drop(columns=[c for c in drop if c in f.columns]) for f in frames]
+{% endif %}
+    categorical = [c for c in train.columns if not pd.api.types.is_numeric_dtype(train[c])]
+    numeric = [c for c in train.columns if c not in categorical]
+{% if steps["prep.impute"] %}
+    fill = {}
+    for c in numeric:
+{% if steps["prep.impute"].strategy == "mean" %}
+        fill[c] = train[c].mean()
+{% elif steps["prep.impute"].strategy == "median" %}
+        fill[c] = train[c].median()
+{% elif steps["prep.impute"].strategy == "mode" %}
+        fill[c] = train[c].mode().iloc[0] if train[c].notna().any() else 0.0
+{% else %}
+        fill[c] = {{ steps["prep.impute"].constant }}
+{% endif %}
+{% if steps["prep.impute"].strategy == "drop rows" %}
+    frames = [f.dropna() for f in frames]
+{% else %}
+    frames = [f.fillna(value=fill) for f in frames]
+{% endif %}
+{% endif %}
+{% if steps["prep.ordinal_encode"] %}
+    ordinal = {{ ordinal_columns | repr }} or categorical
+    codes = {c: {v: i for i, v in enumerate(sorted(train[c].dropna().astype(str).unique()))}
+             for c in ordinal}
+    frames = [f.assign(**{c: f[c].astype(str).map(codes[c]).fillna(-1) for c in ordinal})
+              for f in frames]
+    categorical = [c for c in categorical if c not in ordinal]
+{% endif %}
+    one_hot = {{ one_hot_columns | repr }} or categorical
+    cats = {c: sorted(train[c].dropna().astype(str).unique())[:{{ max_categories }}]
+            for c in one_hot}
+    out = []
+    for f in frames:
+        parts = [f.drop(columns=one_hot).astype(np.float32)]
+        for c, values in cats.items():
+            col = f[c].astype(str)
+            parts.append(pd.DataFrame({f"{c}={v}": (col == v).astype(np.float32)
+                                       for v in values}, index=f.index))
+        out.append(pd.concat(parts, axis=1).to_numpy(np.float32))
+    return out
+{% endif %}
+{% if text %}
+
+
+def clean_text(text: str) -> str:
+    import re
+
+{% if steps["prep.text_clean"] %}
+{% if steps["prep.text_clean"].strip_html %}
+    text = re.sub(r"<[^>]+>", " ", text)
+{% endif %}
+{% if steps["prep.text_clean"].lowercase %}
+    text = text.lower()
+{% endif %}
+{% if steps["prep.text_clean"].strip_punctuation %}
+    text = re.sub(r"[^\w\s]", " ", text)
+{% endif %}
+{% if steps["prep.text_clean"].strip_digits %}
+    text = re.sub(r"\d+", " ", text)
+{% endif %}
+{% endif %}
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def encode_texts(train_texts: list[str], groups: list[list[str]]) -> list[np.ndarray]:
+    """{{ tok.method }} tokenization to [{{ tok.max_length }}] int64 ids (0 = pad, 1 = unknown)."""
+{% if tok.method == "huggingface" %}
+    from transformers import AutoTokenizer
+
+    tokenizer = AutoTokenizer.from_pretrained({{ tok.hf_tokenizer | repr }})
+    return [np.asarray(tokenizer([clean_text(t) for t in texts], padding="max_length",
+                                 truncation=True, max_length={{ tok.max_length }})["input_ids"],
+                       dtype=np.int64) for texts in groups]
+{% else %}
+    from collections import Counter
+
+    def tokens(text: str) -> list[str]:
+        text = clean_text(text)
+        return {{ "list(text)" if tok.method == "char" else "text.split()" }}
+
+    counts = Counter(t for text in train_texts for t in tokens(text))
+    vocab = [t for t, c in counts.most_common({{ tok.vocab_size }} - 2) if c >= {{ tok.min_freq }}]
+    index = {t: i + 2 for i, t in enumerate(vocab)}
+
+    def encode(text: str) -> list[int]:
+        ids = [index.get(t, 1) for t in tokens(text)][: {{ tok.max_length }}]
+        return ids + [0] * ({{ tok.max_length }} - len(ids))
+
+    return [np.asarray([encode(t) for t in texts], dtype=np.int64) for texts in groups]
+{% endif %}
+{% endif %}
+{% if audio %}
+
+
+def audio_features(waves: np.ndarray) -> np.ndarray:
+    """{{ feat.kind }} features: (N, samples) -> (N, *INPUT_SHAPE)."""
+{% if feat.kind == "waveform" %}
+    return waves[:, None, :].astype(np.float32)
+{% else %}
+    n_fft, hop = {{ feat.n_fft }}, {{ feat.hop_length }}
+    window = np.hanning(n_fft).astype(np.float32)
+    padded = np.pad(waves, ((0, 0), (n_fft // 2, n_fft // 2)), mode="reflect")
+    frames = 1 + (padded.shape[1] - n_fft) // hop
+    idx = np.arange(n_fft)[None, :] + hop * np.arange(frames)[:, None]
+    power = np.abs(np.fft.rfft(padded[:, idx] * window, axis=-1)) ** 2  # (N, T, F)
+{% if feat.kind in ("mel_spectrogram", "mfcc") %}
+    sr, n_mels = {{ sample_rate }}, {{ feat.n_mels }}
+    mel = lambda f: 2595.0 * np.log10(1.0 + f / 700.0)
+    hz = lambda m: 700.0 * (10 ** (m / 2595.0) - 1.0)
+    points = hz(np.linspace(mel(0.0), mel(sr / 2), n_mels + 2))
+    bins = np.fft.rfftfreq(n_fft, 1.0 / sr)
+    fbank = np.zeros((n_mels, len(bins)), dtype=np.float32)
+    for m in range(n_mels):
+        lo, mid, hi = points[m], points[m + 1], points[m + 2]
+        fbank[m] = np.clip(np.minimum((bins - lo) / (mid - lo + 1e-9),
+                                      (hi - bins) / (hi - mid + 1e-9)), 0, None)
+    power = power @ fbank.T
+{% endif %}
+{% if feat.log_scale or feat.kind == "mfcc" %}
+    power = np.log(power + 1e-6)
+{% endif %}
+{% if feat.kind == "mfcc" %}
+    k = np.arange(n_mels)
+    dct = np.cos(np.pi / n_mels * (k[None, :] + 0.5) * np.arange({{ feat.n_mfcc }})[:, None])
+    power = power @ dct.T.astype(np.float32)
+{% endif %}
+    return power.transpose(0, 2, 1)[:, None].astype(np.float32)  # (N, 1, F, T)
+{% endif %}
+{% endif %}
+{% if timeseries %}
+
+
+def make_windows(features: np.ndarray, targets: np.ndarray):
+    """Sliding windows: x (N, window, C), y (N, horizon * targets)."""
+    window, horizon, stride = {{ d.window }}, {{ d.horizon }}, {{ d.stride }}
+    starts = range(0, len(features) - window - horizon + 1, stride)
+    x = np.stack([features[s:s + window] for s in starts])
+    y = np.stack([targets[s + window:s + window + horizon].reshape(-1) for s in starts])
+{% if ts_channels_first %}
+    x = x.transpose(0, 2, 1)  # channels-first [C, L] for Conv1D
+{% endif %}
+    return x.astype(np.float32), y.astype(np.float32)
+{% endif %}
+
+
+class NumericPipeline:
+    """Feature transforms fitted on training data only."""
+
+    def fit(self, x: np.ndarray) -> "NumericPipeline":
+        flat = x.reshape(len(x), -1)
+{% if steps["prep.impute"] and not table_steps %}
+        self.fill = np.nan{{ {"mean": "mean", "median": "median"}.get(steps["prep.impute"].strategy, "mean") }}(flat, axis=0)
+{% if steps["prep.impute"].strategy == "constant" %}
+        self.fill = np.full(flat.shape[1], {{ steps["prep.impute"].constant }}, dtype=np.float32)
+{% endif %}
+        flat = np.where(np.isnan(flat), self.fill, flat)
+{% endif %}
+{% if steps["prep.log_transform"] %}
+        self.log_cols = np.all(flat >= 0, axis=0)
+        flat = np.where(self.log_cols, np.log1p(np.abs(flat)), flat)
+{% endif %}
+{% if steps["prep.clip_outliers"] %}
+{% set c = steps["prep.clip_outliers"] %}
+{% if c.method == "iqr" %}
+        q1, q3 = np.percentile(flat, [25, 75], axis=0)
+        self.lo, self.hi = q1 - {{ c.threshold }} * (q3 - q1), q3 + {{ c.threshold }} * (q3 - q1)
+{% elif c.method == "zscore" %}
+        mu, sd = flat.mean(axis=0), flat.std(axis=0) + 1e-12
+        self.lo, self.hi = mu - {{ c.threshold }} * sd, mu + {{ c.threshold }} * sd
+{% else %}
+        self.lo, self.hi = np.quantile(flat, [{{ c.threshold }}, 1 - {{ c.threshold }}], axis=0)
+{% endif %}
+        flat = np.clip(flat, self.lo, self.hi)
+{% endif %}
+{% if steps["prep.variance_filter"] %}
+        self.keep = flat.var(axis=0) > {{ steps["prep.variance_filter"].threshold }}
+        flat = flat[:, self.keep]
+{% endif %}
+{% if per_channel %}
+        axes = (0,) + tuple(range(2, x.ndim))
+{% endif %}
+{% if steps["prep.normalize"] %}
+{% if steps["prep.normalize"].mode == "fixed" %}
+        self.mean = np.asarray({{ norm_mean }}, dtype=np.float32)
+        self.std = np.asarray({{ norm_std }}, dtype=np.float32)
+{% elif per_channel %}
+        self.mean = x.mean(axis=axes)
+        self.std = x.std(axis=axes) + 1e-8
+{% else %}
+        self.mean, self.std = flat.mean(axis=0), flat.std(axis=0) + 1e-8
+{% endif %}
+{% endif %}
+{% if steps["prep.robust_scale"] %}
+        self.median = np.median(flat, axis=0)
+        q1, q3 = np.percentile(flat, [25, 75], axis=0)
+        self.iqr = np.where(q3 - q1 > 0, q3 - q1, 1.0)
+{% endif %}
+{% if steps["prep.minmax"] %}
+        scaled = self._scale(x)
+        flat_s = scaled.reshape(len(scaled), -1)
+        self.min, self.max = flat_s.min(axis=0), flat_s.max(axis=0)
+{% endif %}
+        return self
+
+    def _scale(self, x: np.ndarray) -> np.ndarray:
+        shape = x.shape
+        flat = x.reshape(len(x), -1).astype(np.float32)
+{% if steps["prep.impute"] and not table_steps %}
+        flat = np.where(np.isnan(flat), self.fill, flat)
+{% endif %}
+{% if steps["prep.log_transform"] %}
+        flat = np.where(self.log_cols, np.log1p(np.abs(flat)), flat)
+{% endif %}
+{% if steps["prep.clip_outliers"] %}
+        flat = np.clip(flat, self.lo, self.hi)
+{% endif %}
+{% if steps["prep.variance_filter"] %}
+        flat = flat[:, self.keep]
+        shape = (len(x), flat.shape[1])
+{% endif %}
+{% if steps["prep.normalize"] %}
+{% if per_channel %}
+        x = flat.reshape(shape)
+        view = (1, -1) + (1,) * (x.ndim - 2)
+        flat = ((x - self.mean.reshape(view)) / self.std.reshape(view)).reshape(len(x), -1)
+{% else %}
+        flat = (flat - self.mean) / self.std
+{% endif %}
+{% endif %}
+{% if steps["prep.robust_scale"] %}
+        flat = (flat - self.median) / self.iqr
+{% endif %}
+        return flat.reshape(shape)
+
+    def transform(self, x: np.ndarray) -> np.ndarray:
+        x = self._scale(x)
+{% if steps["prep.minmax"] %}
+        shape = x.shape
+        flat = x.reshape(len(x), -1)
+        span = np.where(self.max - self.min > 0, self.max - self.min, 1.0)
+        flat = ((flat - self.min) / span * ({{ steps["prep.minmax"].range_max }} - {{ steps["prep.minmax"].range_min }})
+                + {{ steps["prep.minmax"].range_min }})
+        x = flat.reshape(shape)
+{% endif %}
+        return x.astype(np.float32)
+
+
+def make_arrays() -> dict[str, tuple[np.ndarray, np.ndarray]]:
+    """Load, split and preprocess the data. Statistics come from the training split."""
+    x, y, classes = load_raw()
+    global CLASS_NAMES
+    CLASS_NAMES = classes
+{% if timeseries %}
+    n = len(x)
+    n_val, n_test = int(n * VAL_FRACTION), int(n * TEST_FRACTION)
+    bounds = {"train": (0, n - n_val - n_test), "val": (n - n_val - n_test, n - n_test),
+              "test": (n - n_test, n)}
+    pipeline = NumericPipeline().fit(x[: bounds["train"][1]])
+    target_pipeline = NumericPipeline().fit(y[: bounds["train"][1]]) if TARGET_SCALING else None
+    splits = {}
+    for name, (lo, hi) in bounds.items():
+        feats = pipeline.transform(x[lo:hi])
+        targs = target_pipeline.transform(y[lo:hi]) if target_pipeline else y[lo:hi]
+        if hi - lo > {{ d.window }} + {{ d.horizon }}:
+            splits[name] = make_windows(feats, targs)
+        else:
+            splits[name] = (np.zeros((0, *INPUT_SHAPE), np.float32),
+                            np.zeros((0, {{ n_outputs }}), np.float32))
+    return splits
+{% else %}
+    train_i, val_i, test_i = split_indices(len(y), y)
+    parts = {"train": train_i, "val": val_i, "test": test_i}
+{% if table_steps %}
+    train_x, val_x, test_x = preprocess_tables(
+        x.iloc[train_i], [x.iloc[train_i], x.iloc[val_i], x.iloc[test_i]])
+    feats = {"train": train_x, "val": val_x, "test": test_x}
+{% elif text %}
+    texts = {k: [x[i] for i in v] for k, v in parts.items()}
+    train_x, val_x, test_x = encode_texts(texts["train"],
+                                          [texts["train"], texts["val"], texts["test"]])
+    feats = {"train": train_x, "val": val_x, "test": test_x}
+{% elif audio %}
+    x = audio_features(x)
+    feats = {k: x[v] for k, v in parts.items()}
+{% else %}
+    feats = {k: x[v] for k, v in parts.items()}
+{% endif %}
+    targets = {k: np.asarray(y)[v] for k, v in parts.items()}
+{% if not text %}
+    pipeline = NumericPipeline().fit(feats["train"])
+    feats = {k: pipeline.transform(v) for k, v in feats.items()}
+{% endif %}
+    out = {}
+    for k in parts:
+        xs = feats[k]
+        if xs.ndim == 2 and len(INPUT_SHAPE) > 1 and xs.shape[1] == int(np.prod(INPUT_SHAPE)):
+            xs = xs.reshape(len(xs), *INPUT_SHAPE)
+        if xs.shape[1:] != tuple(INPUT_SHAPE):
+            raise SystemExit(f"data samples have shape {xs.shape[1:]} but the model expects "
+                             f"{tuple(INPUT_SHAPE)}")
+        out[k] = (xs, targets[k].astype({{ y_dtype }}))
+    return out
+{% endif %}
+'''

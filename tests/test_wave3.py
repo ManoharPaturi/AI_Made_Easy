@@ -89,7 +89,7 @@ def test_bias_samples_validate_and_generate():
         g = Graph.from_dict(json.loads((root / f"{name}.json").read_text()))
         assert not [i for i in g.validate() if i.severity == "error"], name
         code = generate_training(g, "pytorch")
-        assert "root = " in code and "bias_arc" in code
+        assert "ImageFolder(" in code and "bias_arc" in code
 
 
 def test_bias_dataset_health_detects_shortcut():

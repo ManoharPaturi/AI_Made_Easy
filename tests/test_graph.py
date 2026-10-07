@@ -40,7 +40,9 @@ def test_registry_has_full_catalog():
     for cat in ("Input / Output", "Data", "Preprocessing", "Linear", "Convolution",
                 "Pooling", "Resizing", "Recurrent", "Attention", "Embedding",
                 "Activations", "Normalization", "Regularization", "Merge",
-                "Tensor Ops", "Training", "Evaluation", "Architectures"):
+                "Tensor Ops", "Training", "Loss", "Optimizer", "Scheduler", "Metrics",
+                "Augmentation", "Image Transforms", "Text Processing", "Audio Processing",
+                "Architectures"):
         assert cat in reg.by_category()
     schemas = reg.list_blocks()
     assert any(s["type_id"] == "core.dense" for s in schemas)
