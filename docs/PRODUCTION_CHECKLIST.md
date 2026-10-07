@@ -67,7 +67,7 @@ into `main` with a merge commit.
       verified end to end
 - [x] Classic rules: one estimator, no mixing with NN layers, non-negative estimators,
       solver/penalty compatibility, score-function vs task, vectorizer vs data, grid syntax
-- [ ] Keras parity for every NN block that has a Keras equivalent; unsupported blocks
+- [x] Keras parity for every NN block that has a Keras equivalent; unsupported blocks
       produce one clear error listing them (never a crash)
 
 ## Phase 4 — Code generation quality
@@ -78,7 +78,7 @@ into `main` with a merge commit.
 - [x] A Keras gap never blocks PyTorch export; unsupported blocks reported in one error
 - [x] Generated code: clean imports, docstrings, type hints, `build_model()`, no dead code
 - [x] ONNX / TorchScript exports embed the same verified model source
-- [ ] sklearn scripts execute on sample data
+- [x] sklearn scripts execute on sample data
 
 ## Phase 5 — Professional UI ✅
 - [x] New design system: neutral dark (default) + light theme, one accent colour, no emoji
