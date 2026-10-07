@@ -80,6 +80,7 @@ class AppContext(QtCore.QObject):
                                               self.log_bus)
         self._last_ir: Graph | None = None
         self._run_kind = ""
+        self._known_errors: set[tuple] = set()
 
         # ---- panels
         self.canvas_area = CanvasArea(self.canvas)
@@ -152,6 +153,8 @@ class AppContext(QtCore.QObject):
         self._on_run_state(self.run_store.state, "")
         QtCore.QTimer.singleShot(0, self._boot)
         QtCore.QTimer.singleShot(400, self._detect_device)
+        self._autosave_timer = QtCore.QTimer(self, interval=120_000, timeout=self._autosave)
+        self._autosave_timer.start()
 
     def _boot(self) -> None:
         self.project_store.reset("mnist_cnn")
@@ -161,6 +164,75 @@ class AppContext(QtCore.QObject):
         self.canvas.widget.setFocus()
         self.log_bus.info(f"AI Made Easy {__version__} ready — {len(get_registry().all())} "
                           "blocks available")
+        QtCore.QTimer.singleShot(0, self._offer_recovery)
+
+    # ======================================================= autosave / recent
+
+    @staticmethod
+    def _recovery_file() -> Path:
+        from ai_made_easy.ui.app import data_dir
+
+        name = QtCore.QCoreApplication.applicationName() or "app"
+        folder = data_dir() / "autosave"
+        folder.mkdir(exist_ok=True)
+        return folder / f"{''.join(c if c.isalnum() else '_' for c in name)}.json"
+
+    def _autosave(self) -> None:
+        if not self.project_store.dirty:
+            return
+        data = self.project_service.snapshot().to_dict()
+        data.setdefault("meta", {})["autosave_of"] = str(self.project_store.path or "")
+        try:
+            self._recovery_file().write_text(json.dumps(data))
+        except OSError as exc:
+            self.log_bus.warning(f"autosave failed: {exc}")
+
+    def _clear_recovery(self) -> None:
+        self._recovery_file().unlink(missing_ok=True)
+
+    def _offer_recovery(self) -> None:
+        path = self._recovery_file()
+        if not path.exists() or self.window is None:
+            return
+        answer = QtWidgets.QMessageBox.question(
+            self.window, "Recover unsaved work",
+            "AI Made Easy closed with unsaved changes. Restore the last autosaved design?",
+            QtWidgets.QMessageBox.StandardButton.Yes | QtWidgets.QMessageBox.StandardButton.No)
+        if answer == QtWidgets.QMessageBox.StandardButton.Yes:
+            try:
+                data = json.loads(path.read_text())
+                self.graph_service.load(Graph.from_dict(data))
+                self.project_store.set_name(data.get("name", "recovered"))
+                original = data.get("meta", {}).get("autosave_of")
+                self.project_store.set_path(Path(original) if original else None)
+                self.project_store.mark_dirty()
+                self.log_bus.info("restored autosaved work")
+            except (OSError, ValueError) as exc:
+                self.log_bus.error(f"could not restore autosave: {exc}")
+        self._clear_recovery()
+
+    def recent_files(self) -> list[str]:
+        value = QtCore.QSettings(_SETTINGS).value("recent_files", []) or []
+        files = [value] if isinstance(value, str) else list(value)
+        return [f for f in files if Path(f).exists()]
+
+    def _add_recent(self, path) -> None:  # noqa: ANN001
+        files = [str(Path(path))] + [f for f in self.recent_files() if f != str(Path(path))]
+        QtCore.QSettings(_SETTINGS).setValue("recent_files", files[:10])
+
+    def populate_recent(self, menu: QtWidgets.QMenu) -> None:
+        menu.clear()
+        files = self.recent_files()
+        for f in files:
+            action = menu.addAction(Path(f).name)
+            action.setToolTip(f)
+            action.triggered.connect(lambda _=False, f=f: self.open_path(f))
+        if not files:
+            menu.addAction("No recent projects").setEnabled(False)
+
+    def open_path(self, path: str) -> None:
+        if self._confirm_discard() and self.project_service.open_file(path):
+            self._add_recent(path)
 
     def _detect_device(self) -> None:
         import importlib.util
@@ -186,6 +258,11 @@ class AppContext(QtCore.QObject):
         self.graph_service.note_shapes(ir)
         self.graph_service.apply_validation(issues)
         self.problems.set_issues(issues)
+        current = {(i.node_id, i.message) for i in issues if i.severity == "error"}
+        fresh = [m for nid, m in current - self._known_errors]
+        if fresh and not self.graph_service.settled_from_load:
+            self.status_message.emit(fresh[0].split(" Fix:")[0])
+        self._known_errors = current
         errors = len([i for i in issues if i.severity == "error"])
         warnings = len(issues) - errors
         if errors:
@@ -525,13 +602,14 @@ class AppContext(QtCore.QObject):
             self.window, "Open Project", str(self._last_dir()), "AI Made Easy project (*.json)")
         if path:
             self._remember_dir(path)
-            self.project_service.open_file(path)
+            if self.project_service.open_file(path):
+                self._add_recent(path)
 
     def act_save(self, *_):
         if self.project_store.path is None:
             self.act_save_as()
-        else:
-            self.project_service.save()
+        elif self.project_service.save():
+            self._clear_recovery()
 
     def act_save_as(self, *_):
         path, _ = QtWidgets.QFileDialog.getSaveFileName(
@@ -539,7 +617,9 @@ class AppContext(QtCore.QObject):
             "AI Made Easy project (*.json)")
         if path:
             self._remember_dir(path)
-            self.project_service.save_as(path)
+            if self.project_service.save_as(path):
+                self._add_recent(path)
+                self._clear_recovery()
 
     def act_samples(self, *_):
         entries = self.project_service.list_samples()
@@ -815,7 +895,10 @@ class AppContext(QtCore.QObject):
     def confirm_close(self, window) -> bool:  # noqa: ANN001
         if self.run_store.is_running:
             self.process_service.stop()
-        return self._confirm_discard()
+        ok = self._confirm_discard()
+        if ok:
+            self._clear_recovery()
+        return ok
 
     def _confirm_discard(self) -> bool:
         if not self.project_store.dirty or self.window is None:

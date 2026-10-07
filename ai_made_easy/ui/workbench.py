@@ -141,6 +141,10 @@ class Workbench(QtWidgets.QMainWindow):
                     menu.addSeparator()
                     if spec.menu == "E&xport":
                         self.export_menu.addSeparator()
+            if menu_name == "&File":
+                recent = QtWidgets.QMenu("Open &Recent", menu)
+                recent.aboutToShow.connect(lambda m=recent: self.ctx.populate_recent(m))
+                menu.insertMenu(self.actions["file.examples"], recent)
             if menu_name == "&View":
                 panels = menu.addMenu("Panels")
                 for dock in self.docks.values():

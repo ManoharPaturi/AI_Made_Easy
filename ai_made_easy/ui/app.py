@@ -62,19 +62,72 @@ def _ensure_qt_plugin_path() -> None:
         pass
 
 
+def data_dir() -> Path:
+    """Per-user application data: logs, autosave, custom blocks."""
+    path = Path.home() / ".aime"
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def _setup_logging() -> Path:
+    import logging
+    from logging.handlers import RotatingFileHandler
+
+    log_dir = data_dir() / "logs"
+    log_dir.mkdir(exist_ok=True)
+    log_file = log_dir / "ai_made_easy.log"
+    handler = RotatingFileHandler(log_file, maxBytes=2_000_000, backupCount=3,
+                                  encoding="utf-8")
+    handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
+    root = logging.getLogger()
+    root.setLevel(logging.INFO)
+    root.addHandler(handler)
+    return log_file
+
+
+def _install_excepthook(log_file: Path) -> None:
+    """Log unexpected exceptions and show them instead of failing silently."""
+    import logging
+    import traceback
+
+    def hook(exc_type, exc, tb) -> None:  # noqa: ANN001
+        text = "".join(traceback.format_exception(exc_type, exc, tb))
+        logging.getLogger("ai_made_easy").error("unhandled exception\n%s", text)
+        try:
+            from PySide6 import QtWidgets
+
+            if QtWidgets.QApplication.instance() is not None:
+                box = QtWidgets.QMessageBox()
+                box.setIcon(QtWidgets.QMessageBox.Icon.Critical)
+                box.setWindowTitle("Unexpected error")
+                box.setText(f"{exc_type.__name__}: {exc}")
+                box.setInformativeText(f"The full report was written to {log_file}.")
+                box.setDetailedText(text)
+                box.exec()
+        except Exception:  # noqa: BLE001 — never raise from the hook
+            sys.__excepthook__(exc_type, exc, tb)
+
+    sys.excepthook = hook
+
+
 def run(argv: list[str] | None = None) -> int:
     _ensure_qt_plugin_path()
+    log_file = _setup_logging()
 
-    from PySide6 import QtWidgets
+    from PySide6 import QtGui, QtWidgets
 
+    from ai_made_easy import __version__
     from ai_made_easy.ui.context import AppContext
-    from ai_made_easy.ui.theme import apply_dark_theme
     from ai_made_easy.ui.workbench import Workbench
 
     app = QtWidgets.QApplication(argv or sys.argv)
     app.setApplicationName("AI Made Easy")
     app.setOrganizationName("AI Made Easy")
-    apply_dark_theme(app)
+    app.setApplicationVersion(__version__)
+    icon = Path(__file__).resolve().parent.parent / "assets" / "icon.png"
+    if icon.exists():
+        app.setWindowIcon(QtGui.QIcon(str(icon)))
+    _install_excepthook(log_file)
 
     ctx = AppContext()
     window = Workbench(ctx)

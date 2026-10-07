@@ -1,4 +1,4 @@
-"""(Re)generate the example projects in samples/.
+"""(Re)generate the example projects in ai_made_easy/samples/.
 
 Run: python scripts/build_examples.py
 Every example must validate without errors (enforced by tests/test_ui.py).
@@ -10,7 +10,7 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-SAMPLES = ROOT / "samples"
+SAMPLES = ROOT / "ai_made_easy" / "samples"
 sys.path.insert(0, str(ROOT))
 
 from ai_made_easy.core.graph import Graph  # noqa: E402

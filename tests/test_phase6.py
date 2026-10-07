@@ -14,7 +14,7 @@ import pytest
 from ai_made_easy.core.codegen.llm_gen import collect_llm_spec, generate_llm_script
 from ai_made_easy.core.graph import Edge, Graph, NodeInstance
 
-SAMPLES = Path(__file__).parent.parent / "samples"
+SAMPLES = Path(__file__).parent.parent / "ai_made_easy" / "samples"
 
 
 def llm_graph(name: str, blocks: list[tuple[str, str, dict]]) -> Graph:

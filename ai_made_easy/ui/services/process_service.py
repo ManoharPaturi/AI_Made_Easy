@@ -16,6 +16,25 @@ from ai_made_easy.core.graph import Graph
 from ai_made_easy.core.runner.protocol import parse_event, worker_script_path
 
 
+def python_executable() -> str:
+    """Interpreter for training / export runs.
+
+    Order: $AIME_PYTHON, the "python" setting, the running interpreter (when not
+    frozen), then python3 on PATH. Frozen app bundles cannot run scripts with
+    their own executable, so they need a real Python environment.
+    """
+    import os
+    import shutil
+
+    override = os.environ.get("AIME_PYTHON") or QtCore.QSettings("aime/workbench").value(
+        "python", "")
+    if override:
+        return str(override)
+    if not getattr(sys, "frozen", False):
+        return sys.executable
+    return shutil.which("python3") or shutil.which("python") or sys.executable
+
+
 class ProcessService(QtCore.QObject):
     log_received = QtCore.Signal(str)
     epoch_received = QtCore.Signal(dict)
@@ -56,7 +75,7 @@ class ProcessService(QtCore.QObject):
         self._buf = ""
         self._kind = kind
         proc = QtCore.QProcess(self)
-        proc.setProgram(sys.executable)
+        proc.setProgram(python_executable())
         proc.setArguments([str(worker_script_path()), str(script)])
         proc.setWorkingDirectory(str(workdir))
         proc.readyReadStandardOutput.connect(self._on_stdout)
@@ -104,7 +123,7 @@ class ProcessService(QtCore.QObject):
         self.log.info(f"running {kind} → {script}")
         # runtime export scripts print plain output (no worker protocol)
         proc = QtCore.QProcess(self)
-        proc.setProgram(sys.executable)
+        proc.setProgram(python_executable())
         proc.setArguments([str(script)])
         proc.setWorkingDirectory(str(workdir))
         proc.readyReadStandardOutput.connect(lambda: self._emit_lines(

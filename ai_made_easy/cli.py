@@ -24,16 +24,20 @@ from ai_made_easy.core.registry import get_registry
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="aime", description="AI Made Easy")
+    parser = argparse.ArgumentParser(
+        prog="aime", description="AI Made Easy — validate projects and generate code headlessly")
     sub = parser.add_subparsers(dest="command", required=True)
 
     sub.add_parser("blocks", help="list registered blocks")
     p_val = sub.add_parser("validate", help="validate a project graph")
     p_val.add_argument("project", help="path to project .json")
-    for name, help_text in (("gen", "generate model code"), ("train", "generate training script")):
+    for name, help_text, choices in (
+            ("gen", "generate model code", FRAMEWORKS),
+            ("train", "generate a training script (classic ML projects: sklearn)",
+             (*FRAMEWORKS, "sklearn"))):
         p = sub.add_parser(name, help=help_text)
         p.add_argument("project", help="path to project .json")
-        p.add_argument("-f", "--framework", choices=FRAMEWORKS, default="pytorch")
+        p.add_argument("-f", "--framework", choices=choices, default="pytorch")
         p.add_argument("-o", "--out", default="exports", help="output directory")
     p_run = sub.add_parser("run", help="train headlessly and stream events")
     p_run.add_argument("project", help="path to project .json")

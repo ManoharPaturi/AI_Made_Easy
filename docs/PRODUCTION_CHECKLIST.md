@@ -9,7 +9,7 @@ into `main` with a merge commit.
 - [x] Python 3.12+ startup (distutils shim), dev deps complete
 - [x] Full test suite green (incl. real training runs)
 
-## Phase 1 — Professional product (remove education layer)
+## Phase 1 — Professional product (remove education layer) ✅
 - [x] Remove missions / PRIMM stages / quizzes / age tracks
 - [x] Remove predict-before-training gate + "surprise" dialog
 - [x] Remove celebration confetti, kid copy, emoji-heavy strings
@@ -19,8 +19,9 @@ into `main` with a merge commit.
 - [x] Rewrite all user-facing messages in concise technical language
 - [x] Tests updated for the removed/renamed features
 
-## Phase 2 — Design-time validation engine
-- [ ] Wire-time compatibility check: incompatible connection → inline warning on both blocks
+## Phase 2 — Design-time validation engine ✅
+- [x] Wire-time feedback: incompatible ports rejected with a message; new shape errors
+      outline the blocks and raise a notification immediately
 - [x] Full shape + rank inference across branches/merges with precise messages (expected vs got)
 - [x] Dtype propagation (integer index tensors vs float) — Embedding / casting rules
 - [x] Architecture lints (`core/lints.py`): double softmax with CrossEntropy, consecutive
@@ -79,7 +80,7 @@ into `main` with a merge commit.
 - [x] ONNX / TorchScript exports embed the same verified model source
 - [ ] sklearn scripts execute on sample data
 
-## Phase 5 — Professional UI
+## Phase 5 — Professional UI ✅
 - [x] New design system: neutral dark (default) + light theme, one accent colour, no emoji
 - [x] Toolbar with vector icons; grouped actions; command palette kept
 - [x] Block library: sectioned tree + search + drag-and-drop, descriptions and library info in tooltips
@@ -88,13 +89,14 @@ into `main` with a merge commit.
 - [x] Dockable panels: Properties · Summary · Code · Assistant (right); Problems · Output · Training (bottom)
 - [x] Status bar: validation state, parameter count, device
 
-## Phase 6 — Production readiness
-- [ ] Version 1.0.0, About dialog, app icon
-- [ ] Rotating log file + global exception handler (error dialog, no silent crashes)
-- [ ] Autosave + crash recovery, recent files, project format versioning
-- [ ] CI: GitHub Actions (ruff + pytest offscreen) on every push/PR
-- [ ] Packaging: PyInstaller spec + build script for a desktop bundle
-- [ ] README, CHANGELOG, architecture docs rewritten for the professional product
+## Phase 6 — Production readiness ✅
+- [x] Version 1.0.0, About dialog, app icon (PNG + macOS .icns)
+- [x] Rotating log file (~/.aime/logs) + global exception handler with error dialog
+- [x] Autosave every 2 minutes + crash recovery, Open Recent, project-file migrations
+- [x] CI: GitHub Actions (ruff + pytest offscreen, Linux + macOS, Python 3.11/3.12)
+- [x] Packaging: PyInstaller spec + build script (verified: bundle builds and launches)
+- [x] README, CHANGELOG, LICENSE, ARCHITECTURE rewritten for the professional product
+- [x] Live notification when a connection introduces a new error
 
 ## Phase 7 — Final QA
 - [ ] Full suite green, lint clean, every sample validates + exports + compiles
