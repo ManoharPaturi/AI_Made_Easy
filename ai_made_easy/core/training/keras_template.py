@@ -121,6 +121,16 @@ class EpochReport(keras.callbacks.Callback):
 
 def main() -> None:
     keras.utils.set_random_seed(SEED)
+{% if spec.trainer.deterministic %}
+    if keras.backend.backend() == "tensorflow":
+        import tensorflow as tf
+
+        tf.config.experimental.enable_op_determinism()
+    elif keras.backend.backend() == "torch":
+        import torch
+
+        torch.use_deterministic_algorithms(True, warn_only=True)
+{% endif %}
     if MIXED_PRECISION:
         keras.mixed_precision.set_global_policy("mixed_float16")
     arrays = make_arrays()

@@ -11,6 +11,8 @@ Usage:
   aime jit <project.json> [-o DIR]    # generate (and with --run, execute) a TorchScript export script
   aime run <project.json> [-f auto]   # train headlessly (recorded in the run history)
   aime runs [list | show ID | compare ID ID… | delete ID]
+  aime sweep <project.json> -p opt.lr=log:1e-4:1e-1 -p d1.units=int:16:128 \
+             -p opt.nesterov=choice:true,false --metric accuracy --strategy tpe -n 20
 """
 from __future__ import annotations
 
@@ -50,6 +52,19 @@ def main(argv: list[str] | None = None) -> int:
                         choices=("list", "show", "compare", "delete"))
     p_runs.add_argument("ids", nargs="*", help="run id(s)")
     p_runs.add_argument("--project", default=None, help="filter by project name")
+    p_sw = sub.add_parser("sweep", help="hyperparameter sweep (trials go to the run history)")
+    p_sw.add_argument("project", help="path to project .json")
+    p_sw.add_argument("-p", "--param", action="append", default=[], metavar="NODE.PARAM=SPACE",
+                      help="float:LOW:HIGH | log:LOW:HIGH | int:LOW:HIGH[:STEP] | "
+                           "choice:A,B,C (repeatable)")
+    p_sw.add_argument("--metric", default="val_loss")
+    p_sw.add_argument("--direction", choices=("min", "max"), default="")
+    p_sw.add_argument("--strategy", choices=("tpe", "random", "grid"), default="tpe")
+    p_sw.add_argument("-n", "--trials", type=int, default=10)
+    p_sw.add_argument("--points", type=int, default=3, help="grid points per range")
+    p_sw.add_argument("--seed", type=int, default=0)
+    p_sw.add_argument("--list-params", action="store_true",
+                      help="print the parameters that can be swept and exit")
     p_sum = sub.add_parser("summary", help="print the analytic model summary as JSON")
     p_sum.add_argument("project", help="path to project .json")
     p_llm = sub.add_parser("llm", help="generate an LLM workflow script")
@@ -94,6 +109,9 @@ def main(argv: list[str] | None = None) -> int:
             return 1
         print(path)
         return 0
+
+    if args.command == "sweep":
+        return _sweep_command(args, graph)
 
     if args.command == "summary":
         from ai_made_easy.core.summary import summarize
@@ -176,6 +194,71 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     return 2
+
+
+def parse_space(text: str, points: int = 3) -> dict:
+    """``node.param=kind:...`` → a sweep dimension dict."""
+    if "=" not in text or "." not in text.split("=", 1)[0]:
+        raise ValueError(f"expected NODE.PARAM=SPACE, got {text!r}")
+    key, space = text.split("=", 1)
+    node, param = key.rsplit(".", 1)
+    kind, _, rest = space.partition(":")
+    if kind == "choice":
+        def conv(v: str):
+            low = v.strip().lower()
+            if low in ("true", "false"):
+                return low == "true"
+            for cast in (int, float):
+                try:
+                    return cast(v)
+                except ValueError:
+                    pass
+            return v.strip()
+
+        return {"node": node, "param": param, "kind": "choice",
+                "values": [conv(v) for v in rest.split(",") if v.strip()]}
+    parts = rest.split(":")
+    if kind in ("float", "log") and len(parts) == 2:
+        return {"node": node, "param": param, "kind": "float", "low": float(parts[0]),
+                "high": float(parts[1]), "log": kind == "log", "points": points}
+    if kind == "int" and len(parts) in (2, 3):
+        return {"node": node, "param": param, "kind": "int", "low": int(parts[0]),
+                "high": int(parts[1]), "step": int(parts[2]) if len(parts) == 3 else 1}
+    raise ValueError(f"cannot parse the search space {space!r}")
+
+
+def _sweep_command(args, graph) -> int:  # noqa: ANN001
+    import time as _time
+
+    from ai_made_easy.core import api
+
+    if args.list_params:
+        for p in api.sweepable_params(graph)["params"]:
+            space = (",".join(map(str, p["values"])) if p["kind"] == "choice"
+                     else f"{p['low']}:{p['high']}")
+            print(f"{p['key']:<32} {p['kind']:<7} current={p['current']!r:<10} {space}")
+        return 0
+    try:
+        spec = {"dimensions": [parse_space(t, args.points) for t in args.param],
+                "metric": args.metric, "direction": args.direction,
+                "strategy": args.strategy, "max_trials": args.trials, "seed": args.seed}
+        sweep_id = api.start_sweep(graph, spec)["sweep_id"]
+    except (ValueError, KeyError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    print(json.dumps({"type": "sweep_started", "sweep_id": sweep_id}), flush=True)
+    reported = 0
+    while True:
+        record = api.get_sweep(sweep_id)
+        done = [t for t in record["trials"] if t["state"] not in ("pending", "running")]
+        for t in done[reported:]:
+            print(json.dumps({"type": "trial", **t}), flush=True)
+        reported = len(done)
+        if record["state"] in ("finished", "stopped", "failed"):
+            print(json.dumps({"type": "sweep_" + record["state"], "best": record["best"]}),
+                  flush=True)
+            return 0 if record["state"] == "finished" and record["best"] else 1
+        _time.sleep(0.5)
 
 
 def _runs_command(args) -> int:  # noqa: ANN001

@@ -202,3 +202,79 @@ def compare_runs(run_ids: list[str]) -> dict:
     result = compare([history.get(r) for r in run_ids])
     result["epochs"] = {r: history.epochs(r) for r in run_ids}
     return result
+
+
+# ---------------------------------------------------------------- sweeps
+
+_sweeps: dict = {}
+_sweep_store = None
+
+
+def sweep_store():
+    global _sweep_store
+    from ai_made_easy.core.sweeps import SweepStore
+
+    if _sweep_store is None or _sweep_store.root != SweepStore().root:
+        _sweep_store = SweepStore()
+    return _sweep_store
+
+
+def sweepable_params(graph: dict | Graph) -> dict:
+    from ai_made_easy.core.sweeps import sweepable_params as _params
+
+    return {"params": _params(_graph(graph))}
+
+
+def start_sweep(graph: dict | Graph, spec: dict, project: str = "",
+                listener=None) -> dict:  # noqa: ANN001
+    from ai_made_easy.core.sweeps import SweepError, SweepRunner, SweepSpec
+
+    g = _graph(graph)
+    errors = [i for i in g.validate() if i.severity == "error"]
+    if errors:
+        raise ApiError("the graph has errors: " + "; ".join(i.message for i in errors[:5]))
+    try:
+        runner = SweepRunner(manager(), sweep_store(), g, SweepSpec.from_dict(spec),
+                             project=project, listener=listener)
+    except (SweepError, TypeError) as exc:
+        raise ApiError(str(exc)) from exc
+    _sweeps[runner.sweep_id] = runner
+    runner.start()
+    return {"sweep_id": runner.sweep_id}
+
+
+def get_sweep(sweep_id: str) -> dict:
+    return sweep_store().get(sweep_id).to_dict()
+
+
+def list_sweeps(project: str | None = None) -> dict:
+    rows = []
+    for rec in sweep_store().list(project):
+        row = rec.to_dict()
+        row.pop("graph", None)
+        rows.append(row)
+    return {"count": len(rows), "sweeps": rows}
+
+
+def stop_sweep(sweep_id: str) -> dict:
+    runner = _sweeps.get(sweep_id)
+    if runner is None:
+        raise ApiError("that sweep is not running in this process")
+    runner.stop()
+    return {"sweep_id": sweep_id, "stopping": True}
+
+
+def wait_sweep(sweep_id: str, timeout: float = 3600.0) -> dict:
+    runner = _sweeps.get(sweep_id)
+    if runner is not None:
+        runner.wait(timeout)
+    return get_sweep(sweep_id)
+
+
+def sweep_best_graph(sweep_id: str) -> dict:
+    from ai_made_easy.core.sweeps import SweepError, best_graph
+
+    try:
+        return best_graph(sweep_store().get(sweep_id))
+    except SweepError as exc:
+        raise ApiError(str(exc)) from exc

@@ -24,15 +24,17 @@ from ai_made_easy.ui.dialogs import (
     SaveTemplateDialog,
     ShortcutsDialog,
 )
+from ai_made_easy.ui.features.experiments import CompareDialog, ExperimentsPage, SweepDialog
 from ai_made_easy.ui.features.inspector import AssistantPage, CodePage, SummaryPage
 from ai_made_easy.ui.features.library import BlockLibrary
 from ai_made_easy.ui.features.problems import ProblemsPanel
 from ai_made_easy.ui.features.project_field import ProjectNameField
 from ai_made_easy.ui.features.properties import PropertyInspector
 from ai_made_easy.ui.features.runconsole import OutputPage, TrainingPage
+from ai_made_easy.ui.services.experiment_service import ExperimentService
 from ai_made_easy.ui.services.export_service import ExportService, default_filename
 from ai_made_easy.ui.services.graph_service import GraphService
-from ai_made_easy.ui.services.process_service import ProcessService
+from ai_made_easy.ui.services.process_service import ProcessService, python_executable
 from ai_made_easy.ui.services.project_service import (
     DEMO_SEED,
     ProjectService,
@@ -76,6 +78,8 @@ class AppContext(QtCore.QObject):
         self.graph_service = GraphService(self.canvas, self.log_bus, self)
         self.export_service = ExportService(self.log_bus)
         self.process_service = ProcessService(self.log_bus, self.run_store, self)
+        self.experiment_service = ExperimentService(self.process_service.history, self.log_bus,
+                                                    self, python=python_executable())
         self.project_service = ProjectService(self.project_store, self.graph_service,
                                               self.log_bus)
         self._last_ir: Graph | None = None
@@ -98,6 +102,7 @@ class AppContext(QtCore.QObject):
         self.problems = ProblemsPanel(self.canvas.node_title, self._fixable)
         self.output_page = OutputPage(self.log_bus)
         self.training_page = TrainingPage(self.run_store)
+        self.experiments_page = ExperimentsPage()
         self.validation_chip = StatusChip("Not validated")
         self.params_chip = StatusChip("")
         self.kind_chip = StatusChip("")
@@ -134,6 +139,22 @@ class AppContext(QtCore.QObject):
         self.training_page.saliency_clicked.connect(self.act_saliency)
         self.training_page.card_clicked.connect(self.act_model_card)
         self.training_page.folder_clicked.connect(self.act_open_run_folder)
+
+        ep, es = self.experiments_page, self.experiment_service
+        ep.scope.currentIndexChanged.connect(lambda *_: self._refresh_experiments())
+        ep.compare_requested.connect(self._compare_runs)
+        ep.results_requested.connect(self._load_run_results)
+        ep.restore_requested.connect(self._restore_run)
+        ep.folder_requested.connect(self._open_run_folder)
+        ep.delete_requested.connect(self._delete_runs)
+        ep.tag_requested.connect(self._tag_run)
+        ep.new_sweep_requested.connect(self.act_new_sweep)
+        ep.stop_sweep_requested.connect(lambda _sid: es.stop_sweep())
+        ep.apply_best_requested.connect(self._apply_best_sweep)
+        es.changed.connect(self._refresh_experiments)
+        es.sweep_finished.connect(self._on_sweep_finished)
+        self.process_service.history_changed.connect(self._refresh_experiments)
+        self.project_store.name_changed.connect(lambda *_: self._refresh_experiments())
 
         self.run_store.state_changed.connect(self._on_run_state)
         ps = self.process_service
@@ -462,6 +483,9 @@ class AppContext(QtCore.QObject):
         if project_kind(ir.to_dict()) == "LLM workflow":
             self.status_message.emit("LLM workflows run as scripts: Export ▸ LLM Workflow Script")
             return
+        if self.experiment_service.is_running():
+            self.status_message.emit("A sweep is running — stop it before training")
+            return
         if not self._guard_run("train"):
             return
         self.training_page.reset()
@@ -477,6 +501,8 @@ class AppContext(QtCore.QObject):
             self.process_service.run_test(ir)
 
     def act_stop(self, *_):
+        if self.experiment_service.is_running():
+            self.experiment_service.stop_sweep()
         self.process_service.stop()
         self.run_store.set(RunStore.STOPPED, "train")
 
@@ -588,6 +614,129 @@ class AppContext(QtCore.QObject):
         wd = self._run_workdir()
         if wd is not None:
             QtGui.QDesktopServices.openUrl(QtCore.QUrl.fromLocalFile(str(wd)))
+
+    # ======================================================== experiments
+
+    def act_experiments(self, *_):
+        self._refresh_experiments()
+        if self.window is not None:
+            self.window.docks["experiments"].show()
+            self.window.docks["experiments"].raise_()
+
+    def _experiment_project(self) -> str | None:
+        return self.project_store.name if self.experiments_page.project_scope() else None
+
+    def _refresh_experiments(self) -> None:
+        try:
+            project = self._experiment_project()
+            self.experiments_page.set_runs(self.experiment_service.runs(project))
+            self.experiments_page.set_sweeps(self.experiment_service.sweep_records(project))
+        except OSError as exc:
+            self.log_bus.warning(f"could not read the run history: {exc}")
+
+    def act_new_sweep(self, *_):
+        from ai_made_easy.core.sweeps import sweepable_params
+
+        if self.experiment_service.is_running():
+            self.status_message.emit("A sweep is already running")
+            return
+        if self.run_store.is_running:
+            self.status_message.emit("Wait for the current run to finish")
+            return
+        ir = self.project_service.snapshot()
+        if project_kind(ir.to_dict()) == "LLM workflow":
+            self.status_message.emit("Sweeps apply to trainable models")
+            return
+        if not self._guard_run("start a sweep"):
+            return
+        params = sweepable_params(ir)
+        metrics = ["val_loss", "accuracy", "f1", "roc_auc", "mae", "rmse", "r2",
+                   "train_loss", "loss"]
+        dialog = SweepDialog(self.window, params, metrics)
+        for key in ("opt.lr",):
+            dialog.check_row(key)
+        if dialog.exec() != QtWidgets.QDialog.DialogCode.Accepted or dialog.spec() is None:
+            return
+        if self.experiment_service.start_sweep(ir, dialog.spec(), self.project_store.name):
+            self.experiments_page.tabs.setCurrentIndex(1)
+            self.act_experiments()
+            self.status_message.emit("Sweep started — trials appear in Experiments ▸ Sweeps")
+
+    def _on_sweep_finished(self, sweep_id: str, state: str) -> None:
+        self.status_message.emit(f"Sweep {state}")
+
+    def _apply_best_sweep(self, sweep_id: str) -> None:
+        from ai_made_easy.core.sweeps import SweepError, best_graph
+
+        try:
+            data = best_graph(self.experiment_service.sweeps.get(sweep_id))
+        except (KeyError, SweepError) as exc:
+            self.status_message.emit(str(exc))
+            return
+        if self._confirm_discard() and self.project_service.apply_graph_dict(data):
+            self.status_message.emit("Best sweep parameters applied to the design")
+
+    def _compare_runs(self, run_ids: list) -> None:
+        history = self.experiment_service.history
+        try:
+            records = [history.get(r) for r in run_ids]
+        except KeyError as exc:
+            self.status_message.emit(str(exc))
+            return
+        CompareDialog(self.window, records, {r: history.epochs(r) for r in run_ids}).exec()
+
+    def _load_run_results(self, run_id: str) -> None:
+        history = self.experiment_service.history
+        if self.run_store.is_running:
+            self.status_message.emit("Wait for the current run to finish")
+            return
+        self.training_page.reset()
+        for event in history.epochs(run_id):
+            self.training_page.on_epoch(event)
+        self.process_service.last_workdir = history.path(run_id)
+        self.training_page.set_results_available(history.path(run_id))
+        rec = history.get(run_id)
+        self.training_page.status.setText(f"Run {rec.name} ({run_id}) — {rec.status}")
+        if self.window is not None:
+            self.window.docks["training"].raise_()
+
+    def _restore_run(self, run_id: str) -> None:
+        rec = self.experiment_service.history.get(run_id)
+        if self._confirm_discard() and self.project_service.apply_graph_dict(rec.graph):
+            self.status_message.emit(f"Restored the design of run {run_id}")
+
+    def _open_run_folder(self, run_id: str) -> None:
+        path = self.experiment_service.history.path(run_id)
+        QtGui.QDesktopServices.openUrl(QtCore.QUrl.fromLocalFile(str(path)))
+
+    def _delete_runs(self, run_ids: list) -> None:
+        if not run_ids:
+            return
+        live = self.process_service.current_run_id if self.run_store.is_running else None
+        if live in run_ids:
+            self.status_message.emit("Stop the running training before deleting it")
+            return
+        answer = QtWidgets.QMessageBox.question(
+            self.window, "Delete runs",
+            f"Delete {len(run_ids)} run(s) and their checkpoints and files? "
+            "This cannot be undone.")
+        if answer != QtWidgets.QMessageBox.StandardButton.Yes:
+            return
+        for run_id in run_ids:
+            try:
+                self.experiment_service.history.delete(run_id)
+            except (KeyError, OSError) as exc:
+                self.log_bus.error(f"could not delete {run_id}: {exc}")
+        self._refresh_experiments()
+
+    def _tag_run(self, run_id: str) -> None:
+        history = self.experiment_service.history
+        rec = history.get(run_id)
+        text, ok = QtWidgets.QInputDialog.getText(
+            self.window, "Run tags", "Comma-separated tags:", text=", ".join(rec.tags))
+        if ok:
+            history.update(run_id, tags=[t.strip() for t in text.split(",") if t.strip()])
+            self._refresh_experiments()
 
     # ============================================================== file
 
@@ -895,6 +1044,7 @@ class AppContext(QtCore.QObject):
     def confirm_close(self, window) -> bool:  # noqa: ANN001
         if self.run_store.is_running:
             self.process_service.stop()
+        self.experiment_service.shutdown()
         ok = self._confirm_discard()
         if ok:
             self._clear_recovery()
