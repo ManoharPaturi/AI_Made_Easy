@@ -9,6 +9,8 @@ These enforce the ENCLOSING rules the redesign committed to:
 """
 from __future__ import annotations
 
+import os
+
 import ast
 import subprocess
 import sys
@@ -159,8 +161,7 @@ def test_workbench_smoke():
         [sys.executable, "-c", WORKBENCH_SMOKE],
         cwd=str(Path(__file__).parent.parent),
         capture_output=True, text=True, timeout=180,
-        env={"PYTHONPATH": str(Path(__file__).parent.parent),
-             "PATH": "/usr/bin:/bin:/usr/local/bin"})
+        env={**os.environ, "PYTHONPATH": str(Path(__file__).parent.parent)})
     assert "SMOKE-OK" in result.stdout, result.stdout[-800:] + result.stderr[-800:]
     assert Path("/tmp/aime_workbench_smoke.png").stat().st_size > 50_000
 

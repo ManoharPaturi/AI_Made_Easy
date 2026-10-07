@@ -2,6 +2,8 @@
 stdio client round-trip)."""
 from __future__ import annotations
 
+import os
+
 import json
 import subprocess
 import sys
@@ -91,6 +93,7 @@ def test_expand_in_graph_is_pure_and_valid():
 # ------------------------------------------------------------- MCP server
 
 def test_mcp_impl_functions():
+    pytest.importorskip("mcp", reason="mcp SDK not installed")
     from ai_made_easy.mcp.server import (
         _impl_generate,
         _impl_list_blocks,
@@ -213,8 +216,7 @@ def test_canvas_exports_png():
     )
     result = subprocess.run([sys.executable, "-c", code], cwd=str(SAMPLES.parent),
                             capture_output=True, text=True, timeout=120,
-                            env={"PYTHONPATH": str(SAMPLES.parent),
-                                 "PATH": "/usr/bin:/bin"})
+                            env={**os.environ, "PYTHONPATH": str(SAMPLES.parent)})
     assert result.returncode == 0, result.stderr[-500:]
     out = Path("/tmp/aime_canvas_export_test.png")
     assert out.exists() and out.stat().st_size > 10_000  # real image, not blank
