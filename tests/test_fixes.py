@@ -62,6 +62,8 @@ def test_single_target_table_shared_by_ui_and_mcp():
     assert export_service.RENDERERS is targets.RENDERERS
     assert set(export_service.PREVIEW_TARGETS) == set(targets.RENDERERS)
     assert targets.target_label("pytorch_train") == "PyTorch training script"
+    from ai_made_easy.core import api
+    assert {t["id"] for t in api.targets()["targets"]} == set(targets.RENDERERS)
     pytest.importorskip("mcp")
     from ai_made_easy.mcp import server
-    assert server._GENERATE_TARGETS is targets.RENDERERS
+    assert server.api is api  # MCP goes through the shared headless API

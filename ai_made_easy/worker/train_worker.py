@@ -9,6 +9,7 @@ Emitted events (one JSON object per line, flushed immediately):
   {"type": "epoch", "epoch": 3, "total": 10, "metrics": {"train_loss": ...}}
   {"type": "error", "traceback": "..."}
   {"type": "done",  "returncode": 0}
+  {"type": "env",   "python": "3.12.4", "platform": "...", "packages": {...}}
 
 The generated scripts stay clean and standalone — this wrapper owns all
 IPC. Stderr passes through untouched (library warnings, tqdm, etc.).
@@ -70,6 +71,27 @@ class LineTap(io.TextIOBase):
             _emit({"type": "log", "line": line}, self._sink)
 
 
+_PACKAGES = ("torch", "torchvision", "torchaudio", "keras", "tensorflow", "jax",
+             "scikit-learn", "xgboost", "lightgbm", "catboost", "numpy", "pandas",
+             "transformers")
+
+
+def _environment() -> dict:
+    """Interpreter + library versions, recorded with the run for reproducibility."""
+    import platform
+    from importlib import metadata
+
+    packages = {}
+    for name in _PACKAGES:
+        try:
+            packages[name] = metadata.version(name)
+        except metadata.PackageNotFoundError:
+            continue
+    return {"type": "env", "python": platform.python_version(),
+            "platform": platform.platform(), "executable": sys.executable,
+            "packages": packages}
+
+
 def main() -> int:
     if len(sys.argv) != 2:
         _emit({"type": "error", "traceback": "usage: train_worker.py <script>"}, sys.stdout)
@@ -78,6 +100,10 @@ def main() -> int:
     script = sys.argv[1]
     real_stdout = sys.stdout
     sys.stdout = LineTap(real_stdout)
+    try:
+        _emit(_environment(), real_stdout)
+    except Exception:  # noqa: BLE001 — never block a run on metadata
+        pass
     try:
         runpy.run_path(script, run_name="__main__")
         _emit({"type": "done", "returncode": 0}, real_stdout)

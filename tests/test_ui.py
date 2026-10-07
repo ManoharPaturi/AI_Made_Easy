@@ -226,7 +226,7 @@ def test_code_page_offers_every_target(ctx, app):
 
 def test_train_requires_a_valid_design(ctx, app, monkeypatch):
     calls = []
-    monkeypatch.setattr(ctx.process_service, "run_training", calls.append)
+    monkeypatch.setattr(ctx.process_service, "run_training", lambda g, **kw: calls.append(g))
     monkeypatch.setattr(QtWidgets.QMessageBox, "exec", lambda self: 0)
     ctx.validation_store.update([ValidationIssue("error", "broken", None)])
     ctx.act_train()

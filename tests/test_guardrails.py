@@ -278,7 +278,7 @@ from ai_made_easy.ui.context import AppContext
 from ai_made_easy.core.graph import ValidationIssue
 ctx = AppContext()
 calls = []
-ctx.process_service.run_training = lambda g: calls.append(g)
+ctx.process_service.run_training = lambda g, **kw: calls.append(g)
 # 1) invalid graph -> blocked (the explanatory dialog is stubbed)
 ctx.validation_store.update([ValidationIssue("error", "units too small", "d")])
 QtWidgets.QMessageBox.exec = lambda self: 0

@@ -64,9 +64,9 @@ def _ensure_qt_plugin_path() -> None:
 
 def data_dir() -> Path:
     """Per-user application data: logs, autosave, custom blocks."""
-    path = Path.home() / ".aime"
-    path.mkdir(parents=True, exist_ok=True)
-    return path
+    from ai_made_easy.core.paths import aime_home
+
+    return aime_home()
 
 
 def _setup_logging() -> Path:

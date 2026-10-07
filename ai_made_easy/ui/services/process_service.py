@@ -14,6 +14,7 @@ from ai_made_easy.core.codegen import export as export_model
 from ai_made_easy.core.codegen import export_training
 from ai_made_easy.core.graph import Graph
 from ai_made_easy.core.runner.protocol import parse_event, worker_script_path
+from ai_made_easy.core.runs.history import RunHistory
 
 
 def python_executable() -> str:
@@ -40,8 +41,9 @@ class ProcessService(QtCore.QObject):
     epoch_received = QtCore.Signal(dict)
     error_received = QtCore.Signal(str)
     finished = QtCore.Signal(int, str)  # returncode, kind
+    history_changed = QtCore.Signal()
 
-    def __init__(self, log, run_store, parent=None):
+    def __init__(self, log, run_store, parent=None, history: RunHistory | None = None):
         super().__init__(parent)
         self.log = log
         self.run_store = run_store
@@ -49,6 +51,13 @@ class ProcessService(QtCore.QObject):
         self._buf = ""
         self._kind = ""
         self.last_workdir: Path | None = None
+        self.history = history if history is not None else RunHistory()
+        self.current_run_id: str | None = None
+        self._stopping = False
+        try:
+            self.history.mark_interrupted()
+        except OSError:
+            pass
 
     # ------------------------------------------------------------ state
 
@@ -59,6 +68,7 @@ class ProcessService(QtCore.QObject):
     def stop(self) -> None:
         if not self.is_running():
             return
+        self._stopping = True
         self._proc.terminate()
         QtCore.QTimer.singleShot(3000, self._force_kill)
 
@@ -74,6 +84,7 @@ class ProcessService(QtCore.QObject):
             return
         self._buf = ""
         self._kind = kind
+        self._stopping = False
         proc = QtCore.QProcess(self)
         proc.setProgram(python_executable())
         proc.setArguments([str(worker_script_path()), str(script)])
@@ -87,7 +98,7 @@ class ProcessService(QtCore.QObject):
         self.run_store.set(self.run_store.RUNNING, kind)
         proc.start()
 
-    def run_training(self, graph: Graph) -> None:
+    def run_training(self, graph: Graph, project: str = "") -> None:
         import importlib.util
 
         from ai_made_easy.core.classic.generate import is_classic
@@ -99,15 +110,23 @@ class ProcessService(QtCore.QObject):
             self.log.error(f"{package} is not installed in this environment "
                            f"(pip install {package})")
             return
-        workdir = Path(tempfile.mkdtemp(prefix="aime_run_"))
+        framework = "sklearn" if classic else "pytorch"
+        record = self.history.create(graph.to_dict(), framework=framework, project=project)
+        workdir = self.history.path(record.run_id)
         try:
-            script = export_training(graph, "sklearn" if classic else "pytorch", workdir)
+            script = export_training(graph, framework, workdir)
         except Exception as exc:  # noqa: BLE001 — reported to the user
+            self.history.finalize(record.run_id, "failed", None, str(exc))
             self.log.error(f"could not generate the training script: {exc}")
             return
         self.last_workdir = workdir
-        self.log.info(f"training started — run folder: {workdir}")
+        self.current_run_id = record.run_id
+        self.log.info(f"training started — run {record.run_id}, folder: {workdir}")
         self._start(script, workdir, "train")
+        if self._proc is not None:
+            self.history.update(record.run_id, status="running",
+                                pid=int(self._proc.processId()) or None)
+        self.history_changed.emit()
 
     def run_test(self, graph: Graph) -> None:
         workdir = Path(tempfile.mkdtemp(prefix="aime_test_"))
@@ -165,15 +184,37 @@ class ProcessService(QtCore.QObject):
         if event is None:
             return
         kind = event.get("type")
+        run_id = self.current_run_id if self._kind == "train" else None
+        if run_id and kind == "epoch":
+            self._safely(self.history.append_epoch, run_id, event)
+        elif run_id and kind == "env":
+            self._safely(self.history.update, run_id,
+                         env={k: v for k, v in event.items() if k != "type"})
         if kind == "epoch":
             self.epoch_received.emit(event)
         elif kind == "log":
             self.log_received.emit(str(event.get("line", "")))
         elif kind == "error":
-            self.error_received.emit(str(event.get("traceback", "")))
+            self._error = str(event.get("traceback", ""))
+            self.error_received.emit(self._error)
+
+    def _safely(self, fn, *args, **kwargs) -> None:  # noqa: ANN001
+        try:
+            fn(*args, **kwargs)
+        except (OSError, KeyError, ValueError) as exc:
+            self.log.warning(f"run history not updated: {exc}")
 
     def _on_finished(self, code, _status) -> None:
         code = int(code)
+        if self._buf.strip():
+            self._dispatch(parse_event(self._buf))
+            self._buf = ""
+        if self._kind == "train" and self.current_run_id:
+            status = "stopped" if self._stopping else ("finished" if code == 0 else "failed")
+            self._safely(self.history.finalize, self.current_run_id, status, code,
+                         getattr(self, "_error", ""))
+            self._error = ""
+            self.history_changed.emit()
         state = (self.run_store.FINISHED if code == 0
                  else self.run_store.FAILED)
         self.run_store.set(state, self._kind)
