@@ -418,9 +418,18 @@ def template_context(graph: Graph, plan: EmissionPlan) -> dict:
     }
 
 
+def _reject_classic(graph: Graph) -> None:
+    from ai_made_easy.core.classic.generate import is_classic
+
+    if is_classic(graph):
+        raise CodegenError("this project is a scikit-learn pipeline; export it with the "
+                           "scikit-learn target")
+
+
 def generate(graph: Graph, framework: str) -> str:
     if framework not in FRAMEWORKS:
         raise ValueError(f"unknown framework {framework!r}; expected one of {FRAMEWORKS}")
+    _reject_classic(graph)
     _validated(graph)
     plan = emit_graph(graph)
     require_framework(plan, framework)
@@ -442,10 +451,17 @@ def export(graph: Graph, framework: str, out_dir: str | Path) -> Path:
 
 
 def export_training(graph: Graph, framework: str, out_dir: str | Path) -> Path:
-    """Write the self-contained training script for the graph."""
+    """Write the self-contained training script for the graph.
+
+    Classic (scikit-learn) projects always produce a scikit-learn script.
+    """
+    from ai_made_easy.core.classic.generate import generate_classic, is_classic
     from ai_made_easy.core.codegen.training_gen import generate_training
 
+    if is_classic(graph):
+        framework = "sklearn"
     out = Path(out_dir) / f"{sanitize_identifier(graph.name)}_train_{framework}.py"
     out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(generate_training(graph, framework))
+    code = generate_classic(graph) if framework == "sklearn" else generate_training(graph, framework)
+    out.write_text(code)
     return out
