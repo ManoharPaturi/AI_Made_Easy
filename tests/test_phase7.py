@@ -15,7 +15,7 @@ from ai_made_easy.core.graph import Edge, Graph, NodeInstance
 from ai_made_easy.core.registry import get_registry
 from ai_made_easy.core.runner.manager import RunManager
 
-SAMPLES = Path(__file__).parent.parent / "samples"
+SAMPLES = Path(__file__).parent.parent / "ai_made_easy" / "samples"
 
 
 @pytest.fixture(scope="module")

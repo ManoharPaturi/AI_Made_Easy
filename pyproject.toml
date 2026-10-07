@@ -41,12 +41,18 @@ dev = ["pytest>=8.0", "pytest-qt>=4.4", "pillow>=10", "ruff>=0.6"]
 perception = ["sounddevice>=0.4"]
 mcp-server = ["mcp[cli]>=1.0,<2"]
 
+[project.gui-scripts]
+ai-made-easy = "ai_made_easy.__main__:main"
+
 [project.scripts]
 aime = "ai_made_easy.cli:main"
 aime-mcp = "ai_made_easy.mcp.server:main"
 
 [tool.setuptools.packages.find]
 include = ["ai_made_easy*"]
+
+[tool.setuptools.package-data]
+ai_made_easy = ["samples/*.json", "assets/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

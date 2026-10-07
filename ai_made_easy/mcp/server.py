@@ -23,7 +23,7 @@ from ai_made_easy.core.summary import summarize
 
 mcp = FastMCP("ai-made-easy")
 
-SAMPLES_DIR = Path(__file__).parent.parent.parent / "samples"
+SAMPLES_DIR = Path(__file__).parent.parent / "samples"
 _runs = RunManager()
 
 _GENERATE_TARGETS = RENDERERS

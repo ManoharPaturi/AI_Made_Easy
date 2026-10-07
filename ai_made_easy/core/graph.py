@@ -473,7 +473,7 @@ class Graph:
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "schema_version": 1,
+            "schema_version": 2,
             "name": self.name,
             "nodes": [
                 {
@@ -493,6 +493,9 @@ class Graph:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "Graph":
+        from ai_made_easy.core.migrate import migrate
+
+        data = migrate(data)
         g = cls(name=data.get("name", "untitled"), meta=data.get("meta", {}))
         for nd in data.get("nodes", []):
             pos = nd.get("position") or [0.0, 0.0]

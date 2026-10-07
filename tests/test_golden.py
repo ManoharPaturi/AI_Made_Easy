@@ -14,7 +14,7 @@ from ai_made_easy.core.codegen import generate
 from ai_made_easy.core.codegen.training_gen import generate_training
 from ai_made_easy.core.graph import Graph
 
-SAMPLES = Path(__file__).parent.parent / "samples"
+SAMPLES = Path(__file__).parent.parent / "ai_made_easy" / "samples"
 GOLDEN = Path(__file__).parent / "golden"
 
 CASES = [

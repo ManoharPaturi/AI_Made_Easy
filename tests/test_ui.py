@@ -339,3 +339,20 @@ def test_every_block_can_be_placed_and_edited(ctx, app):
     assert ctx.canvas.params_of(resize)["height"] == 48
     ir = ctx.canvas.to_ir()
     assert ir.nodes[resize].params["height"] == 48
+
+
+def test_autosave_recovery_and_recent_files(ctx, app, tmp_path):
+    ctx.project_store.mark_dirty()
+    ctx._autosave()
+    recovery = ctx._recovery_file()
+    assert recovery.exists()
+    assert json.loads(recovery.read_text())["nodes"]
+    ctx._clear_recovery()
+    assert not recovery.exists()
+    project = tmp_path / "p.json"
+    ctx.project_service.save_as(project)
+    ctx._add_recent(project)
+    assert ctx.recent_files()[0] == str(project)
+    menu = QtWidgets.QMenu()
+    ctx.populate_recent(menu)
+    assert menu.actions()[0].text() == "p.json"

@@ -8,7 +8,7 @@ from pathlib import Path
 
 from ai_made_easy.core.graph import Graph
 
-SAMPLES_DIR = Path(__file__).resolve().parents[3] / "samples"
+SAMPLES_DIR = Path(__file__).resolve().parents[2] / "samples"
 DEMO_SEED = SAMPLES_DIR / "demo_seed.json"
 
 
