@@ -56,10 +56,16 @@ into `main` with a merge commit.
       param relations (split fractions, Nesterov, scale ranges, odd kernels, ...)
 - [x] End-to-end tests run generated training scripts for every modality (PyTorch + Keras)
 - [ ] Pretrained backbones (torchvision): ResNet, MobileNet, EfficientNet, ConvNeXt, ViT, …
-- [ ] Classic ML family (scikit-learn): preprocessing, linear models, SVM, trees, ensembles,
-      neighbors, naive Bayes, clustering, decomposition, model selection
-- [ ] Gradient boosting: XGBoost, LightGBM, CatBoost (sklearn API)
-- [ ] scikit-learn code generation target (`sklearn_train`), runnable end-to-end
+- [x] Classic ML family: 55 estimators — linear models, SVMs, neighbors, naive Bayes,
+      discriminant analysis, trees & ensembles, sklearn MLPs, clustering (k-Means, DBSCAN,
+      HDBSCAN, GMM, ...), anomaly detection; 12 transformers (polynomial, spline, power,
+      quantile, binning, SelectKBest, PCA, SVD, kernel PCA, ICA, TF-IDF, counts)
+- [x] Gradient boosting: XGBoost, LightGBM, CatBoost (sklearn API)
+- [x] scikit-learn target (`sklearn_train`): ColumnTransformer pipelines, CV, grid / random /
+      halving search, class balancing, feature importances, joblib export — every estimator
+      verified end to end
+- [x] Classic rules: one estimator, no mixing with NN layers, non-negative estimators,
+      solver/penalty compatibility, score-function vs task, vectorizer vs data, grid syntax
 - [ ] Keras parity for every NN block that has a Keras equivalent; unsupported blocks
       produce one clear error listing them (never a crash)
 

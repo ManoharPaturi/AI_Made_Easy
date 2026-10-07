@@ -21,7 +21,14 @@ RENDERERS: dict[str, Renderer] = {
     "pytorch_train": lambda g: generate_training(g, "pytorch"),
     "keras_train": lambda g: generate_training(g, "keras"),
     "llm": lambda g: generate_llm_script(g),
+    "sklearn_train": lambda g: _sklearn(g),
 }
+
+
+def _sklearn(graph: Graph) -> str:
+    from ai_made_easy.core.classic.generate import generate_classic
+
+    return generate_classic(graph)
 
 TARGET_LABELS: dict[str, str] = {
     "pytorch_model": "PyTorch model",
@@ -29,6 +36,7 @@ TARGET_LABELS: dict[str, str] = {
     "pytorch_train": "PyTorch training script",
     "keras_train": "Keras training script",
     "llm": "LLM workflow script",
+    "sklearn_train": "scikit-learn pipeline script",
 }
 
 

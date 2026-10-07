@@ -451,6 +451,12 @@ class Graph:
             issues.append(ValidationIssue("error", str(exc)))
 
         issues += self._param_issues()
+        from ai_made_easy.core.classic.generate import classic_issues, is_classic
+
+        if is_classic(self):
+            from ai_made_easy.core.suggestions import add_tips
+
+            return add_tips(issues + classic_issues(self), self)
         flow_issues, chain = self._flow_issues()
         issues += flow_issues
         if chain:

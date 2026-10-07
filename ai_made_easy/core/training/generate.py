@@ -322,6 +322,12 @@ def _validate(graph: Graph) -> None:
 
 
 def generate_training(graph: Graph, framework: str) -> str:
+    from ai_made_easy.core.classic.generate import generate_classic, is_classic
+
+    if is_classic(graph) or framework == "sklearn":
+        if not is_classic(graph):
+            raise CodegenError("scikit-learn export needs a classic ML estimator block")
+        return generate_classic(graph)
     _validate(graph)
     spec = collect_spec(graph)
     if framework == "pytorch":
