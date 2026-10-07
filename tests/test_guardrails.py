@@ -7,6 +7,8 @@ canvas wire guard, the properties-panel patches, and Train gating.
 """
 from __future__ import annotations
 
+import os
+
 import sys
 from pathlib import Path
 
@@ -299,7 +301,6 @@ def test_train_is_gated_on_validation():
         [sys.executable, "-c", GUARD_SMOKE],
         cwd=str(Path(__file__).parent.parent),
         capture_output=True, text=True, timeout=180,
-        env={"PYTHONPATH": str(Path(__file__).parent.parent),
-             "PATH": "/usr/bin:/bin:/usr/local/bin"})
+        env={**os.environ, "PYTHONPATH": str(Path(__file__).parent.parent)})
     assert "GUARD-OK" in result.stdout, \
         result.stdout[-800:] + result.stderr[-800:]
