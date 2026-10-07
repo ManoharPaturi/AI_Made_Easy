@@ -48,11 +48,11 @@ def test_inspect_script_shape():
 
     code = generate_inspect(_conv_net())
     ast.parse(code)
-    assert "_grad_cam" in code and "retain_grad" in code
+    assert "def grad_cam" in code and "retain_grad" in code
     assert "inspect.json" in code and "feats.npy" in code
     # training mode must NOT contain the inspect main
     train = generate_training(_conv_net(), "pytorch")
-    assert "_grad_cam" not in train
+    assert "def grad_cam" not in train
     # inspect ignores the kfold machinery
     kfold = generate_inspect(_conv_net([("kf", "train.kfold", {"k": 2})]))
     ast.parse(kfold)

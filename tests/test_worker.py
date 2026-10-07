@@ -53,6 +53,7 @@ def test_worker_streams_epochs_from_real_training(tmp_path: Path):
                                        "device": "cpu", "seed": 7,
                                        "early_stopping_patience": 0}),
         ("f1", "eval.f1", {"average": "macro"}),
+        ("acc", "eval.accuracy", {}),
     )
     assert g.validate() == []
     script = export_training(g, "pytorch", tmp_path)

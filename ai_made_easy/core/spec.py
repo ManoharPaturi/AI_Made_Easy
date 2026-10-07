@@ -119,6 +119,8 @@ class BlockDefinition:
     library: str = ""
     # Input tensor dtype accepted: "float" or "int" (index tensors)
     input_dtype: str = "float"
+    # Free-form metadata for config blocks (modality, task, step mode, ...)
+    meta: Any = None
 
     def supports(self, framework: str) -> bool:
         """True when the block can be emitted for ``framework``."""
@@ -161,6 +163,13 @@ class BlockDefinition:
             "outputs": [{"name": p.name, "dtype": p.dtype} for p in self.outputs],
         }
         return out
+
+
+def P(name: str, type_: str, default: Any = None, *, options: tuple = (),
+      lo: Any = None, hi: Any = None, help: str = "") -> ParamSpec:  # noqa: A002, N802
+    """Short ParamSpec constructor used by block tables."""
+    return ParamSpec(name=name, type=type_, default=default, options=tuple(options),
+                     minimum=lo, maximum=hi, help=help)
 
 
 def parse_shape(shape_str: str) -> list[int]:

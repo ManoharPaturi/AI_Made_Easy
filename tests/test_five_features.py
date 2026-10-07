@@ -135,7 +135,7 @@ def test_predict_block_registered_and_generates():
         code = generate_training(g, fw)
         import ast
         ast.parse(code)
-        assert "sample predictions" in code
+        assert "prediction preview" in code
 
 
 # ------------------------------------- trainer progress + celebration

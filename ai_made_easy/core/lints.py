@@ -327,7 +327,7 @@ def dataset_matches_input(ctx: LintContext):
                 f"{_name(ds)} produces {n_feat} features per sample but the Input holds "
                 f"{shape_volume(want)} values ({want}). Make them equal.",
                 head.instance_id))
-    for ds in ctx.nodes_of("data.torchvision"):
+    for ds in ():  # torchvision shapes are checked by training_setup
         sample = DATASET_SHAPES.get(ds.resolved_params().get("dataset"))
         if not sample:
             continue
@@ -351,6 +351,92 @@ def dataset_matches_input(ctx: LintContext):
     return out
 
 
+def loss_output_pairing(ctx: LintContext):
+    """Losses that expect probabilities / log-probabilities need the matching output."""
+    from ai_made_easy.core.training import catalog as cat
+
+    loss = ctx.loss_type()
+    last = ctx.last_compute()
+    if loss is None or last is None or loss not in cat.COMPONENTS:
+        return []
+    want = cat.COMPONENTS[loss].meta.get("input")
+    name = cat.COMPONENTS[loss].name
+    if want == "log_probs" and last.type_id != "core.log_softmax":
+        return [_issue("error", f"{name} expects log-probabilities; end the model with a "
+                                "LogSoftmax layer", last.instance_id)]
+    if want == "probs" and last.type_id != "core.sigmoid":
+        return [_issue("error", f"{name} expects probabilities in [0, 1]; end the model with "
+                                "a Sigmoid layer, or use BCE (logits) without it",
+                       last.instance_id)]
+    return []
+
+
+def training_setup(ctx: LintContext):
+    """Dataset, preprocessing and training blocks must form a consistent pipeline."""
+    from ai_made_easy.core.codegen import CodegenError
+    from ai_made_easy.core.training import data_catalog as dcat
+    from ai_made_easy.core.training.spec import collect_spec, expected_input_shape
+
+    if not any(n.type_id.startswith(("data.", "prep.", "train.", "eval."))
+               for n in ctx.graph.nodes.values()):
+        return []
+    anchor = next((n.instance_id for n in ctx.graph.nodes.values()
+                   if n.type_id.startswith("data.")), None)
+    try:
+        spec = collect_spec(ctx.graph)
+    except CodegenError as exc:
+        return [_issue("error", str(exc), anchor)]
+    except Exception:  # noqa: BLE001 — structural problems are reported elsewhere
+        return []
+    out = [_issue("warning", w, anchor) for w in spec.warnings
+           if not w.startswith("no dataset block")]
+    head = ctx.chain[0]
+    if spec.modality == "text" and spec.input_dtype != "int64":
+        out.append(_issue("error", "text datasets produce token ids: set the Input dtype "
+                                   "to int64 and start the model with an Embedding",
+                          head.instance_id))
+    if spec.modality != "text" and spec.input_dtype == "int64":
+        out.append(_issue("error", f"{spec.modality} datasets produce floating-point "
+                                   "features: set the Input dtype to float32",
+                          head.instance_id))
+    tok = spec.steps.get("prep.tokenize")
+    if tok and tok["method"] != "huggingface":
+        for emb in ctx.nodes_of("core.embedding"):
+            if int(emb.resolved_params()["num_embeddings"]) < int(tok["vocab_size"]):
+                out.append(_issue(
+                    "error",
+                    f"Embedding num_embeddings ({emb.resolved_params()['num_embeddings']}) "
+                    f"is smaller than the tokenizer vocabulary ({tok['vocab_size']}); "
+                    "token ids would be out of range", emb.instance_id))
+    expected = expected_input_shape(spec)
+    if expected is not None and list(expected) != list(spec.input_shape):
+        name = dcat.BLOCKS[spec.dataset["block"]].name
+        out.append(_issue(
+            "error",
+            f"{name} produces samples of shape {expected} but the Input expects "
+            f"{spec.input_shape}. Set the Input shape to '{', '.join(map(str, expected))}'.",
+            head.instance_id))
+    if spec.dataset["block"] == "data.timeseries_csv":
+        d = spec.dataset
+        want = int(d["window"])
+        dims = spec.input_shape
+        axis = 1 if str(d["layout"]).startswith("channels") else 0
+        if len(dims) != 2 or dims[axis] != want:
+            layout = "[C, L]" if axis else "[L, C]"
+            out.append(_issue(
+                "error", f"time-series windows are {layout} with L = window = {want}; the "
+                         f"Input shape {dims} does not match", head.instance_id))
+        targets = [t for t in str(d["target_columns"]).split(",") if t.strip()]
+        n_out = len(targets) * int(d["horizon"])
+        last = ctx.last_compute()
+        if last is not None and ctx.shapes.get(last.instance_id) not in ([n_out], None):
+            out.append(_issue(
+                "error", f"forecasting {len(targets)} target(s) × horizon {d['horizon']} needs "
+                         f"{n_out} outputs; the model outputs {ctx.shapes[last.instance_id]}",
+                last.instance_id))
+    return out
+
+
 def _registry():
     from ai_made_easy.core.registry import get_registry
 
@@ -371,6 +457,8 @@ RULES: list[Callable[[LintContext], list]] = [
     attention_without_positions,
     batchnorm_tiny_batch,
     dataset_matches_input,
+    loss_output_pairing,
+    training_setup,
 ]
 
 

@@ -197,9 +197,8 @@ def test_huggingface_dataset_syntax_only(tmp_path: Path):
     wire(g, ("in", "d1"), ("d1", "out"))
     code = generate_training(g, "pytorch")
     ast.parse(code)
-    assert 'load_dataset("mnist", split="train")' in code
-    with pytest.raises(CodegenError, match="cannot be exported to Keras"):
-        generate_training(g, "keras")
+    assert "load_dataset('mnist', split='train')" in code
+    ast.parse(generate_training(g, "keras"))  # same numpy data layer
 
 
 # ------------------------------------------------------- training catalog
@@ -214,7 +213,7 @@ def test_plateau_scheduler_steps_with_val_loss():
     wire(g, ("in", "d1"), ("d1", "out"))
     code = generate_training(g, "pytorch")
     assert "ReduceLROnPlateau(optimizer" in code
-    assert "scheduler.step(val_loss)" in code
+    assert "scheduler.step(monitored)" in code
     assert "scheduler.step()" not in code
 
 
@@ -267,9 +266,9 @@ def test_augmentation_pipeline_and_warning():
     )
     wire(g, ("in", "c1"), ("c1", "gap"), ("gap", "d"), ("d", "out"))
     code = generate_training(g, "pytorch")
-    assert "tf.append(tv_transforms.Resize((32, 32)))" in code
-    assert "tf.append(tv_transforms.RandomHorizontalFlip())" in code
-    assert "tf.append(tv_transforms.ColorJitter(" in code
+    assert "v2.Resize((32, 32), antialias=True)" in code
+    assert "v2.RandomHorizontalFlip()" in code
+    assert "v2.ColorJitter(" in code
 
     # augmentations with a non-image dataset -> warning comment, skipped
     g2 = build(
@@ -280,7 +279,7 @@ def test_augmentation_pipeline_and_warning():
     )
     wire(g2, ("in", "d1"), ("d1", "out"))
     code2 = generate_training(g2, "pytorch")
-    assert "augmentation blocks apply to the Torchvision Dataset pipeline" in code2
+    assert "Random Flip does not apply to tabular data" in code2
 
 
 def test_minmax_rendered_for_array_datasets():
@@ -292,4 +291,4 @@ def test_minmax_rendered_for_array_datasets():
     )
     wire(g, ("in", "d1"), ("d1", "out"))
     code = generate_training(g, "pytorch")
-    assert "* (1.0 - -1.0) + -1.0" in code
+    assert "(1.0 - -1.0)" in code

@@ -39,9 +39,22 @@ into `main` with a merge commit.
       MHA, cross-attention, Transformer encoder/decoder, Squeeze-Excite, Embedding,
       positional encodings, 27 activations, Batch/Layer/RMS/Group/Instance/LRN norms,
       Dropout family, Gaussian noise, merges, tensor ops
-- [ ] Losses (all torch.nn losses), optimizers, schedulers
-- [ ] Datasets per modality (image / text / tabular / audio / time series) with every
-      common preprocessing + augmentation method, and per-block rules & constraints
+- [x] 14 losses (task-aware: multi-class / binary / multi-label / regression / distribution),
+      12 optimizers, 12 LR schedulers (epoch / batch / plateau stepping), 19 metrics
+- [x] 12 dataset sources: torchvision (8 benchmarks), image folder, table files
+      (CSV/TSV/Parquet/Excel/JSON), scikit-learn datasets, synthetic, NumPy, JSON,
+      Hugging Face, text table, text folder, audio folder (WAV), time-series table
+- [x] 45 preprocessing blocks: split (stratified / chronological), loader, class balancing,
+      impute, one-hot, ordinal, log, outlier clipping, z-score (fit/fixed), min-max, robust,
+      variance filter, text cleaning + tokenization (word / char / HF), audio features
+      (waveform / spectrogram / mel / MFCC) + SpecAugment, 27 image transforms incl.
+      RandAugment / AutoAugment / AugMix / MixUp / CutMix
+- [x] All statistics fitted on the training split only (no leakage)
+- [x] Trainer: early stopping, gradient clipping, accumulation, mixed precision, k-fold
+- [x] Rules: loss ↔ output activation, dataset sample shape ↔ Input, text dtype,
+      tokenizer vocab ↔ Embedding, time-series window/horizon ↔ model, modality checks,
+      param relations (split fractions, Nesterov, scale ranges, odd kernels, ...)
+- [x] End-to-end tests run generated training scripts for every modality (PyTorch + Keras)
 - [ ] Pretrained backbones (torchvision): ResNet, MobileNet, EfficientNet, ConvNeXt, ViT, …
 - [ ] Classic ML family (scikit-learn): preprocessing, linear models, SVM, trees, ensembles,
       neighbors, naive Bayes, clustering, decomposition, model selection

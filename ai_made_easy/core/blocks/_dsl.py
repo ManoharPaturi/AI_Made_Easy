@@ -8,21 +8,14 @@ from __future__ import annotations
 
 from typing import Any, Callable
 
-from ai_made_easy.core.blocks._palette import family_color
-from ai_made_easy.core.spec import (
+from ai_made_easy.core.palette import family_color
+from ai_made_easy.core.spec import (  # noqa: F401  (P re-exported for block modules)
     BlockDefinition,
-    ParamSpec,
+    P,
     PortSpec,
     ShapeError,
     require_rank,
 )
-
-
-def P(name: str, type_: str, default: Any = None, *, options: tuple = (),
-      lo: Any = None, hi: Any = None, help: str = "") -> ParamSpec:  # noqa: A002
-    """Short ParamSpec constructor."""
-    return ParamSpec(name=name, type=type_, default=default, options=tuple(options),
-                     minimum=lo, maximum=hi, help=help)
 
 
 def nn_block(type_id: str, name: str, category: str, *, family: str,

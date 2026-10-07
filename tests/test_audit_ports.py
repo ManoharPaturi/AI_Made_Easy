@@ -39,7 +39,7 @@ def test_audit_blocks_are_registered():
     for tid, name in [
         ("eval.roc_auc", "ROC-AUC"),
         ("train.kfold", "K-Fold Cross-Validation"),
-        ("prep.impute", "Fill Missing Values"),
+        ("prep.impute", "Impute Missing Values"),
         ("llm.doc_loader", "Document Loader"),
         ("llm.text_splitter", "Text Splitter"),
         ("llm.chat_memory", "Chat Memory"),
@@ -72,7 +72,7 @@ def test_kfold_script_generates_and_parses():
     g = _mlp([("kf", "train.kfold", {"k": 3})])
     code = generate_training(g, "pytorch")
     ast.parse(code)
-    assert "kfold_cross_validate" in code
+    assert "def cross_validate" in code
     assert "fold {k + 1}/{K_FOLDS}" in code
     assert "STRATIFIED = True" in code
 
@@ -82,7 +82,7 @@ def test_roc_auc_metric_in_script():
 
     code = generate_training(_mlp([("auc", "eval.roc_auc", {})]), "pytorch")
     ast.parse(code)
-    assert "_binary_auc" in code and 'metrics["roc_auc"]' in code
+    assert "def binary_auc" in code and 'm["roc_auc"]' in code
 
 
 def test_impute_in_csv_scripts():
@@ -93,7 +93,7 @@ def test_impute_in_csv_scripts():
     for fw in ("pytorch", "keras"):
         code = generate_training(g, fw)
         ast.parse(code)
-        assert "impute_missing" in code, fw
+        assert "fill[c] = 0.0" in code and "fillna(value=fill)" in code, fw
 
 
 # ------------------------------------------------------------ LLM codegen
