@@ -144,6 +144,52 @@ def sweep_graph(est: ml.Estimator) -> Graph:
     return pipeline(f"sweep_{est.type_id.split('.')[-1]}", blocks)
 
 
+_INFER_CHECK = r"""
+import importlib.util, json, sys
+from pathlib import Path
+import numpy as np
+
+spec = importlib.util.spec_from_file_location("trained", sys.argv[1])
+m = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(m)
+model = m.load_predictor(".")
+X, y = m.load_data()
+if Path("images").exists():
+    raw = [str(p) for p in sorted(Path("images").rglob("*.png"))[:3]]
+    direct = model.predict(m.prepare_inputs(raw))
+elif hasattr(X, "iloc"):
+    raw = X.iloc[:3].to_dict("records")
+    direct = model.predict(X.iloc[:3]) if hasattr(model, "predict") else None
+elif isinstance(X, list):
+    raw = X[:3]
+    direct = model.predict(X[:3])
+else:
+    raw = [row.tolist() for row in X[:3]]
+    direct = model.predict(X[:3]) if hasattr(model, "predict") else None
+if not hasattr(model, "predict"):
+    print("INFER-OK skipped (no predict)")
+    raise SystemExit(0)
+out = m.infer(raw)
+assert len(out) == len(raw), out
+first = out[0]
+if "label" in first:
+    assert [o["label"] for o in out] == [str(v) for v in np.ravel(direct)], (out, direct)
+elif "prediction" in first:
+    assert np.allclose([o["prediction"] for o in out], np.asarray(direct, dtype=float)), out
+print("INFER-OK " + json.dumps(first))
+"""
+
+
+def check_inference(script: Path, workdir: Path) -> str:
+    proc = subprocess.run([sys.executable, "-c", _INFER_CHECK, script.name], cwd=workdir,
+                          capture_output=True, text=True, timeout=600,
+                          env={**os.environ, "PYTHONWARNINGS": "ignore"})
+    if "INFER-OK" not in proc.stdout:
+        raise AssertionError(f"{script.name} inference failed:\n"
+                             f"{(proc.stdout + proc.stderr)[-3000:]}")
+    return proc.stdout
+
+
 def run_graph(graph: Graph, workdir: Path, expect=(), verbose=False) -> str:
     errors = [i for i in graph.validate() if i.severity == "error"]
     if errors:
@@ -163,6 +209,7 @@ def run_graph(graph: Graph, workdir: Path, expect=(), verbose=False) -> str:
     for key in expect:
         assert f"{key}=" in test_line, f"{key} missing from {test_line!r}"
     assert "saved model" in out, out[-1500:]
+    check_inference(script, workdir)
     return test_line
 
 

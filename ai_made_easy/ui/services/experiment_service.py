@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from PySide6 import QtCore
 
+from ai_made_easy.core.deploy import ModelRegistry
 from ai_made_easy.core.graph import Graph
 from ai_made_easy.core.runner.manager import RunManager
 from ai_made_easy.core.runs.history import RunHistory
@@ -24,6 +25,7 @@ class ExperimentService(QtCore.QObject):
         self.history = history
         self.log = log
         self.sweeps = sweeps if sweeps is not None else SweepStore()
+        self.registry = ModelRegistry()
         self.manager = RunManager(history, python=python)
         self.runner: SweepRunner | None = None
         self._last_trials = -1

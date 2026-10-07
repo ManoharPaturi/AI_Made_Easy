@@ -61,6 +61,9 @@ class RegressionMlp(nn.Module):
         return x
 
 # ================================================================== data
+INFERENCE_STATE: dict = {}  # fitted preprocessing, saved with the model for serving
+
+
 def load_raw():
     """Load Synthetic regression data. Returns (features, targets, class names or None)."""
     rng = np.random.default_rng(42)
@@ -116,6 +119,7 @@ def make_arrays() -> dict[str, tuple[np.ndarray, np.ndarray]]:
     feats = {k: x[v] for k, v in parts.items()}
     targets = {k: np.asarray(y)[v] for k, v in parts.items()}
     pipeline = NumericPipeline().fit(feats["train"])
+    INFERENCE_STATE["numeric"] = dict(vars(pipeline))
     feats = {k: pipeline.transform(v) for k, v in feats.items()}
     out = {}
     for k in parts:
@@ -127,6 +131,25 @@ def make_arrays() -> dict[str, tuple[np.ndarray, np.ndarray]]:
                              f"{tuple(INPUT_SHAPE)}")
         out[k] = (xs, targets[k].astype(np.float32))
     return out
+
+
+def prepare_inputs(raw: list) -> np.ndarray:
+    """Raw inputs -> a model-ready batch, preprocessed exactly as during training.
+
+    raw: samples shaped like INPUT_SHAPE (or flattened).
+    """
+    x = np.asarray(raw, dtype=np.float32)
+    if x.ndim == 1:
+        x = x[None]
+    pipeline = NumericPipeline.__new__(NumericPipeline)
+    vars(pipeline).update(INFERENCE_STATE.get("numeric") or {})
+    x = pipeline.transform(x)
+    if x.ndim == 2 and len(INPUT_SHAPE) > 1 and x.shape[1] == int(np.prod(INPUT_SHAPE)):
+        x = x.reshape(len(x), *INPUT_SHAPE)
+    if tuple(x.shape[1:]) != tuple(INPUT_SHAPE):
+        raise ValueError(f"inputs have shape {tuple(x.shape[1:])}; the model expects "
+                         f"{tuple(INPUT_SHAPE)}")
+    return x
 
 
 class ArrayDataset(Dataset):
@@ -276,6 +299,68 @@ def fit(model: nn.Module, train_loader, val_loader, device, log: bool = True):
     return model, loss_fn
 
 
+# ============================================================= inference
+INFERENCE_FILE = "inference_state.pkl"
+
+
+def save_inference_state() -> None:
+    """Persist the fitted preprocessing and class names for serving."""
+    import pickle
+
+    INFERENCE_STATE["classes"] = CLASS_NAMES
+    with open(INFERENCE_FILE, "wb") as fh:
+        pickle.dump(INFERENCE_STATE, fh)
+
+
+def load_inference_state(folder: str | Path = ".") -> None:
+    """Restore the state saved by a training run (trusted files only: pickle)."""
+    import pickle
+
+    global CLASS_NAMES
+    with open(Path(folder) / INFERENCE_FILE, "rb") as fh:
+        INFERENCE_STATE.update(pickle.load(fh))
+    CLASS_NAMES = INFERENCE_STATE.get("classes")
+
+
+def class_name(index: int) -> str:
+    return str(CLASS_NAMES[index]) if CLASS_NAMES and index < len(CLASS_NAMES) else str(index)
+
+
+def describe(outputs: np.ndarray) -> list[dict]:
+    """Model outputs -> JSON-friendly predictions."""
+    scores = to_scores(np.asarray(outputs, dtype=np.float32))
+    results = []
+    values = scores.reshape(len(scores), -1)
+    for row in values:
+        results.append({"prediction": float(row[0]) if len(row) == 1
+                        else [float(v) for v in row]})
+    return results
+
+
+_PREDICTOR = None
+
+
+def load_predictor(folder: str | Path = ".", device: str = "cpu") -> nn.Module:
+    """Load the trained weights and preprocessing state from a run folder."""
+    global _PREDICTOR
+    load_inference_state(folder)
+    model = RegressionMlp()
+    model.load_state_dict(torch.load(Path(folder) / CHECKPOINT, map_location=device))
+    model.eval()
+    _PREDICTOR = model.to(device)
+    return _PREDICTOR
+
+
+@torch.no_grad()
+def infer(raw: list) -> list[dict]:
+    """Predictions for a list of raw inputs (see ``prepare_inputs``)."""
+    if _PREDICTOR is None:
+        raise RuntimeError("call load_predictor(folder) first")
+    device = next(_PREDICTOR.parameters()).device
+    x = torch.from_numpy(np.ascontiguousarray(prepare_inputs(raw))).to(device)
+    return describe(_PREDICTOR(x).float().cpu().numpy())
+
+
 def main() -> None:
     torch.manual_seed(SEED)
     np.random.seed(SEED)
@@ -288,6 +373,7 @@ def main() -> None:
     print(f"parameters: {sum(p.numel() for p in model.parameters() if p.requires_grad):,}")
     model, loss_fn = fit(model, train_loader, val_loader, device)
     torch.save(model.state_dict(), CHECKPOINT)
+    save_inference_state()
     print(f"saved best weights to {CHECKPOINT}")
     test_loss, test_metrics = evaluate(model, loss_fn, test_loader, device)
     report = {"loss": test_loss, **{k: v for k, v in test_metrics.items() if isinstance(v, float)}}

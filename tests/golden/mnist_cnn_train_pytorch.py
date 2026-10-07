@@ -68,6 +68,9 @@ class MnistCnn(nn.Module):
 
 
 # ================================================================== data
+INFERENCE_STATE: dict = {}  # fitted preprocessing, saved with the model for serving
+
+
 def build_transforms(train: bool, mean=None, std=None) -> v2.Compose:
     steps = [v2.ToImage()]
     if train:
@@ -111,6 +114,7 @@ def make_datasets():
     n_val = int(len(pool) * VAL_FRACTION)
     train_idx, val_idx, test_idx = idx[n_val:], idx[:n_val], None
     mean, std = NORM_MEAN, NORM_STD
+    INFERENCE_STATE["norm"] = (list(mean), list(std)) if mean is not None else None
     eval_tf = build_transforms(train=False, mean=mean, std=std)
     train = TransformedSubset(pool, train_idx, build_transforms(train=True, mean=mean, std=std))
     val = TransformedSubset(pool, val_idx, eval_tf)
@@ -306,6 +310,111 @@ def dump_test_results(model: nn.Module, loader: DataLoader, device: torch.device
     print(f"saved predictions.json ({len(items)} examples)")
 
 
+# ============================================================= inference
+INFERENCE_FILE = "inference_state.pkl"
+
+
+def save_inference_state() -> None:
+    """Persist the fitted preprocessing and class names for serving."""
+    import pickle
+
+    INFERENCE_STATE["classes"] = CLASS_NAMES
+    with open(INFERENCE_FILE, "wb") as fh:
+        pickle.dump(INFERENCE_STATE, fh)
+
+
+def load_inference_state(folder: str | Path = ".") -> None:
+    """Restore the state saved by a training run (trusted files only: pickle)."""
+    import pickle
+
+    global CLASS_NAMES
+    with open(Path(folder) / INFERENCE_FILE, "rb") as fh:
+        INFERENCE_STATE.update(pickle.load(fh))
+    CLASS_NAMES = INFERENCE_STATE.get("classes")
+
+
+def open_image(item):
+    """Path, raw bytes, base64 / data-URL string or PIL image -> PIL image."""
+    import base64
+    import io
+
+    from PIL import Image
+
+    if isinstance(item, Image.Image):
+        return item
+    if isinstance(item, (bytes, bytearray)):
+        return Image.open(io.BytesIO(item))
+    if isinstance(item, str):
+        if item.startswith("data:"):
+            item = item.split(",", 1)[1]
+        elif Path(item).exists():
+            return Image.open(item)
+        return Image.open(io.BytesIO(base64.b64decode(item)))
+    arr = np.asarray(item)
+    if arr.dtype != np.uint8:
+        arr = (np.clip(arr, 0, 1) * 255).astype(np.uint8) if arr.max() <= 1 else arr.astype(np.uint8)
+    return Image.fromarray(arr)
+
+
+def class_name(index: int) -> str:
+    return str(CLASS_NAMES[index]) if CLASS_NAMES and index < len(CLASS_NAMES) else str(index)
+
+
+def describe(outputs: np.ndarray) -> list[dict]:
+    """Model outputs -> JSON-friendly predictions."""
+    scores = to_scores(np.asarray(outputs, dtype=np.float32))
+    results = []
+    for row in scores:
+        best = int(np.argmax(row))
+        results.append({"label": class_name(best), "class_index": best,
+                        "confidence": round(float(row[best]), 6),
+                        "probabilities": {class_name(i): round(float(p), 6)
+                                          for i, p in enumerate(row)}})
+    return results
+
+
+
+def prepare_inputs(raw: list) -> np.ndarray:
+    """Images (paths, bytes, base64 strings or PIL images) -> a normalised batch."""
+    mean, std = INFERENCE_STATE.get("norm") or (None, None)
+    transform = build_transforms(train=False, mean=mean, std=std)
+    mode = "L" if INPUT_SHAPE[0] == 1 else "RGB"
+    batch = []
+    for item in raw:
+        img = open_image(item).convert(mode)
+        img = img.resize((INPUT_SHAPE[2], INPUT_SHAPE[1]))
+        batch.append(transform(img))
+    x = torch.stack(batch).numpy()
+    if tuple(x.shape[1:]) != tuple(INPUT_SHAPE):
+        raise ValueError(f"images become {tuple(x.shape[1:])}; the model expects "
+                         f"{tuple(INPUT_SHAPE)}")
+    return x
+
+
+_PREDICTOR = None
+
+
+def load_predictor(folder: str | Path = ".", device: str = "cpu") -> nn.Module:
+    """Load the trained weights and preprocessing state from a run folder."""
+    global _PREDICTOR
+    load_inference_state(folder)
+    model = MnistCnn()
+    model.load_state_dict(torch.load(Path(folder) / CHECKPOINT, map_location=device))
+    model.eval()
+    _PREDICTOR = model.to(device)
+    return _PREDICTOR
+
+
+@torch.no_grad()
+def infer(raw: list) -> list[dict]:
+    """Predictions for a list of raw inputs (see ``prepare_inputs``)."""
+    if _PREDICTOR is None:
+        raise RuntimeError("call load_predictor(folder) first")
+    device = next(_PREDICTOR.parameters()).device
+    x = torch.from_numpy(np.ascontiguousarray(prepare_inputs(raw))).to(device)
+    return describe(_PREDICTOR(x).float().cpu().numpy())
+
+
 def main() -> None:
     torch.manual_seed(SEED)
     np.random.seed(SEED)
@@ -318,6 +427,7 @@ def main() -> None:
     print(f"parameters: {sum(p.numel() for p in model.parameters() if p.requires_grad):,}")
     model, loss_fn = fit(model, train_loader, val_loader, device)
     torch.save(model.state_dict(), CHECKPOINT)
+    save_inference_state()
     print(f"saved best weights to {CHECKPOINT}")
     test_loss, test_metrics = evaluate(model, loss_fn, test_loader, device)
     report = {"loss": test_loss, **{k: v for k, v in test_metrics.items() if isinstance(v, float)}}

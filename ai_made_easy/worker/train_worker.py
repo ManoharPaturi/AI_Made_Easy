@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import io
 import json
+import os
 import re
 import runpy
 import sys
@@ -89,6 +90,7 @@ def _environment() -> dict:
             continue
     return {"type": "env", "python": platform.python_version(),
             "platform": platform.platform(), "executable": sys.executable,
+            "keras_backend": os.environ.get("KERAS_BACKEND", ""),
             "packages": packages}
 
 

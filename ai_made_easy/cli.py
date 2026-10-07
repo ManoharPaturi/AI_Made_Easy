@@ -11,6 +11,9 @@ Usage:
   aime jit <project.json> [-o DIR]    # generate (and with --run, execute) a TorchScript export script
   aime run <project.json> [-f auto]   # train headlessly (recorded in the run history)
   aime runs [list | show ID | compare ID ID… | delete ID]
+  aime deploy RUN_ID -o DIR [--formats onnx,torchscript]   # model server package
+  aime models [list | register RUN_ID NAME | stage NAME VERSION STAGE | deploy NAME VERSION -o DIR]
+  aime serve DIR [--port 8000]       # run a deployment package locally
   aime sweep <project.json> -p opt.lr=log:1e-4:1e-1 -p d1.units=int:16:128 \
              -p opt.nesterov=choice:true,false --metric accuracy --strategy tpe -n 20
 """
@@ -65,6 +68,22 @@ def main(argv: list[str] | None = None) -> int:
     p_sw.add_argument("--seed", type=int, default=0)
     p_sw.add_argument("--list-params", action="store_true",
                       help="print the parameters that can be swept and exit")
+    p_dep = sub.add_parser("deploy", help="build a model-server package from a finished run")
+    p_dep.add_argument("run_id")
+    p_dep.add_argument("-o", "--out", required=True, help="output folder (must be empty)")
+    p_dep.add_argument("--formats", default="", help="comma-separated: onnx, onnx_int8, "
+                       "torchscript, coreml (PyTorch); onnx, saved_model, tflite (Keras)")
+    p_dep.add_argument("--name", default=None)
+    p_mod = sub.add_parser("models", help="model registry")
+    p_mod.add_argument("action", nargs="?", default="list",
+                       choices=("list", "register", "stage", "deploy", "delete"))
+    p_mod.add_argument("args", nargs="*")
+    p_mod.add_argument("-o", "--out", default=None)
+    p_mod.add_argument("--formats", default="")
+    p_srv = sub.add_parser("serve", help="serve a deployment package with uvicorn")
+    p_srv.add_argument("package")
+    p_srv.add_argument("--host", default="127.0.0.1")
+    p_srv.add_argument("--port", type=int, default=8000)
     p_sum = sub.add_parser("summary", help="print the analytic model summary as JSON")
     p_sum.add_argument("project", help="path to project .json")
     p_llm = sub.add_parser("llm", help="generate an LLM workflow script")
@@ -86,6 +105,8 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "runs":
         return _runs_command(args)
+    if args.command in ("deploy", "models", "serve"):
+        return _deploy_command(args)
 
     with open(args.project) as fh:
         graph = Graph.from_dict(json.load(fh))
@@ -259,6 +280,51 @@ def _sweep_command(args, graph) -> int:  # noqa: ANN001
                   flush=True)
             return 0 if record["state"] == "finished" and record["best"] else 1
         _time.sleep(0.5)
+
+
+def _deploy_command(args) -> int:  # noqa: ANN001
+    from ai_made_easy.core import api
+
+    formats = [f.strip() for f in getattr(args, "formats", "").split(",") if f.strip()]
+    try:
+        if args.command == "serve":
+            result = subprocess.run([sys.executable, "-m", "uvicorn", "app:app", "--host",
+                                     args.host, "--port", str(args.port)], cwd=args.package)
+            return result.returncode
+        if args.command == "deploy":
+            result = api.deploy_run(args.run_id, args.out, formats, args.name)
+            print(result["log"].replace("EXPORT-DONE", "").strip())
+            print(f"package: {result['path']}")
+            return 0
+        a = args.args
+        if args.action == "list":
+            for m in api.list_models()["models"]:
+                metrics = " ".join(f"{k}={v:.4g}" for k, v in list(m["metrics"].items())[:3]
+                                   if isinstance(v, (int, float)))
+                print(f"{m['name']:<24} v{m['version']:<4} {m['stage']:<11} "
+                      f"{m['framework']:<8} {metrics}")
+        elif args.action == "register" and len(a) == 2:
+            m = api.register_model(a[0], a[1])
+            print(f"registered {m['name']} v{m['version']}")
+        elif args.action == "stage" and len(a) == 3:
+            m = api.set_model_stage(a[0], int(a[1]), a[2])
+            print(f"{m['name']} v{m['version']} -> {m['stage']}")
+        elif args.action == "deploy" and len(a) in (1, 2) and args.out:
+            result = api.deploy_model(a[0], a[1] if len(a) == 2 else "latest", args.out,
+                                      formats)
+            print(f"package: {result['path']}")
+        elif args.action == "delete" and len(a) == 2:
+            api.delete_model(a[0], int(a[1]))
+            print(f"deleted {a[0]} v{a[1]}")
+        else:
+            print("usage: aime models [list | register RUN_ID NAME | stage NAME VERSION "
+                  "STAGE | deploy NAME [VERSION] -o DIR | delete NAME VERSION]",
+                  file=sys.stderr)
+            return 2
+        return 0
+    except (KeyError, ValueError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
 
 
 def _runs_command(args) -> int:  # noqa: ANN001

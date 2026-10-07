@@ -74,6 +74,11 @@ class ExperimentsPage(QtWidgets.QWidget):
     new_sweep_requested = QtCore.Signal()
     stop_sweep_requested = QtCore.Signal(str)  # sweep_id
     apply_best_requested = QtCore.Signal(str)  # sweep_id
+    register_requested = QtCore.Signal(str)    # run_id
+    deploy_run_requested = QtCore.Signal(str)  # run_id
+    model_deploy_requested = QtCore.Signal(str, int)          # name, version
+    model_stage_requested = QtCore.Signal(str, int, str)      # name, version, stage
+    model_delete_requested = QtCore.Signal(str, int)          # name, version
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -87,6 +92,7 @@ class ExperimentsPage(QtWidgets.QWidget):
         self.tabs.setDocumentMode(True)
         self.tabs.addTab(self._build_runs(), "Runs")
         self.tabs.addTab(self._build_sweeps(), "Sweeps")
+        self.tabs.addTab(self._build_models(), "Models")
         layout.addWidget(self.tabs)
 
     # ------------------------------------------------------------- runs tab
@@ -112,6 +118,12 @@ class ExperimentsPage(QtWidgets.QWidget):
         self.restore_btn = QtWidgets.QPushButton("Restore Design")
         self.restore_btn.setIcon(icons.icon("undo"))
         self.restore_btn.setToolTip("Replace the canvas with the design this run trained")
+        self.register_btn = QtWidgets.QPushButton("Register…")
+        self.register_btn.setIcon(icons.icon("package"))
+        self.register_btn.setToolTip("Add this run to the model registry as a new version")
+        self.deploy_btn = QtWidgets.QPushButton("Deploy…")
+        self.deploy_btn.setIcon(icons.icon("download"))
+        self.deploy_btn.setToolTip("Build a model server (FastAPI + Docker) from this run")
         self.tag_btn = QtWidgets.QPushButton("Tags…")
         self.folder_btn = QtWidgets.QPushButton("")
         self.folder_btn.setIcon(icons.icon("folder"))
@@ -119,8 +131,8 @@ class ExperimentsPage(QtWidgets.QWidget):
         self.delete_btn = QtWidgets.QPushButton("")
         self.delete_btn.setIcon(icons.icon("trash"))
         self.delete_btn.setToolTip("Delete the selected runs and their files")
-        for btn in (self.compare_btn, self.results_btn, self.restore_btn, self.tag_btn,
-                    self.folder_btn, self.delete_btn):
+        for btn in (self.compare_btn, self.results_btn, self.restore_btn, self.register_btn,
+                    self.deploy_btn, self.tag_btn, self.folder_btn, self.delete_btn):
             bar.addWidget(btn)
         box.addLayout(bar)
 
@@ -145,6 +157,8 @@ class ExperimentsPage(QtWidgets.QWidget):
         self.results_btn.clicked.connect(lambda: self._emit_single(self.results_requested))
         self.restore_btn.clicked.connect(lambda: self._emit_single(self.restore_requested))
         self.tag_btn.clicked.connect(lambda: self._emit_single(self.tag_requested))
+        self.register_btn.clicked.connect(lambda: self._emit_single(self.register_requested))
+        self.deploy_btn.clicked.connect(lambda: self._emit_single(self.deploy_run_requested))
         self.folder_btn.clicked.connect(lambda: self._emit_single(self.folder_requested))
         self.delete_btn.clicked.connect(
             lambda: self.delete_requested.emit(self.selected_run_ids()))
@@ -173,7 +187,14 @@ class ExperimentsPage(QtWidgets.QWidget):
         self.compare_btn.setEnabled(n >= 2)
         for btn in (self.results_btn, self.restore_btn, self.tag_btn, self.folder_btn):
             btn.setEnabled(n == 1)
+        finished = n == 1 and self._status_of(self.selected_run_ids()[0]) == "finished"
+        self.register_btn.setEnabled(finished)
+        self.deploy_btn.setEnabled(finished)
         self.delete_btn.setEnabled(n >= 1)
+
+    def _status_of(self, run_id: str) -> str:
+        rec = next((r for r in self._records if r.run_id == run_id), None)
+        return rec.status if rec else ""
 
     def set_runs(self, records: list[RunRecord]) -> None:
         selected = set(self.selected_run_ids())
@@ -316,6 +337,86 @@ class ExperimentsPage(QtWidgets.QWidget):
         table.setSortingEnabled(True)
         table.resizeColumnsToContents()
         self._update_sweep_buttons()
+
+    # ------------------------------------------------------------- models tab
+    def _build_models(self) -> QtWidgets.QWidget:
+        page = QtWidgets.QWidget()
+        box = QtWidgets.QVBoxLayout(page)
+        box.setContentsMargins(0, 6, 0, 0)
+        bar = QtWidgets.QHBoxLayout()
+        hint = QtWidgets.QLabel("Register a finished run from the Runs tab to version it here.")
+        hint.setObjectName("blockMeta")
+        bar.addWidget(hint)
+        bar.addStretch(1)
+        self.stage_combo = QtWidgets.QComboBox()
+        self.stage_combo.addItems(["staging", "production", "archived", "none"])
+        self.stage_btn = QtWidgets.QPushButton("Set Stage")
+        self.model_deploy_btn = QtWidgets.QPushButton("Deploy…")
+        self.model_deploy_btn.setIcon(icons.icon("download"))
+        self.model_delete_btn = QtWidgets.QPushButton("")
+        self.model_delete_btn.setIcon(icons.icon("trash"))
+        self.model_delete_btn.setToolTip("Delete the selected model version")
+        for w in (self.stage_combo, self.stage_btn, self.model_deploy_btn, self.model_delete_btn):
+            bar.addWidget(w)
+        box.addLayout(bar)
+        self.models_table = _readonly_table(["Model", "Version", "Stage", "Framework", "Task",
+                                             "Metrics", "Registered", "Source run"])
+        self.models_table.setSelectionMode(
+            QtWidgets.QAbstractItemView.SelectionMode.SingleSelection)
+        self.models_table.itemSelectionChanged.connect(self._update_model_buttons)
+        box.addWidget(self.models_table, 1)
+        self.stage_btn.clicked.connect(lambda: self._emit_model(
+            lambda n, v: self.model_stage_requested.emit(n, v, self.stage_combo.currentText())))
+        self.model_deploy_btn.clicked.connect(lambda: self._emit_model(
+            self.model_deploy_requested.emit))
+        self.model_delete_btn.clicked.connect(lambda: self._emit_model(
+            self.model_delete_requested.emit))
+        self._update_model_buttons()
+        return page
+
+
+    def _selected_model(self) -> tuple[str, int] | None:
+        rows = {i.row() for i in self.models_table.selectedIndexes()}
+        if len(rows) != 1:
+            return None
+        item = self.models_table.item(rows.pop(), 0)
+        return item.data(QtCore.Qt.ItemDataRole.UserRole) if item else None
+
+
+    def _emit_model(self, fn) -> None:  # noqa: ANN001
+        picked = self._selected_model()
+        if picked:
+            fn(picked[0], int(picked[1]))
+
+
+    def _update_model_buttons(self) -> None:
+        on = self._selected_model() is not None
+        for w in (self.stage_btn, self.model_deploy_btn, self.model_delete_btn):
+            w.setEnabled(on)
+
+
+    def set_models(self, versions: list) -> None:
+        picked = self._selected_model()
+        table = self.models_table
+        table.setSortingEnabled(False)
+        table.setRowCount(len(versions))
+        for row, mv in enumerate(versions):
+            first = _Item(mv.name)
+            first.setData(QtCore.Qt.ItemDataRole.UserRole, (mv.name, mv.version))
+            metrics = ", ".join(f"{k} {_fmt(v)}" for k, v in list(mv.metrics.items())[:3]
+                                if isinstance(v, (int, float)))
+            cells = [first, _Item(f"v{mv.version}", mv.version), _Item(mv.stage),
+                     _Item(mv.framework), _Item(mv.task), _Item(metrics),
+                     _Item(_when(mv.created_at), mv.created_at), _Item(mv.run_id)]
+            if mv.description:
+                first.setToolTip(mv.description)
+            for col, item in enumerate(cells):
+                table.setItem(row, col, item)
+            if picked == (mv.name, mv.version):
+                table.selectRow(row)
+        table.setSortingEnabled(True)
+        table.resizeColumnsToContents()
+        self._update_model_buttons()
 
 
 # ------------------------------------------------------------------ dialogs

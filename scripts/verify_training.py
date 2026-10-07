@@ -346,6 +346,59 @@ SCENARIOS = [
 ]
 
 
+_INFER_CHECK = r"""
+import importlib.util, json, sys
+from pathlib import Path
+import numpy as np
+
+spec = importlib.util.spec_from_file_location("trained", sys.argv[1])
+m = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(m)
+m.load_predictor(".")
+mode = sys.argv[2]
+if mode == "equivalence":
+    # raw test samples through prepare_inputs == the training pipeline's test arrays
+    expected = m.make_arrays()["test"][0]
+    m.load_inference_state(".")
+    x_raw, y, _ = m.load_raw()
+    _, _, test_i = m.split_indices(len(y), y)
+    if hasattr(x_raw, "iloc"):
+        raw = x_raw.iloc[test_i].to_dict("records")
+    elif isinstance(x_raw, list):
+        raw = [x_raw[i] for i in test_i]
+    else:
+        raw = [x_raw[i].tolist() for i in test_i]
+    got = m.prepare_inputs(raw)
+    assert got.shape == expected.shape, (got.shape, expected.shape)
+    assert np.allclose(got, expected, atol=1e-5), float(np.abs(got - expected).max())
+    raw = raw[:3]
+elif mode == "images":
+    raw = [str(p) for p in sorted(Path("images").rglob("*.png"))[:3]]
+    import base64
+    raw.append(base64.b64encode(Path(raw[0]).read_bytes()).decode())
+elif mode == "series":
+    import pandas as pd
+    frame = pd.read_csv("series.csv")
+    window = m.INPUT_SHAPE[0] if m.INPUT_SHAPE[1] == 2 else m.INPUT_SHAPE[1]
+    raw = [frame[["value", "other"]].to_numpy()[i:i + window].tolist() for i in (0, 50)]
+out = m.infer(raw)
+assert len(out) == len(raw), out
+print("INFER-OK " + json.dumps(out[0]))
+"""
+
+
+def check_inference(sc: Scenario, framework: str, workdir: Path, script: Path) -> str:
+    mode = ("images" if sc.name.startswith("images") else
+            "series" if sc.name.startswith("series") else "equivalence")
+    env = {**os.environ, "KERAS_BACKEND": "torch", "PYTHONWARNINGS": "ignore"}
+    proc = subprocess.run([sys.executable, "-c", _INFER_CHECK, script.name, mode], cwd=workdir,
+                          capture_output=True, text=True, timeout=600, env=env)
+    if "INFER-OK" not in proc.stdout:
+        raise AssertionError(f"{sc.name}/{framework} inference failed:\n"
+                             f"{(proc.stdout + proc.stderr)[-3000:]}")
+    return proc.stdout.split("INFER-OK ", 1)[1].strip()
+
+
 def run_scenario(sc: Scenario, framework: str, workdir: Path, verbose: bool = False) -> str:
     graph = sc.build(workdir)
     issues = [i for i in graph.validate() if i.severity == "error"]
@@ -367,6 +420,8 @@ def run_scenario(sc: Scenario, framework: str, workdir: Path, verbose: bool = Fa
         test_line = next((ln for ln in out.splitlines() if ln.startswith("test:")), "")
         for key in sc.expect:
             assert f"{key}=" in test_line, f"{key} missing from: {test_line}"
+        assert (workdir / "inference_state.pkl").exists(), "inference state not saved"
+        check_inference(sc, framework, workdir, script)
     else:
         assert "cv accuracy" in out, out[-2000:]
     return out

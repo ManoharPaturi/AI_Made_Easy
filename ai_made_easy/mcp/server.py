@@ -204,6 +204,31 @@ def get_sweep(sweep_id: str) -> str:
         return _err(exc)
 
 
+@mcp.tool()
+def deploy_run(run_id: str, out_dir: str, formats: list[str] | None = None) -> str:
+    """Build a model-server package (FastAPI app, Dockerfile, pinned requirements,
+    optional ONNX / TorchScript / Core ML exports) from a finished training run."""
+    try:
+        return json.dumps(api.deploy_run(run_id, out_dir, formats), default=str)
+    except (api.ApiError, KeyError) as exc:
+        return _err(exc)
+
+
+@mcp.tool()
+def register_model(run_id: str, name: str) -> str:
+    """Copy a finished run into the model registry as a new version."""
+    try:
+        return json.dumps(api.register_model(run_id, name), default=str)
+    except (api.ApiError, KeyError) as exc:
+        return _err(exc)
+
+
+@mcp.tool()
+def list_models() -> str:
+    """Registered model versions with stage and metrics."""
+    return json.dumps(api.list_models(), default=str)
+
+
 def main() -> None:
     mcp.run()  # stdio transport
 

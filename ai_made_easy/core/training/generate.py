@@ -13,6 +13,12 @@ from ai_made_easy.core.graph import Graph
 from ai_made_easy.core.training import catalog as cat
 from ai_made_easy.core.training import data_catalog as dcat
 from ai_made_easy.core.training.data_template import DATA_TEMPLATE
+from ai_made_easy.core.training.inference_template import (
+    INFERENCE_COMMON,
+    INFERENCE_KERAS,
+    INFERENCE_TORCH,
+    INFERENCE_TORCH_IMAGES,
+)
 from ai_made_easy.core.training.keras_template import KERAS_HEADER, KERAS_TRAINING
 from ai_made_easy.core.training.metrics_code import metrics_code
 from ai_made_easy.core.training.spec import TrainingSpec, collect_spec, dataset_comment
@@ -160,6 +166,8 @@ def _common_ctx(graph: Graph, spec: TrainingSpec, framework: str) -> dict:
         "balance": balance,
         "metrics_code": metrics_code(spec.task, metrics),
         "torchvision_pipeline": torchvision,
+        "image_inputs": spec.modality == "image",
+        "image_explicit_size": False,
         **_data_ctx(spec, graph, framework),
     }
     norm = spec.steps.get("prep.normalize")
@@ -205,9 +213,11 @@ def _torch_ctx(graph: Graph, spec: TrainingSpec) -> dict:
         }[mix["mode"]]
     if spec.modality == "image":
         ctx["image_channels_fix"] = _image_channel_fix(spec)
-        explicit_size = any(t in ("prep.resize", "prep.center_crop", "prep.random_crop",
-                                  "prep.random_resized_crop")
-                            for t, _ in spec.image_always + spec.image_train)
+        # only always-applied transforms fix the evaluation size; random crops are
+        # training-only, so evaluation / serving images still need resizing
+        explicit_size = any(t in ("prep.resize", "prep.center_crop")
+                            for t, _ in spec.image_always)
+        ctx["image_explicit_size"] = explicit_size
         ctx["image_resize_fix"] = (
             f"v2.Resize(({spec.input_shape[1]}, {spec.input_shape[2]}), antialias=True)"
             if spec.dataset["block"] == "data.image_folder" and not explicit_size else None)
@@ -217,7 +227,8 @@ def _torch_ctx(graph: Graph, spec: TrainingSpec) -> dict:
     return ctx
 
 
-def _render_torch(graph: Graph, spec: TrainingSpec, ctx: dict, main: str) -> str:
+def _render_torch(graph: Graph, spec: TrainingSpec, ctx: dict, main: str,
+                  inference: bool = True) -> str:
     parts = [_env.from_string(TORCH_HEADER).render(**ctx)]
     if ctx["torchvision_pipeline"]:
         parts.append(_env.from_string(TORCH_IMAGE_DATA).render(**ctx))
@@ -225,6 +236,11 @@ def _render_torch(graph: Graph, spec: TrainingSpec, ctx: dict, main: str) -> str
         parts.append(_env.from_string(DATA_TEMPLATE).render(**ctx))
         parts.append(_env.from_string(TORCH_ARRAY_LOADERS).render(**ctx))
     parts.append(_env.from_string(TORCH_TRAINING).render(**ctx))
+    if inference:
+        parts.append(_env.from_string(INFERENCE_COMMON).render(**ctx))
+        if ctx["torchvision_pipeline"]:
+            parts.append(_env.from_string(INFERENCE_TORCH_IMAGES).render(**ctx))
+        parts.append(_env.from_string(INFERENCE_TORCH).render(**ctx))
     parts.append(_env.from_string(main).render(**ctx))
     return "".join(parts)
 
@@ -306,10 +322,16 @@ def _render_keras(ctx: dict) -> str:
         "    normalize = layers.Normalization(axis=-1, mean=flat.mean(axis=0), "
         "variance=flat.var(axis=0))",
         "    normalize = {{ image_norm }}")
+    body = _env.from_string(training).render(**ctx)
+    tail = '\n\nif __name__ == "__main__":'
+    head, _, rest = body.rpartition(tail)
     return "".join([
         _env.from_string(KERAS_HEADER).render(**ctx),
         _env.from_string(DATA_TEMPLATE).render(**ctx),
-        _env.from_string(training).render(**ctx),
+        head,
+        _env.from_string(INFERENCE_COMMON).render(**ctx),
+        _env.from_string(INFERENCE_KERAS).render(**ctx),
+        tail, rest,
     ])
 
 
@@ -442,4 +464,4 @@ def generate_inspect(graph: Graph) -> str:
     if not spec.is_classification:
         raise CodegenError("inspection needs a classification model")
     return _render_torch(graph, spec, {**_torch_ctx(graph, spec), "inspect": True},
-                         INSPECT_MAIN)
+                         INSPECT_MAIN, inference=False)

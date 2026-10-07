@@ -93,7 +93,7 @@ def test_impute_in_csv_scripts():
     for fw in ("pytorch", "keras"):
         code = generate_training(g, fw)
         ast.parse(code)
-        assert "fill[c] = 0.0" in code and "fillna(value=fill)" in code, fw
+        assert "fill[c] = 0.0" in code and "fillna(value=state[\"fill\"])" in code, fw
 
 
 # ------------------------------------------------------------ LLM codegen

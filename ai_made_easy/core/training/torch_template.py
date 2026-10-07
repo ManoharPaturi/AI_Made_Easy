@@ -112,6 +112,9 @@ class {{ spec.class_name }}(nn.Module):
 TORCH_IMAGE_DATA = r'''
 
 # ================================================================== data
+INFERENCE_STATE: dict = {}  # fitted preprocessing, saved with the model for serving
+
+
 def build_transforms(train: bool, mean=None, std=None) -> v2.Compose:
     steps = [v2.ToImage()]
 {% if image_channels_fix %}
@@ -208,6 +211,7 @@ def make_datasets():
 {% else %}
     mean = std = None
 {% endif %}
+    INFERENCE_STATE["norm"] = (list(mean), list(std)) if mean is not None else None
     eval_tf = build_transforms(train=False, mean=mean, std=std)
     train = TransformedSubset(pool, train_idx, build_transforms(train=True, mean=mean, std=std))
     val = TransformedSubset(pool, val_idx, eval_tf)
@@ -576,6 +580,7 @@ def main() -> None:
     print(f"parameters: {sum(p.numel() for p in model.parameters() if p.requires_grad):,}")
     model, loss_fn = fit(model, train_loader, val_loader, device)
     torch.save(model.state_dict(), CHECKPOINT)
+    save_inference_state()
     print(f"saved best weights to {CHECKPOINT}")
     test_loss, test_metrics = evaluate(model, loss_fn, test_loader, device)
     report = {"loss": test_loss, **{k: v for k, v in test_metrics.items() if isinstance(v, float)}}

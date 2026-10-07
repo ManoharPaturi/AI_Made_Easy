@@ -127,3 +127,41 @@ def test_sweep_runs_from_the_ui_service(ctx, app):
     ctx.experiments_page.sweeps_table.selectRow(0)
     assert ctx.experiments_page.trials_table.rowCount() == 2
     assert ctx.experiments_page.apply_best_btn.isEnabled()
+
+
+def test_register_and_deploy_from_the_ui(ctx, app, tmp_path):
+    pytest.importorskip("torch")
+    pytest.importorskip("fastapi")
+    from ai_made_easy.core.graph import Graph
+    from ai_made_easy.ui.features.deploy import DeployDialog
+
+    service = ctx.experiment_service
+    run_id = service.manager.start(Graph.from_dict(tiny_classifier_dict(epochs=1)),
+                                   project=ctx.project_store.name)
+    service.manager.wait(run_id, 300)
+    ctx._refresh_experiments()
+    page = ctx.experiments_page
+    page.runs_table.selectRow(0)
+    assert page.register_btn.isEnabled() and page.deploy_btn.isEnabled()
+
+    service.registry.register(service.history.path(run_id), "ui-model")
+    ctx._refresh_experiments()
+    assert page.models_table.rowCount() == 1
+    page.models_table.selectRow(0)
+    assert page._selected_model() == ("ui-model", 1)
+    ctx._set_model_stage("ui-model", 1, "production")
+    assert service.registry.get("ui-model", 1).stage == "production"
+
+    dialog = DeployDialog(None, service.registry.path("ui-model", 1), "pytorch", "ui-model")
+    dialog.folder.setText(str(tmp_path / "server"))
+    for check in dialog.format_checks.values():
+        check.setChecked(False)
+    dialog._build()
+    deadline = time.time() + 300
+    while dialog.result_path is None and time.time() < deadline:
+        app.processEvents()
+        time.sleep(0.05)
+    assert dialog.result_path == tmp_path / "server", dialog.log.toPlainText()
+    assert (tmp_path / "server" / "Dockerfile").exists()
+    assert dialog.open_btn.isEnabled()
+    dialog.close()
