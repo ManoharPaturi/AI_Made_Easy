@@ -209,6 +209,7 @@
   ],
   "meta": {
     "framework": "pytorch",
-    "description": "SmoothL1 regression with MinMax scaling"
+    "description": "MLP regressor with Smooth L1 loss and min-max scaling.",
+    "title": "Tabular Regression \u2014 MLP"
   }
 }

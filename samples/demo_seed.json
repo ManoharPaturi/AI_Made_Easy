@@ -164,6 +164,30 @@
         1050.0,
         130.0
       ]
+    },
+    {
+      "id": "torchvision_x0",
+      "type": "data.torchvision",
+      "params": {
+        "dataset": "mnist"
+      },
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "normalize_x1",
+      "type": "prep.normalize",
+      "params": {
+        "mode": "fixed",
+        "mean": "0.1307",
+        "std": "0.3081"
+      },
+      "position": [
+        0,
+        0
+      ]
     }
   ],
   "edges": [
@@ -202,6 +226,7 @@
   ],
   "meta": {
     "framework": "pytorch",
-    "description": "starter demo graph loaded at launch"
+    "description": "Two-layer CNN with global pooling trained on MNIST.",
+    "title": "MNIST CNN (start-up project)"
   }
 }

@@ -1,231 +1,232 @@
-"""RunConsoleStack: the bottom pages (Console + Training) and their
-switching policy. TrainingPage is plots + buttons ONLY — its status label
-has exactly one writer: the RunStore subscription.
+"""Bottom panels: Output log and Training monitor.
+
+TrainingPage renders run state (single writer: RunStore), live epoch metrics
+(tiles + curves) and the post-run tools: error analysis, saliency maps, model
+card and the run folder.
 """
 from __future__ import annotations
 
 from datetime import datetime
+from pathlib import Path
 
 import pyqtgraph as pg
-from PySide6 import QtCore, QtWidgets
+from PySide6 import QtCore, QtGui, QtWidgets
 
+from ai_made_easy.ui import icons
 from ai_made_easy.ui.stores import LogBus, RunStore
 
+_SERIES_COLORS = ("#4c8dff", "#f0883e", "#3fb950", "#d2a8ff", "#e3a008", "#56d4dd", "#ff7b72")
 
-class ConsolePage(QtWidgets.QPlainTextEdit):
+
+class OutputPage(QtWidgets.QPlainTextEdit):
     """The only renderer of the LogBus."""
 
     def __init__(self, log_bus: LogBus, parent=None):
         super().__init__(parent)
+        self.setObjectName("logView")
         self.setReadOnly(True)
-        self.setMaximumBlockCount(5000)
+        self.setMaximumBlockCount(10000)
         self.setLineWrapMode(QtWidgets.QPlainTextEdit.LineWrapMode.NoWrap)
+        self._formats = {}
+        for level, color in (("error", "#f85149"), ("warning", "#e3a008")):
+            fmt = QtGui.QTextCharFormat()
+            fmt.setForeground(QtGui.QColor(color))
+            self._formats[level] = fmt
         log_bus.logged.connect(self._append)
 
     def _append(self, level: str, message: str) -> None:
         stamp = datetime.now().strftime("%H:%M:%S")
-        prefix = {"error": "ERROR", "warning": "WARN"}.get(level, "info")
-        self.appendPlainText(f"[{stamp}] {prefix}: {message}")
+        cursor = self.textCursor()
+        cursor.movePosition(QtGui.QTextCursor.MoveOperation.End)
+        prefix = {"error": "error  ", "warning": "warning"}.get(level, "info   ")
+        cursor.insertText(f"{stamp}  {prefix}  ", QtGui.QTextCharFormat())
+        cursor.insertText(message + "\n", self._formats.get(level, QtGui.QTextCharFormat()))
+        self.setTextCursor(cursor)
+        self.ensureCursorVisible()
+
+
+class _Tile(QtWidgets.QFrame):
+    def __init__(self, name: str, parent=None):
+        super().__init__(parent)
+        self.setObjectName("metricTile")
+        box = QtWidgets.QVBoxLayout(self)
+        box.setContentsMargins(10, 6, 10, 6)
+        box.setSpacing(0)
+        self.value = QtWidgets.QLabel("—")
+        self.value.setObjectName("metricValue")
+        label = QtWidgets.QLabel(name)
+        label.setObjectName("metricName")
+        box.addWidget(self.value)
+        box.addWidget(label)
 
 
 class TrainingPage(QtWidgets.QWidget):
-    """Loss/score plots + run controls. Subscribes to RunStore + epochs."""
-
     train_clicked = QtCore.Signal()
     stop_clicked = QtCore.Signal()
-    museum_clicked = QtCore.Signal()
-    inspect_clicked = QtCore.Signal()
+    errors_clicked = QtCore.Signal()
+    saliency_clicked = QtCore.Signal()
     card_clicked = QtCore.Signal()
-    live_clicked = QtCore.Signal()
+    folder_clicked = QtCore.Signal()
 
     def __init__(self, run_store: RunStore, parent=None):
         super().__init__(parent)
+        self.setObjectName("dockBody")
         self._run_store = run_store
+        self._epoch_x: list[float] = []
+        self._series: dict[str, list[float]] = {}
+        self._curves: dict[str, pg.PlotDataItem] = {}
+        self._tiles: dict[str, _Tile] = {}
 
-        pg.setConfigOptions(antialias=True, background="#26292f",
-                            foreground="#c9d1d9")
         layout = QtWidgets.QVBoxLayout(self)
-        layout.setContentsMargins(4, 4, 4, 4)
+        layout.setContentsMargins(10, 8, 10, 8)
+        layout.setSpacing(8)
 
-        row = QtWidgets.QHBoxLayout()
-        row.setSpacing(8)
-        self.start_btn = QtWidgets.QPushButton("▶ Train (PyTorch)")
-        self.start_btn.setToolTip("Generate the training script and run it "
-                                  "in a managed subprocess")
-        self.stop_btn = QtWidgets.QPushButton("■ Stop")
+        top = QtWidgets.QHBoxLayout()
+        self.status = QtWidgets.QLabel("No run yet")
+        self.status.setObjectName("blockMeta")
+        top.addWidget(self.status)
+        top.addStretch(1)
+        self.start_btn = QtWidgets.QPushButton("Train")
+        self.start_btn.setObjectName("primaryButton")
+        self.start_btn.setIcon(icons.icon("play", color="#ffffff"))
+        self.stop_btn = QtWidgets.QPushButton("Stop")
+        self.stop_btn.setIcon(icons.icon("stop"))
         self.stop_btn.setEnabled(False)
         self.start_btn.clicked.connect(self.train_clicked.emit)
         self.stop_btn.clicked.connect(self.stop_clicked.emit)
-        row.addWidget(self.start_btn)
-        row.addWidget(self.stop_btn)
-        row.addStretch(1)
-        self.status = QtWidgets.QLabel("idle")
-        self.status.setProperty("chip", True)
-        row.addWidget(self.status)
-        self.locked_chip = QtWidgets.QLabel("")
-        self.locked_chip.setProperty("chip", True)
-        self.locked_chip.setToolTip(
-            "the model's weights are fixed — it only changes when you "
-            "retrain")
-        row.addWidget(self.locked_chip)
-        layout.addLayout(row)
+        top.addWidget(self.start_btn)
+        top.addWidget(self.stop_btn)
+        layout.addLayout(top)
 
-        # learning progress — indeterminate until the first epoch reports
         self.progress = QtWidgets.QProgressBar()
         self.progress.setTextVisible(False)
-        self.progress.setRange(0, 0)
         self.progress.hide()
         layout.addWidget(self.progress)
 
-        # Wave-1 insight buttons — enabled once a run leaves artifacts
-        results = QtWidgets.QHBoxLayout()
-        results.setSpacing(8)
-        self.museum_btn = QtWidgets.QPushButton("🔍 Mistake Museum")
-        self.museum_btn.setToolTip(
-            "Browse what the model got wrong and learn how to fix it")
-        self.inspect_btn = QtWidgets.QPushButton("👀 What is it looking at?")
-        self.inspect_btn.setToolTip(
-            "See WHERE the model looked (Grad-CAM heatmap + first layer)")
-        self.card_btn = QtWidgets.QPushButton("🪪 Report Card")
-        self.card_btn.setToolTip("A shareable card about your model")
-        self.live_btn = QtWidgets.QPushButton("🔴 Live")
-        self.live_btn.setToolTip(
-            "Point your camera at things and watch the model guess")
-        for btn, sig in ((self.museum_btn, self.museum_clicked),
-                         (self.inspect_btn, self.inspect_clicked),
+        self.tile_row = QtWidgets.QHBoxLayout()
+        self.tile_row.setSpacing(8)
+        self.tile_row.addStretch(1)
+        layout.addLayout(self.tile_row)
+
+        pg.setConfigOptions(antialias=True)
+        self.plots = pg.GraphicsLayoutWidget()
+        self.loss_plot = self.plots.addPlot(row=0, col=0, title="Loss")
+        self.metric_plot = self.plots.addPlot(row=0, col=1, title="Validation metrics")
+        for plot in (self.loss_plot, self.metric_plot):
+            plot.showGrid(x=True, y=True, alpha=0.15)
+            plot.addLegend(offset=(8, 8))
+            plot.setLabel("bottom", "epoch")
+        layout.addWidget(self.plots, 1)
+
+        tools = QtWidgets.QHBoxLayout()
+        self.errors_btn = QtWidgets.QPushButton("Error Analysis")
+        self.errors_btn.setIcon(icons.icon("list"))
+        self.saliency_btn = QtWidgets.QPushButton("Saliency Maps")
+        self.saliency_btn.setIcon(icons.icon("eye"))
+        self.card_btn = QtWidgets.QPushButton("Model Card")
+        self.card_btn.setIcon(icons.icon("card"))
+        self.folder_btn = QtWidgets.QPushButton("Open Run Folder")
+        self.folder_btn.setIcon(icons.icon("folder"))
+        for btn, sig in ((self.errors_btn, self.errors_clicked),
+                         (self.saliency_btn, self.saliency_clicked),
                          (self.card_btn, self.card_clicked),
-                         (self.live_btn, self.live_clicked)):
+                         (self.folder_btn, self.folder_clicked)):
             btn.setEnabled(False)
             btn.clicked.connect(sig.emit)
-            results.addWidget(btn)
-        results.addStretch(1)
-        layout.addLayout(results)
-
-        plots = pg.GraphicsLayoutWidget()
-        self.loss_plot = plots.addPlot(row=0, col=0, title="Loss")
-        self.loss_plot.addLegend(offset=(10, 10))
-        self.loss_plot.showGrid(x=True, y=True, alpha=0.2)
-        self.loss_plot.setLabel("left", "loss")
-        self.loss_plot.setLabel("bottom", "epoch")
-        self.score_plot = plots.addPlot(row=1, col=0, title="Scores")
-        self.score_plot.addLegend(offset=(10, 10))
-        self.score_plot.showGrid(x=True, y=True, alpha=0.2)
-        self.score_plot.setLabel("left", "score")
-        self.score_plot.setLabel("bottom", "epoch")
-        self.score_plot.setYRange(0.0, 1.02)
-        layout.addWidget(plots)
-
-        self._loss_curves: dict[str, pg.PlotDataItem] = {}
-        self._score_curves: dict[str, pg.PlotDataItem] = {}
-        self._epoch_x: list[float] = []
-        self._series: dict[str, list[float]] = {}
-
+            tools.addWidget(btn)
+        tools.addStretch(1)
+        layout.addLayout(tools)
         run_store.state_changed.connect(self._on_state)
 
-    # single writer for button/status state
+    def set_theme(self, tokens: dict) -> None:
+        self.plots.setBackground(tokens["PANEL"])
+        for plot in (self.loss_plot, self.metric_plot):
+            for axis in ("left", "bottom"):
+                plot.getAxis(axis).setPen(tokens["BORDER"])
+                plot.getAxis(axis).setTextPen(tokens["TEXT_DIM"])
+            plot.setTitle(plot.titleLabel.text, color=tokens["TEXT_DIM"], size="9pt")
+
+    # ------------------------------------------------------------- state
     def _on_state(self, state: str, kind: str) -> None:
         running = state == RunStore.RUNNING
         self.start_btn.setEnabled(not running)
-        self.stop_btn.setEnabled(running)
-        if state == RunStore.RUNNING:
-            self.progress.setRange(0, 0)   # busy until epochs arrive
+        self.stop_btn.setEnabled(running and kind == "train")
+        label = {"train": "Training", "test": "Forward-pass test", "inspect": "Saliency",
+                 "onnx": "ONNX export", "jit": "TorchScript export"}.get(kind, kind or "Run")
+        if running:
+            self.progress.setRange(0, 0)
             self.progress.show()
-        elif state in (RunStore.FINISHED, RunStore.STOPPED):
-            self.progress.setRange(0, 1)
-            self.progress.setValue(1)
+            self.status.setText(f"{label} running…")
+        elif state == RunStore.FINISHED:
+            self.progress.hide()
+            epochs = len(self._epoch_x)
+            self.status.setText(f"{label} finished" + (f" after {epochs} epoch(s)"
+                                                       if kind == "train" and epochs else ""))
         elif state == RunStore.FAILED:
             self.progress.hide()
-        if state == RunStore.IDLE:
-            self.status.setText("idle")
-        elif state == RunStore.RUNNING:
-            self.status.setText(f"running ({kind})…")
-        elif state == RunStore.FINISHED:
-            self.status.setText(f"finished ({kind}) — {len(self._epoch_x)} epoch(s)")
-        elif state == RunStore.FAILED:
-            self.status.setText(f"failed ({kind}) — see Console")
+            self.status.setText(f"{label} failed — see Output")
         elif state == RunStore.STOPPED:
-            self.status.setText(f"stopped after {len(self._epoch_x)} epoch(s)")
+            self.progress.hide()
+            self.status.setText(f"{label} stopped")
 
     def set_results_available(self, workdir) -> None:  # noqa: ANN001
-        """Enable the insight buttons once a run left artifacts behind."""
-        from pathlib import Path
-        wd = Path(workdir)
-        has = wd.joinpath("predictions.json").exists()
-        live_ok = has and any(wd.glob("*_best.pt"))
-        for btn in (self.museum_btn, self.inspect_btn, self.card_btn):
-            btn.setEnabled(has)
-        self.live_btn.setEnabled(live_ok)
-        self.locked_chip.setText("🔒 model locked" if live_ok else "")
+        wd = Path(workdir) if workdir else None
+        has_predictions = bool(wd and (wd / "predictions.json").exists())
+        has_checkpoint = bool(wd and any(wd.glob("*_best.pt")))
+        self.errors_btn.setEnabled(has_predictions)
+        self.saliency_btn.setEnabled(has_predictions and has_checkpoint)
+        self.card_btn.setEnabled(bool(wd and (wd / "metrics.json").exists()) or has_predictions)
+        self.folder_btn.setEnabled(bool(wd and wd.exists()))
 
-    # ------------------------------------------------------------- data
-
-    def last_score(self) -> float | None:
-        """Final accuracy-ish metric (0–1 or %) for pedagogy bits."""
-        candidates = []
-        for key, values in self._series.items():
-            if "loss" in key or not values:
-                continue
-            if any(t in key for t in ("acc", "score", "auc", "f1")):
-                candidates.append(values[-1])
-        return max(candidates) if candidates else None
+    # -------------------------------------------------------------- data
+    def last_metrics(self) -> dict[str, float]:
+        return {k: v[-1] for k, v in self._series.items() if v}
 
     def reset(self) -> None:
         self._epoch_x.clear()
-        self.locked_chip.setText("")  # retraining unlocks the model
-        self.progress.setRange(0, 0)
-        self.progress.hide()
         self._series.clear()
-        for curves in (self._loss_curves, self._score_curves):
-            for curve in curves.values():
-                curve.setData([], [])
-            curves.clear()
+        for curve in self._curves.values():
+            curve.setData([], [])
+        self._curves.clear()
+        self.loss_plot.clear()
+        self.metric_plot.clear()
+        for plot in (self.loss_plot, self.metric_plot):
+            plot.addLegend(offset=(8, 8))
+        for tile in self._tiles.values():
+            tile.deleteLater()
+        self._tiles.clear()
+        self.set_results_available(None)
 
     def on_epoch(self, event: dict) -> None:
         epoch = int(event.get("epoch", len(self._epoch_x) + 1))
-        total = int(event.get("total") or (epoch + 1))
+        total = int(event.get("total") or epoch)
         self._epoch_x.append(float(epoch))
         for key, value in event.get("metrics", {}).items():
             try:
                 value = float(value)
             except (TypeError, ValueError):
                 continue
+            if key == "lr":
+                continue
             self._series.setdefault(key, []).append(value)
-            curves = self._loss_curves if "loss" in key else self._score_curves
-            curve = curves.get(key)
+            series = self._series[key]
+            xs = self._epoch_x[-len(series):]
+            curve = self._curves.get(key)
             if curve is None:
-                color = "#ff7b72" if key.startswith("train") else (
-                    "#d29922" if "loss" in key else "#3fb950")
-                plot = self.loss_plot if "loss" in key else self.score_plot
-                curve = plot.plot(pen=pg.mkPen(color, width=2), name=key,
-                                  symbol="o", symbolSize=4)
-                curves[key] = curve
-            curve.setData(self._epoch_x, self._series[key])
-        ticks = [[(i, str(i)) for i in range(1, total + 1)]]
-        self.loss_plot.getAxis("bottom").setTicks(ticks)
-        self.score_plot.getAxis("bottom").setTicks(ticks)
+                plot = self.loss_plot if "loss" in key else self.metric_plot
+                color = _SERIES_COLORS[len(self._curves) % len(_SERIES_COLORS)]
+                curve = plot.plot(pen=pg.mkPen(color, width=2), name=key, symbol="o",
+                                  symbolSize=4, symbolBrush=color, symbolPen=None)
+                self._curves[key] = curve
+            curve.setData(xs, series)
+            self._tile(key).value.setText(f"{value:.4g}")
         self.progress.setRange(0, total)
         self.progress.setValue(epoch)
-        self.status.setText(f"running — epoch {epoch}/{total}")
+        self.status.setText(f"Training — epoch {epoch} of {total}")
 
-
-class RunConsoleStack(QtWidgets.QTabWidget):
-    """Bottom stack; auto-raises Training on run start, restores after."""
-
-    def __init__(self, console_page: ConsolePage, training_page: TrainingPage,
-                 run_store: RunStore, parent=None):
-        super().__init__(parent)
-        self.console_page = console_page
-        self.training_page = training_page
-        self._run_store = run_store
-        self._previous = 0
-        self.addTab(console_page, "🖨️ Console")
-        self.addTab(training_page, "📈 Training")
-        run_store.state_changed.connect(self._on_state)
-
-    def _on_state(self, state: str, _kind: str) -> None:
-        if state == RunStore.RUNNING:
-            if self.currentIndex() != 1:
-                self._previous = self.currentIndex()
-            self.setCurrentIndex(1)
-        elif state in (RunStore.FINISHED, RunStore.FAILED, RunStore.STOPPED):
-            self.setCurrentIndex(self._previous)
+    def _tile(self, key: str) -> _Tile:
+        if key not in self._tiles:
+            tile = _Tile(key.replace("_", " "))
+            self.tile_row.insertWidget(len(self._tiles), tile)
+            self._tiles[key] = tile
+        return self._tiles[key]

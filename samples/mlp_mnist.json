@@ -6,7 +6,7 @@
       "id": "input",
       "type": "core.input",
       "params": {
-        "shape": "784"
+        "shape": "1, 28, 28"
       },
       "position": [
         -420.0,
@@ -123,11 +123,44 @@
         810.0,
         220.0
       ]
+    },
+    {
+      "id": "torchvision_x0",
+      "type": "data.torchvision",
+      "params": {
+        "dataset": "mnist"
+      },
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "normalize_x1",
+      "type": "prep.normalize",
+      "params": {
+        "mode": "fixed",
+        "mean": "0.1307",
+        "std": "0.3081"
+      },
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "flatten_in",
+      "type": "core.flatten",
+      "params": {},
+      "position": [
+        0,
+        0
+      ]
     }
   ],
   "edges": [
     {
-      "from": "input/out",
+      "from": "flatten_in/out",
       "to": "dense1/in"
     },
     {
@@ -145,10 +178,15 @@
     {
       "from": "dense2/out",
       "to": "output/in"
+    },
+    {
+      "from": "input/out",
+      "to": "flatten_in/in"
     }
   ],
   "meta": {
     "framework": "pytorch",
-    "description": "784\u2192128\u219210 MLP with dropout, Adam + cosine"
+    "description": "784 \u2192 128 \u2192 10 MLP with dropout on flattened MNIST digits.",
+    "title": "MNIST \u2014 Multi-Layer Perceptron"
   }
 }

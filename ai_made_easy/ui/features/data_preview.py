@@ -1,210 +1,134 @@
-"""DataPreviewDialog: peek at the data a block will feed the model.
+"""Data preview: inspect what a dataset block will feed the pipeline.
 
-Double-click a Data block → a friendly look at what's inside (first rows,
-class names, file peek). Reads are small and local; nothing heavy imports
-unless the dataset kind needs it.
+Opened by double-clicking a dataset block. Reads are small and local: the
+first rows of tables, array shapes, class folders with health findings, or a
+description of benchmark datasets.
 """
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
-from PySide6 import QtWidgets
+from PySide6 import QtCore, QtWidgets
 
-_TV_CLASSES = {
-    "mnist": "digits 0-9 (60,000 train images, 28×28 grayscale)",
-    "fashion_mnist": "T-shirt, Trouser, Pullover, Dress, Coat, Sandal, "
-                     "Shirt, Sneaker, Bag, Ankle boot (28×28 grayscale)",
-    "cifar10": "airplane, automobile, bird, cat, deer, dog, frog, horse, "
-               "ship, truck (32×32 color)",
-    "cifar100": "100 fine-grained classes in 20 groups (32×32 color)",
+from ai_made_easy.core.dataset_health import (
+    AUDIO_SUFFIXES,
+    IMAGE_SUFFIXES,
+    TEXT_SUFFIXES,
+    scan_class_folder,
+)
+
+_BENCHMARKS = {
+    "mnist": "Handwritten digits 0–9 · 60,000 train / 10,000 test · [1, 28, 28]",
+    "fashion_mnist": "Zalando clothing (10 classes) · 60,000 / 10,000 · [1, 28, 28]",
+    "kmnist": "Kuzushiji characters (10 classes) · 60,000 / 10,000 · [1, 28, 28]",
+    "cifar10": "Natural images (10 classes) · 50,000 / 10,000 · [3, 32, 32]",
+    "cifar100": "Natural images (100 classes) · 50,000 / 10,000 · [3, 32, 32]",
+    "svhn": "Street-view house numbers · 73,257 / 26,032 · [3, 32, 32]",
+    "stl10": "Natural images (10 classes) · 5,000 / 8,000 · [3, 96, 96]",
+    "usps": "Handwritten digits · 7,291 / 2,007 · [1, 16, 16]",
+    "iris": "Iris flowers · 150 samples · 4 features · 3 classes",
+    "wine": "Wine cultivars · 178 samples · 13 features · 3 classes",
+    "breast_cancer": "Breast cancer diagnosis · 569 samples · 30 features · 2 classes",
+    "digits": "8×8 digits · 1,797 samples · 64 features · 10 classes",
+    "diabetes": "Diabetes progression · 442 samples · 10 features · regression",
+    "california_housing": "California housing · 20,640 samples · 8 features · regression",
 }
 
 
-def _synthetic_rows(params: dict) -> str:
-    """Numpy-only preview mirroring how the training script builds data."""
-    try:
-        import numpy as np
-
-        kind = params.get("kind", "classification")
-        n = min(int(params.get("n_samples", 1000)), 100_000)
-        d = min(int(params.get("n_features", 20)), 2000)
-        k = max(int(params.get("n_classes", 2)), 2)
-        noise = float(params.get("noise", 0.3))
-        rng = np.random.default_rng(int(params.get("seed", 42)))
-        n_show = min(n, 200)
-
-        if kind == "regression":
-            x = rng.normal(size=(n_show, d))
-            w = rng.normal(size=d)
-            y = x @ w + rng.normal(scale=noise, size=n_show)
-        else:
-            labels = rng.integers(0, k, size=n_show)
-            centers = rng.normal(scale=2.5 + noise * 5, size=(k, d))
-            x = centers[labels] + rng.normal(scale=0.6 + noise, size=(n_show, d))
-            y = labels
-
-        lines = [f"{n} rows × {d} features (previewing {n_show}, "
-                 f"showing first 6)", ""]
-        for i in range(min(6, len(x))):
-            cells = ", ".join(f"{v:6.2f}" for v in x[i][:6])
-            more = " …" if d > 6 else ""
-            lines.append(f"  [{cells}{more}]  → {y[i]}")
-        import collections
-        counts = ", ".join(f"{c}×{cnt}" for c, cnt in
-                           sorted(collections.Counter(y.tolist()).items()))
-        lines.append(f"\nclass mix: {counts}")
-        return "\n".join(lines)
-    except Exception as exc:
-        return f"(could not generate a preview: {exc})"
-
-
-def _csv_rows(path: str, target: str) -> str:
-    import csv as _csv
-    p = Path(path)
+def _table(path: str, fmt: str = "csv", rows: int = 8) -> tuple[list[str], list[list[str]], str]:
+    p = Path(path).expanduser()
     if not p.exists():
-        return (f"📄 {path}\n\n(file not found — it will need to exist "
-                "before training runs)")
-    with p.open() as fh:
-        reader = _csv.reader(fh)
-        header = next(reader)
-        rows = [row for _, row in zip(range(5), reader)]
-    out = [f"📄 {path} — {len(header)} columns", "",
-           "  " + " | ".join(header)]
-    for row in rows:
-        out.append("  " + " | ".join(row))
-    mark = f"   → target column: {target}" if target else ""
-    return "\n".join(out) + mark
+        return [], [], f"File not found: {p}"
+    try:
+        import pandas as pd
+
+        reader = {"csv": pd.read_csv, "tsv": lambda f: pd.read_csv(f, sep="\t"),
+                  "parquet": pd.read_parquet, "excel": pd.read_excel,
+                  "json": lambda f: pd.read_json(f, lines=str(f).endswith(".jsonl"))}[fmt]
+        frame = reader(p)
+        head = frame.head(rows)
+        info = (f"{len(frame):,} rows × {len(frame.columns)} columns · "
+                f"{int(frame.isna().sum().sum()):,} missing values")
+        return [str(c) for c in head.columns], head.astype(str).values.tolist(), info
+    except Exception as exc:  # noqa: BLE001 — shown to the user
+        return [], [], f"Could not read {p.name}: {exc}"
 
 
-def _peek(params: dict, type_id: str) -> str:
-    path = params.get("path", "")
-    if type_id == "data.torchvision":
-        name = params.get("dataset", "mnist")
-        return (f"🖼️ torchvision '{name}'\n\n"
-                + _TV_CLASSES.get(name, "images + labels (downloaded on "
-                                         "first training run)"))
-    if type_id == "data.numpy":
-        import numpy as np
-        p = Path(path)
-        if not p.exists():
-            return f"🗄️ {path}\n\n(file not found yet)"
-        with np.load(p) as z:
-            keys = ", ".join(f"{k} {list(z[k].shape)}" for k in z.files)
-        return f"🗄️ {path}\n\narrays: {keys}"
-    if type_id == "data.json":
-        p = Path(path)
-        if not p.exists():
-            return f"🧾 {path}\n\n(file not found yet)"
-        import json
-        text = p.read_text().strip()
-        records = (json.loads(text) if text.startswith("[") else
-                   [json.loads(l) for l in text.splitlines() if l.strip()][:3])
-        return (f"🧾 {path} — {len(records)} record(s) shown\n\n"
-                + "\n".join(str(r) for r in records[:3]))
+def _folder_summary(root: str, suffixes: set[str]) -> str:
+    report = scan_class_folder(Path(root).expanduser(), suffixes)
+    lines = [f"{report.total:,} samples in {len(report.classes)} class(es)"]
+    lines += [f"  {c.name}: {c.count:,}" for c in report.classes]
+    findings = [f for f in report.findings if f.severity == "warning"]
+    if findings:
+        lines.append("")
+        lines += [f"Warning: {f.message}" + (f" — {f.hint}" if f.hint else "") for f in findings]
+    return "\n".join(lines)
+
+
+def describe(type_id: str, params: dict) -> str:
+    if type_id in ("data.torchvision", "data.sklearn"):
+        name = params.get("dataset", "")
+        return _BENCHMARKS.get(name, name) + "\n\nDownloaded automatically on first use."
     if type_id == "data.image_folder":
-        root = Path(params.get("root", "data/images"))
-        if not root.exists():
-            return (f"🖼️ {root}\n\n(folder not found yet — one subfolder "
-                    "per class, images inside)")
-        classes = [d.name for d in sorted(root.iterdir()) if d.is_dir()]
-        return f"🖼️ {root}\n\nclasses ({len(classes)}): {', '.join(classes[:10])}"
+        return _folder_summary(params.get("root", ""), IMAGE_SUFFIXES)
+    if type_id == "data.text_folder":
+        return _folder_summary(params.get("root", ""), TEXT_SUFFIXES)
+    if type_id == "data.audio_folder":
+        return _folder_summary(params.get("root", ""), AUDIO_SUFFIXES)
+    if type_id == "data.numpy":
+        p = Path(params.get("path", "")).expanduser()
+        if not p.exists():
+            return f"File not found: {p}"
+        import numpy as np
+
+        with np.load(p) as archive:
+            return "\n".join(f"{k}: shape {list(archive[k].shape)}, dtype {archive[k].dtype}"
+                             for k in archive.files)
+    if type_id == "data.json":
+        p = Path(params.get("path", "")).expanduser()
+        if not p.exists():
+            return f"File not found: {p}"
+        text = p.read_text().strip()
+        records = (json.loads(text) if text.startswith("[")
+                   else [json.loads(line) for line in text.splitlines()[:5] if line.strip()])
+        return "\n".join(json.dumps(r)[:300] for r in records[:5])
     if type_id == "data.huggingface":
-        return (f"🤗 HuggingFace dataset '{params.get('repo_id', '')}' "
-                f"(split: {params.get('split', 'train')})\n\n"
-                "downloaded from the Hub on first training run")
-    return ""
+        return (f"Hugging Face dataset '{params.get('repo_id')}' (split "
+                f"'{params.get('split')}'), downloaded on first use.")
+    if type_id == "data.synthetic":
+        return (f"{params.get('kind')} data · {params.get('n_samples')} samples · "
+                f"{params.get('n_features')} features"
+                + (f" · {params.get('n_classes')} classes"
+                   if params.get("kind") != "regression" else ""))
+    return "\n".join(f"{k}: {v}" for k, v in params.items())
 
 
 class DataPreviewDialog(QtWidgets.QDialog):
     def __init__(self, parent, definition, params: dict):  # noqa: ANN001
         super().__init__(parent)
-        self.setWindowTitle(f"👀 {definition.display_name} — data preview")
-        self.setModal(True)
-        self.resize(560, 480)
+        self.setWindowTitle(f"{definition.display_name} — Preview")
+        self.resize(760, 480)
         layout = QtWidgets.QVBoxLayout(self)
-
         type_id = definition.type_id
-        if type_id == "data.synthetic":
-            text = _synthetic_rows(params)
-        elif type_id == "data.csv":
-            text = _csv_rows(params.get("path", ""),
-                             params.get("target_column", ""))
+        tables = {"data.csv": "path", "data.text_csv": "path", "data.timeseries_csv": "path"}
+        if type_id in tables:
+            columns, rows, info = _table(params.get("path", ""), params.get("format", "csv"))
+            meta = QtWidgets.QLabel(info)
+            meta.setObjectName("blockMeta")
+            layout.addWidget(meta)
+            table = QtWidgets.QTableWidget(len(rows), len(columns))
+            table.setHorizontalHeaderLabels(columns)
+            table.setEditTriggers(QtWidgets.QAbstractItemView.EditTrigger.NoEditTriggers)
+            for r, row in enumerate(rows):
+                for c, value in enumerate(row):
+                    table.setItem(r, c, QtWidgets.QTableWidgetItem(value))
+            layout.addWidget(table, 1)
         else:
-            text = _peek(params, type_id) or "\n".join(
-                f"{k}: {v}" for k, v in params.items() if v)
-
-        view = QtWidgets.QPlainTextEdit(text)
-        view.setReadOnly(True)
-        layout.addWidget(view, 1)
-
-        if type_id == "data.image_folder":
-            root = Path(params.get("root", "images/"))
-            layout.addWidget(_HealthMeter(root))
-            cam = QtWidgets.QPushButton("📷 Add examples with your camera / mic")
-            cam.clicked.connect(lambda: self._open_capture(root))
-            layout.addWidget(cam)
-
-        close = QtWidgets.QPushButton("Got it 👍")
-        close.clicked.connect(self.accept)
-        layout.addWidget(close)
-
-    def _open_capture(self, root: Path) -> None:
-        from ai_made_easy.ui.features.capture import CaptureDialog
-
-        CaptureDialog(self, root).exec()
-
-
-class _HealthMeter(QtWidgets.QWidget):
-    """🩺 class-balance bars + duplicate/too-few findings for kids."""
-
-    def __init__(self, root: Path, parent=None):  # noqa: ANN001
-        super().__init__(parent)
-        self.setProperty("card", True)
-        layout = QtWidgets.QVBoxLayout(self)
-        layout.setContentsMargins(10, 8, 10, 8)
-
-        from ai_made_easy.core.dataset_health import scan_image_folder
-
-        report = scan_image_folder(root)
-        head = QtWidgets.QLabel(f"🩺 Dataset health — {report.total} photo(s)")
-        head.setStyleSheet("font-weight: 700;")
-        layout.addWidget(head)
-
-        if report.classes:
-            peak = max(c.count for c in report.classes)
-            for cc in report.classes:
-                row = QtWidgets.QHBoxLayout()
-                name = QtWidgets.QLabel(cc.name)
-                name.setMinimumWidth(90)
-                row.addWidget(name)
-                bar = QtWidgets.QProgressBar()
-                bar.setRange(0, max(peak, 1))
-                bar.setValue(cc.count)
-                bar.setTextVisible(False)
-                bar.setFixedHeight(10)
-                bar.setStyleSheet(_bar_style(cc.count))
-                row.addWidget(bar, 1)
-                count = QtWidgets.QLabel(str(cc.count))
-                count.setMinimumWidth(34)
-                row.addWidget(count)
-                layout.addLayout(row)
-
-        for f in report.findings:
-            icon = "✅" if f.severity == "info" else "⚠️"
-            line = QtWidgets.QLabel(f"{icon} {f.message}")
-            line.setWordWrap(True)
-            if f.severity == "warning":
-                line.setStyleSheet("color: #B3540B;")
-            layout.addWidget(line)
-            if f.hint:
-                hint = QtWidgets.QLabel(f"💡 {f.hint}")
-                hint.setWordWrap(True)
-                hint.setStyleSheet("color: #7A7565; font-size: 12px;")
-                layout.addWidget(hint)
-
-
-def _bar_style(count: int) -> str:
-    from ai_made_easy.core.dataset_health import TOO_FEW
-
-    color = "#FF8787" if count < TOO_FEW else "#63E6BE"
-    return f"QProgressBar::chunk {{ background: {color}; border-radius: 4px; }}"
+            view = QtWidgets.QPlainTextEdit(describe(type_id, params))
+            view.setObjectName("codeView")
+            view.setReadOnly(True)
+            layout.addWidget(view, 1)
+        buttons = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.StandardButton.Close)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons, 0, QtCore.Qt.AlignmentFlag.AlignRight)

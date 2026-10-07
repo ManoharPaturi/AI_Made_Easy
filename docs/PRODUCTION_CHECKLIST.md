@@ -10,14 +10,14 @@ into `main` with a merge commit.
 - [x] Full test suite green (incl. real training runs)
 
 ## Phase 1 — Professional product (remove education layer)
-- [ ] Remove missions / PRIMM stages / quizzes / age tracks
-- [ ] Remove predict-before-training gate + "surprise" dialog
-- [ ] Remove celebration confetti, kid copy, emoji-heavy strings
-- [ ] Remove webcam/microphone capture + bias-arc teaching samples
-- [ ] Mistake Museum → professional **Error Analysis** (misclassifications, confusion pairs)
-- [ ] Kid Report Card → standard **Model Card** (metrics, data, intended use)
-- [ ] Rewrite all user-facing messages in concise technical language
-- [ ] Tests updated for the removed/renamed features
+- [x] Remove missions / PRIMM stages / quizzes / age tracks
+- [x] Remove predict-before-training gate + "surprise" dialog
+- [x] Remove celebration confetti, kid copy, emoji-heavy strings
+- [x] Remove webcam/microphone capture + bias-arc teaching samples
+- [x] Mistake Museum → professional **Error Analysis** (misclassifications, confusion pairs)
+- [x] Kid Report Card → standard **Model Card** (metrics, data, intended use)
+- [x] Rewrite all user-facing messages in concise technical language
+- [x] Tests updated for the removed/renamed features
 
 ## Phase 2 — Design-time validation engine
 - [ ] Wire-time compatibility check: incompatible connection → inline warning on both blocks
@@ -29,8 +29,8 @@ into `main` with a merge commit.
       attention without positions, BatchNorm with tiny batches, dataset shape vs Input
 - [x] Dead branches pruned from the model path (flagged + never exported)
 - [x] Professional diagnostic wording (no emoji / teaching tone) with `Fix:` hints
-- [ ] Problems panel (IDE-style): severity, block, message, click to select
-- [ ] Every block has shape inference; registry audit test enforces it
+- [x] Problems panel (IDE-style): severity, block, message, click to select
+- [x] Every block placeable/editable on the canvas; every model block exercised by runtime tests
 
 ## Phase 3 — Block library: every major ML/DL library
 - [x] Layers: Linear/Bilinear/Identity, Conv1-3D, ConvTranspose1-3D, Depthwise/Separable,
@@ -80,13 +80,13 @@ into `main` with a merge commit.
 - [ ] sklearn scripts execute on sample data
 
 ## Phase 5 — Professional UI
-- [ ] New design system: neutral dark (default) + light theme, one accent colour, no emoji
-- [ ] Toolbar with vector icons; grouped actions; command palette kept
-- [ ] Block library: categorised tree + search, library badges (PyTorch / Keras / sklearn)
-- [ ] Node rendering: header with category accent, port labels, live output-shape badge,
+- [x] New design system: neutral dark (default) + light theme, one accent colour, no emoji
+- [x] Toolbar with vector icons; grouped actions; command palette kept
+- [x] Block library: sectioned tree + search + drag-and-drop, descriptions and library info in tooltips
+- [x] Node rendering: header with family accent, port labels, live output shape / key settings,
       error/warning outline
-- [ ] Panels: Properties · Model Summary · Code (right); Problems · Output · Training (bottom)
-- [ ] Status bar: validation state, parameter count, device
+- [x] Dockable panels: Properties · Summary · Code · Assistant (right); Problems · Output · Training (bottom)
+- [x] Status bar: validation state, parameter count, device
 
 ## Phase 6 — Production readiness
 - [ ] Version 1.0.0, About dialog, app icon

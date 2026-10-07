@@ -14,7 +14,7 @@ from ai_made_easy.ui.canvas import CanvasController
 
 class GraphService(QtCore.QObject):
     graph_settled = QtCore.Signal(object)  # Graph (core IR)
-    guard_message = QtCore.Signal(str)     # wire-guard friendly notices
+    guard_message = QtCore.Signal(str)     # rejected-connection notices
 
     def __init__(self, adapter: CanvasController, log, parent=None):
         super().__init__(parent)
@@ -27,6 +27,7 @@ class GraphService(QtCore.QObject):
         self._loading = False  # load-guard: suppress settle during load
         self._node_defaults: dict[str, str] = {}  # type_id -> original name
         self.last_shapes: dict = {}
+        self.settled_from_load = False  # True while settling right after a load
 
         adapter.guard_notifiers.append(self.guard_message.emit)
 
@@ -61,9 +62,15 @@ class GraphService(QtCore.QObject):
         self._loading = True
         try:
             self.adapter.load_ir(graph)
+            if self.adapter.has_overlaps():
+                self.adapter.auto_layout(self.adapter.to_ir())
         finally:
             self._loading = False
-        self.settle_now()
+        self.settled_from_load = True
+        try:
+            self.settle_now()
+        finally:
+            self.settled_from_load = False
 
     # ------------------------------------------------------- validation
 
@@ -116,8 +123,7 @@ class GraphService(QtCore.QObject):
             self.log.info(f"expanded {count} architecture block(s) into primitives")
             self.settle_now()
         else:
-            self.log.info("no architecture blocks in the selection "
-                          "(drag one from the Architectures/Custom palette first)")
+            self.log.info("select an architecture block to expand it")
 
     def save_selection_template(self, name: str):
         return self.adapter.save_selection_as_template(name)

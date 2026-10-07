@@ -1,8 +1,6 @@
-"""CommandPalette: ⌘K quick actions (the Linear/Raycast move, kid-sized).
+"""Command palette (⌘K / Ctrl+K): fuzzy search over every action and block.
 
-One floating card under the header: type a few letters, get fuzzy-matched
-actions (with their shortcuts) and blocks (⏎ places one at viewport
-centre, exactly like the palette search). Esc closes; ↑↓ walk; ⏎ runs.
+Enter runs the action or places the block at the viewport centre; Esc closes.
 """
 from __future__ import annotations
 
@@ -63,7 +61,7 @@ class CommandPalette(QtWidgets.QDialog):
 
         self.input = QtWidgets.QLineEdit()
         self.input.setObjectName("cmdInput")
-        self.input.setPlaceholderText("Type to search actions and blocks…")
+        self.input.setPlaceholderText("Search actions and blocks")
         self.input.setFrame(False)
         layout.addWidget(self.input)
 
@@ -82,7 +80,7 @@ class CommandPalette(QtWidgets.QDialog):
     def open_at(self, host: QtWidgets.QWidget) -> None:
         self._refill(self.input.text())
         x = host.x() + (host.width() - self.width()) // 2
-        self.move(max(x, 12), host.y() + 92)
+        self.move(max(x, 12), host.y() + 70)
         self.show()
         self.raise_()
         self.activateWindow()
@@ -106,23 +104,22 @@ class CommandPalette(QtWidgets.QDialog):
             score = fuzzy_score(label, query)
             if score is None:
                 continue
-            block_hits.append((score, label, label, "⏎ places on paper",
-                               block.type_id))
+            block_hits.append((score, label, label, "", block.type_id))
         action_hits.sort(key=lambda h: (-h[0], h[1]))
         block_hits.sort(key=lambda h: (-h[0], h[1]))
 
         if action_hits:
-            self._section("⚡ Actions")
+            self._section("ACTIONS")
             self._add_rows(action_hits[:12])
         if block_hits:
-            self._section("🧱 Blocks")
+            self._section("BLOCKS")
             self._add_rows(block_hits[:28])
         if self.list.count():
             self.list.setCurrentRow(1 if action_hits else 0)
 
     def _add_rows(self, hits) -> None:
         for _score, _sort_key, label, hint, payload in hits:
-            item = QtWidgets.QListWidgetItem(f"{label}   {hint}")
+            item = QtWidgets.QListWidgetItem(f"{label}    {hint}".rstrip())
             item.setData(_ROLE_KIND,
                          "action" if isinstance(payload, QtGui.QAction)
                          else "block")

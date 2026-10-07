@@ -1,8 +1,8 @@
-"""Dataset health checks for Image Folder datasets (the 🩺 meter).
+"""Dataset health checks for class-per-folder datasets (images, text, audio).
 
-Pure pathlib + hashlib — no Qt, no torch. Findings feed two places:
-the DataPreviewDialog meter (bars + nudges) and the Summary Checks list
-(as warnings), so imbalance surfaces where kids already look.
+Pure pathlib + hashlib — no Qt, no torch. Findings feed the data preview
+and the Problems panel (as warnings): empty / small classes, class imbalance,
+exact duplicates, and background shortcuts in image datasets.
 """
 from __future__ import annotations
 
@@ -11,8 +11,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".bmp", ".gif", ".webp"}
+TEXT_SUFFIXES = {".txt"}
+AUDIO_SUFFIXES = {".wav"}
 
-# below this a class is too thin to learn from (rule of thumb for kids)
+# classes with fewer samples than this rarely generalise
 TOO_FEW = 10
 # biggest/smallest class count ratio that triggers an imbalance warning
 IMBALANCE_RATIO = 3.0
@@ -28,7 +30,7 @@ class ClassCount:
 class Finding:
     severity: str  # "info" | "warning"
     message: str
-    hint: str = ""  # the kid-worded nudge
+    hint: str = ""  # suggested remedy
     classes: list[str] = field(default_factory=list)
 
 
@@ -44,9 +46,9 @@ class HealthReport:
         return [f for f in self.findings if f.severity == "warning"]
 
 
-def _images_in(folder: Path) -> list[Path]:
+def _files_in(folder: Path, suffixes: set[str]) -> list[Path]:
     return sorted(p for p in folder.iterdir()
-                  if p.is_file() and p.suffix.lower() in IMAGE_SUFFIXES)
+                  if p.is_file() and p.suffix.lower() in suffixes)
 
 
 def _mean_rgb(path: Path):
@@ -83,7 +85,7 @@ def background_shortcut(classes_means: dict[str, list[tuple]]) -> Finding | None
         bucket_share[name] = (dark, light)
         class_bucket[name] = 0 if dark >= light else 1
     names = list(classes_means)
-    for a, b in zip(names, names[1:]):
+    for a, b in zip(names, names[1:], strict=False):
         if class_bucket[a] == class_bucket[b]:
             return None  # same dominant bucket — no class/background pairing
     shares = [max(*bucket_share[n]) / sum(bucket_share[n]) for n in names]
@@ -91,11 +93,10 @@ def background_shortcut(classes_means: dict[str, list[tuple]]) -> Finding | None
         return None
     return Finding(
         "warning",
-        "every class has its own background (" +
-        " vs ".join(names) + ") — the model may recognise the background, "
-        "not the object",
-        "mix the backgrounds across classes — otherwise it learns a "
-        "shortcut and can fail on new photos")
+        "possible background shortcut: each class has a distinct overall brightness ("
+        + " vs ".join(names) + "); the model may learn the background instead of the "
+        "object",
+        "collect samples with varied backgrounds for every class")
 
 
 def _hash_of(path: Path) -> str:
@@ -107,20 +108,24 @@ def _hash_of(path: Path) -> str:
 
 
 def scan_image_folder(root: Path) -> HealthReport:
-    """Walk one class-per-subfolder image dataset and judge its health."""
+    return scan_class_folder(root, IMAGE_SUFFIXES)
+
+
+def scan_class_folder(root: Path, suffixes: set[str] = IMAGE_SUFFIXES) -> HealthReport:
+    """Walk a class-per-subfolder dataset and report its health."""
     root = Path(root)
     report = HealthReport(root=str(root))
+    images = suffixes == IMAGE_SUFFIXES
     if not root.exists():
         report.findings.append(Finding(
-            "info", f"folder {root} doesn't exist yet",
-            "create it, then add one subfolder per thing you want the "
-            "model to recognise"))
+            "warning", f"dataset folder {root} does not exist",
+            "create it with one subfolder per class"))
         return report
 
     hashes: dict[str, list[str]] = {}
     means: dict[str, list[tuple]] = {}
     for sub in sorted(p for p in root.iterdir() if p.is_dir()):
-        files = _images_in(sub)
+        files = _files_in(sub, suffixes)
         report.classes.append(ClassCount(sub.name, len(files)))
         report.total += len(files)
         for f in files:
@@ -128,7 +133,7 @@ def scan_image_folder(root: Path) -> HealthReport:
                 hashes.setdefault(_hash_of(f), []).append(f.name)
             except OSError:
                 pass
-        if len(files) >= 6 and len(report.classes) <= 4:
+        if images and len(files) >= 6 and len(report.classes) <= 4:
             means[sub.name] = [m for m in (_mean_rgb(f) for f in files[:60])
                                if m is not None]
     shortcut = background_shortcut(means)
@@ -138,21 +143,20 @@ def scan_image_folder(root: Path) -> HealthReport:
     if not report.classes:
         report.findings.append(Finding(
             "warning", f"no class subfolders inside {root}",
-            "make one subfolder per class — e.g. cats/ and dogs/ — and "
-            "put photos inside"))
+            "create one subfolder per class"))
         return report
 
     for cc in report.classes:
         if cc.count == 0:
             report.findings.append(Finding(
-                "warning", f"class '{cc.name}' is empty",
-                "add photos to it or delete the folder", classes=[cc.name]))
+                "warning", f"class '{cc.name}' contains no samples",
+                "add samples or remove the folder", classes=[cc.name]))
         elif cc.count < TOO_FEW:
             report.findings.append(Finding(
                 "warning",
-                f"class '{cc.name}' has only {cc.count} photo(s) — too few",
-                "aim for at least 10–20 photos per class, from different "
-                "places and angles", classes=[cc.name]))
+                f"class '{cc.name}' has only {cc.count} sample(s)",
+                f"collect at least {TOO_FEW}–20 varied samples per class",
+                classes=[cc.name]))
 
     counts = [c.count for c in report.classes if c.count > 0]
     if len(counts) >= 2:
@@ -163,10 +167,9 @@ def scan_image_folder(root: Path) -> HealthReport:
                         key=lambda c: c.count)
             report.findings.append(Finding(
                 "warning",
-                f"unbalanced: '{big.name}' has {big.count} photos but "
-                f"'{small.name}' only {small.count}",
-                "models over-learn classes with more photos — add more "
-                f"examples of '{small.name}'",
+                f"class imbalance {ratio:.1f}:1 ('{big.name}' {big.count} vs "
+                f"'{small.name}' {small.count})",
+                "add samples to minority classes or use Class Balancing",
                 classes=[big.name, small.name]))
 
     dups = {h: names for h, names in hashes.items() if len(names) > 1}
@@ -175,12 +178,11 @@ def scan_image_folder(root: Path) -> HealthReport:
         example = sorted(next(iter(dups.values())))[0]
         report.findings.append(Finding(
             "warning",
-            f"{n_groups} exact duplicate photo(s) (e.g. {example})",
-            "identical copies make the model memorise instead of learn — "
-            "delete the copies"))
+            f"{n_groups} group(s) of exact duplicate files (e.g. {example})",
+            "remove duplicates so they cannot leak across train/test splits"))
 
     if not report.findings:
         report.findings.append(Finding(
-            "info", f"{report.total} photos across {len(report.classes)} "
-            f"class(es) — looks healthy ✅"))
+            "info", f"{report.total} samples across {len(report.classes)} class(es); "
+            "no issues found"))
     return report

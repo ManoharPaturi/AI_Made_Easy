@@ -136,6 +136,7 @@
   ],
   "meta": {
     "framework": "llm",
-    "description": "MiniLM embeddings + numpy store + RAG"
+    "description": "Embeddings, vector store and retrieval feeding a generator.",
+    "title": "LLM \u2014 Retrieval-Augmented QA"
   }
 }

@@ -1,0 +1,71 @@
+{
+  "schema_version": 1,
+  "name": "customer_segments",
+  "nodes": [
+    {
+      "id": "synthetic_0",
+      "type": "data.synthetic",
+      "params": {
+        "n_features": 6,
+        "n_classes": 4,
+        "n_samples": 600
+      },
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "normalize_1",
+      "type": "prep.normalize",
+      "params": {},
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "kmeans_2",
+      "type": "ml.kmeans",
+      "params": {
+        "n_clusters": 4
+      },
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "silhouette_3",
+      "type": "eval.silhouette",
+      "params": {},
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "davies_bouldin_4",
+      "type": "eval.davies_bouldin",
+      "params": {},
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "adjusted_rand_5",
+      "type": "eval.adjusted_rand",
+      "params": {},
+      "position": [
+        0,
+        0
+      ]
+    }
+  ],
+  "edges": [],
+  "meta": {
+    "title": "Clustering \u2014 k-Means Segmentation",
+    "description": "Standardized features clustered with k-Means and scored by silhouette."
+  }
+}

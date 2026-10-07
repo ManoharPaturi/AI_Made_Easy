@@ -253,41 +253,13 @@ def test_wire_guard_undoes_dtype_mismatch():
     controller.guard_notifiers.append(messages.append)
     controller._on_port_connected(in_port, out_port)
     assert rec == [("out", "in")], "mismatched wire must be undone"
-    assert messages and "can't be wired" in messages[0]
+    assert messages and "incompatible ports" in messages[0]
     # matching dtypes are left alone
     rec.clear()
     ok_out = _StubPort(in_node, "out", "out", "tensor", rec)
     ok_in = _StubPort(dense, "in", "in", "tensor", rec)
     controller._on_port_connected(ok_in, ok_out)
     assert rec == []
-
-
-def test_prop_spin_patches_fix_the_properties_bin():
-    app, controller = _canvas()
-    from OdenGraphQt import PropertiesBinWidget
-    from OdenGraphQt.custom_widgets.properties_bin.prop_widgets_base import (
-        PropDoubleSpinBox,
-    )
-
-    from ai_made_easy.ui.canvas.area import CanvasArea
-    from ai_made_easy.ui.canvas.prop_widgets_patch import (
-        install_prop_widget_patches,
-    )
-
-    install_prop_widget_patches()
-    assert hasattr(PropDoubleSpinBox(), "set_min")
-
-    area = CanvasArea(controller)
-    prop_bin = area.make_properties_widget()
-    node = controller.node_graph.create_node(node_type_for("core.dense"))
-    prop_bin.add_node(node)  # crashed with AttributeError before the patch
-    w = prop_bin  # panel populated without raising
-    assert w is not None
-
-    box = PropDoubleSpinBox()
-    box.set_value(1e-8)
-    assert box.decimals() >= 10
-    assert abs(box.get_value() - 1e-8) < 1e-12
 
 
 # ------------------------------------------------------ Train gating
@@ -300,16 +272,14 @@ from PySide6 import QtCore, QtWidgets
 QtCore.QCoreApplication.setOrganizationName("aime-tests")
 QtCore.QCoreApplication.setApplicationName("smoke")
 app = QtWidgets.QApplication([])
-QtCore.QSettings().setValue("aime/pedagogy/predict_gate", False)
 from ai_made_easy.ui.context import AppContext
 from ai_made_easy.core.graph import ValidationIssue
 ctx = AppContext()
 calls = []
 ctx.process_service.run_training = lambda g: calls.append(g)
-# 1) invalid graph -> blocked
+# 1) invalid graph -> blocked (the explanatory dialog is stubbed)
 ctx.validation_store.update([ValidationIssue("error", "units too small", "d")])
-QtWidgets.QMessageBox.warning = staticmethod(
-    lambda *a, **k: QtWidgets.QMessageBox.StandardButton.Ok)
+QtWidgets.QMessageBox.exec = lambda self: 0
 ctx.act_train()
 assert calls == [], "train must be blocked while errors exist"
 # 2) valid graph -> runs

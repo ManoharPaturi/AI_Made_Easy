@@ -1,0 +1,61 @@
+{
+  "schema_version": 1,
+  "name": "wine_boosting_search",
+  "nodes": [
+    {
+      "id": "sklearn_0",
+      "type": "data.sklearn",
+      "params": {
+        "dataset": "wine"
+      },
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "hist_gradient_boosting_classifier_1",
+      "type": "ml.hist_gradient_boosting_classifier",
+      "params": {},
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "hyperparameter_search_2",
+      "type": "ml.hyperparameter_search",
+      "params": {
+        "param_grid": "learning_rate: 0.03, 0.1, 0.3\nmax_leaf_nodes: 15, 31",
+        "cv": 5
+      },
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "accuracy_3",
+      "type": "eval.accuracy",
+      "params": {},
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "balanced_accuracy_4",
+      "type": "eval.balanced_accuracy",
+      "params": {},
+      "position": [
+        0,
+        0
+      ]
+    }
+  ],
+  "edges": [],
+  "meta": {
+    "title": "Wine \u2014 Gradient Boosting with Grid Search",
+    "description": "Histogram gradient boosting tuned with a cross-validated grid search."
+  }
+}

@@ -99,6 +99,7 @@
   ],
   "meta": {
     "framework": "llm",
-    "description": "HF causal-LM text generation script"
+    "description": "Hugging Face causal language model generation script.",
+    "title": "LLM \u2014 Text Generation"
   }
 }

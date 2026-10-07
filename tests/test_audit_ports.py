@@ -195,7 +195,7 @@ def test_node_tooltip_carries_issues():
     from ai_made_easy.ui.app import _ensure_qt_plugin_path
     _ensure_qt_plugin_path()
     from PySide6 import QtWidgets
-    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
     from ai_made_easy.ui.canvas.adapter import CanvasController
 
     controller = CanvasController()

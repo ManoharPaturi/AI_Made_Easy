@@ -56,6 +56,18 @@ def _widget_type(param) -> tuple[int, dict]:
     return NodePropWidgetEnum.QLINE_EDIT.value, {}
 
 
+# property names the canvas library reserves for itself (node geometry, identity)
+RESERVED_PROPERTIES = frozenset({
+    "border_color", "color", "disabled", "height", "icon", "id", "inputs",
+    "layout_direction", "name", "outputs", "port_deletion_allowed", "pos", "selected",
+    "subgraph_session", "text_color", "type_", "visible", "width"})
+
+
+def prop_name(param_name: str) -> str:
+    """Canvas property key for a block parameter (prefixed when reserved)."""
+    return f"param_{param_name}" if param_name in RESERVED_PROPERTIES else param_name
+
+
 def node_type_for(block_type_id: str) -> str | None:
     return BLOCK_TO_NODE_TYPE.get(block_type_id)
 
@@ -73,20 +85,22 @@ def make_node_class(block: BlockDefinition) -> Type[BaseNode]:
         # OdenGraphQt paints with QColor(*color): RGB ints, never hex/tuples.
         qcolor = QtGui.QColor(block.color)
         rgba = qcolor.getRgb()
-        port_rgba = qcolor.darker(135).getRgb()  # deeper family shade for dots/wires
+        port_rgba = qcolor.darker(112).getRgb()
         self.set_color(rgba[0], rgba[1], rgba[2])  # NodeObject wants r, g, b
-        self.view.text_color = TEXT_COLOR        # dark ink on the pastel fill
-        self.view.border_color = rgba            # flat: border == fill
+        self.view.text_color = TEXT_COLOR
+        self.view.border_color = rgba
         for port in block.inputs:
             self.add_input(port.name, color=port_rgba, display_name=False)
         for port in block.outputs:
             self.add_output(port.name, color=port_rgba, display_name=False)
+        if len(block.inputs) > 1:
+            self.view._aime_port_labels = [p.name for p in block.inputs]
         for param in block.params:
             widget_type, extra = _widget_type(param)
             kwargs = {"widget_type": widget_type, **extra}
             if param.help:
                 kwargs["widget_tooltip"] = param.help
-            self.create_property(param.name, param.default, **kwargs)
+            self.create_property(prop_name(param.name), param.default, **kwargs)
 
     attrs["__init__"] = _init
     cls = type(_class_name(block), (BaseNode,), attrs)

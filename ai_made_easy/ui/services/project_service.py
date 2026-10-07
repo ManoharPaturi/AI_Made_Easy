@@ -1,5 +1,5 @@
-"""ProjectService: project identity, file IO, sample gallery data, dirty
-tracking — all through ProjectStore so the header never goes stale.
+"""ProjectService: project identity, file IO, examples, dirty tracking —
+all through ProjectStore so every view of the project name stays in sync.
 """
 from __future__ import annotations
 
@@ -8,7 +8,17 @@ from pathlib import Path
 
 from ai_made_easy.core.graph import Graph
 
-DEMO_SEED = Path(__file__).resolve().parents[3] / "samples" / "demo_seed.json"
+SAMPLES_DIR = Path(__file__).resolve().parents[3] / "samples"
+DEMO_SEED = SAMPLES_DIR / "demo_seed.json"
+
+
+def project_kind(data: dict) -> str:
+    types = [n.get("type", "") for n in data.get("nodes", [])]
+    if any(t.startswith("ml.") for t in types):
+        return "Classic ML pipeline"
+    if any(t.startswith("llm.") for t in types):
+        return "LLM workflow"
+    return "Neural network"
 
 
 class ProjectService:
@@ -20,8 +30,14 @@ class ProjectService:
     # ------------------------------------------------------------ project
 
     def new_project(self) -> None:
+        """Empty design with an Input and an Output block."""
+        graph = Graph.from_dict({"name": "untitled", "nodes": [
+            {"id": "input", "type": "core.input", "params": {"shape": "784"},
+             "position": [-300, 0]},
+            {"id": "output", "type": "core.output", "params": {}, "position": [300, 0]},
+        ], "edges": []})
+        self.graph_service.load(graph)
         self.store.reset("untitled")
-        self._reload_demo()
 
     def _reload_demo(self) -> None:
         self.graph_service.load(Graph.from_dict(json.loads(DEMO_SEED.read_text())))
@@ -88,17 +104,20 @@ class ProjectService:
 
     @staticmethod
     def samples_dir() -> Path:
-        return Path.cwd() / "samples"
+        return SAMPLES_DIR
 
-    def list_samples(self) -> list[tuple[Path, str, str]]:
+    def list_samples(self) -> list[tuple[Path, str, str, str]]:
         entries = []
         for path in sorted(self.samples_dir().glob("*.json")):
+            if path.name == "demo_seed.json":
+                continue
             try:
                 data = json.loads(path.read_text())
-            except Exception:
+            except Exception:  # noqa: BLE001 — skip unreadable files
                 continue
-            entries.append((path, data.get("name", path.stem),
-                            data.get("meta", {}).get("description", "")))
+            meta = data.get("meta", {})
+            entries.append((path, meta.get("title", data.get("name", path.stem)),
+                            meta.get("description", ""), project_kind(data)))
         return entries
 
     def open_sample(self, path: Path) -> bool:

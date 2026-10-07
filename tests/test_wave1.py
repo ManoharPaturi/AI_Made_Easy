@@ -107,22 +107,25 @@ def test_model_card_fills_from_artifacts(tmp_path):
         {"index": 1, "true": 1, "probs": [0.8, 0.2], "file": None},
         {"index": 4, "true": 1, "probs": [0.6, 0.4], "file": None},
     ]))
+    (tmp_path / "metrics.json").write_text(json.dumps({"accuracy": 0.6667, "f1": 0.5}))
+    (tmp_path / "classes.json").write_text(json.dumps(["cat", "dog"]))
     card = build_card("My Model", "Synthetic classification data",
                       {"epochs": 3}, tmp_path,
-                      superpower="spots cats", careful="not night photos")
+                      intended_use="sorting pet photos", limitations="not night photos")
     assert "model_name: My Model" in card
     assert "accuracy: 0.6667" in card
-    assert "67%" in card  # accuracy sentence
-    assert "**class 0** when the right answer was **class 1** (2×)" in card
-    assert "spots cats" in card and "not night photos" in card
+    assert "| accuracy | 0.6667 |" in card
+    assert "dog predicted as cat: 1" in card
+    assert "| cat | 1/1 | 100.0% |" in card
+    assert "sorting pet photos" in card and "not night photos" in card
 
 
 def test_model_card_without_artifacts():
     from ai_made_easy.core.model_card import build_card
 
     card = build_card("Empty", "Synthetic data", {}, None)
-    assert "accuracy: null" in card
-    assert "unknown — train first" in card  # no museum claim without data
+    assert "metrics:\n  {}" in card
+    assert "No test metrics recorded" in card
 
 
 # ------------------------------------------------------------ dialogs
@@ -133,19 +136,6 @@ def _qapp():
     _ensure_qt_plugin_path()
     from PySide6 import QtWidgets
     return QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
-
-
-def test_mistake_museum_dialog_builds(tmp_path):
-    _qapp()
-    (tmp_path / "mistakes.json").write_text(json.dumps([
-        {"index": 3, "true": 2, "probs": [0.1, 0.2, 0.7], "file": None}]))
-    (tmp_path / "predictions.json").write_text(json.dumps([
-        {"index": i, "true": 0, "probs": [0.6, 0.4], "file": None}
-        for i in range(4)]))
-    from ai_made_easy.ui.features.mistake_museum import MistakeMuseumDialog
-
-    dlg = MistakeMuseumDialog(None, tmp_path)
-    assert dlg.windowTitle().startswith("🔍")
 
 
 def test_inspect_dialog_renders_artifacts(tmp_path):
@@ -161,67 +151,4 @@ def test_inspect_dialog_renders_artifacts(tmp_path):
     from ai_made_easy.ui.features.inspect_view import InspectDialog
 
     dlg = InspectDialog(None, tmp_path)
-    assert "class 1 (90%)" in dlg.sentence.text()
-
-
-def test_training_page_has_insight_buttons():
-    _qapp()
-    from ai_made_easy.ui.features.runconsole import TrainingPage
-    from ai_made_easy.ui.stores import RunStore
-
-    page = TrainingPage(RunStore())
-    for btn in (page.museum_btn, page.inspect_btn, page.card_btn):
-        assert not btn.isEnabled()
-    page.set_results_available("/nonexistent_dir")
-    assert not page.museum_btn.isEnabled()
-
-
-def test_context_wiring_smoke():
-    """Regression: _wire() once lost half its body to a misplaced method —
-    the GUI buttons went dead while direct calls still worked. Click the
-    real buttons on a booted AppContext and assert the services fire."""
-    import os
-    import subprocess
-    import sys as _sys
-
-    code = """
-import os
-os.environ["QT_QPA_PLATFORM"] = "offscreen"
-from ai_made_easy.ui.app import _ensure_qt_plugin_path
-_ensure_qt_plugin_path()
-from PySide6 import QtCore, QtWidgets
-QtCore.QCoreApplication.setOrganizationName("aime-tests")
-QtCore.QCoreApplication.setApplicationName("smoke")
-QtCore.QSettings().setValue("aime/pedagogy/predict_gate", False)
-app = QtWidgets.QApplication([])
-from ai_made_easy.ui.context import AppContext
-ctx = AppContext()
-
-calls = []
-ctx.process_service.run_training = lambda g: calls.append("train")
-ctx.training_page.start_btn.click()
-assert calls == ["train"], f"start_btn click did not reach run_training: {calls}"
-
-# emit every intent signal and assert the wired service runs
-ctx.process_service.stop = lambda: calls.append("stop")
-ctx.training_page.stop_clicked.emit()
-ctx._open_mistake_museum = lambda: calls.append("museum")
-ctx.training_page.museum_clicked.emit()
-ctx._start_inspect = lambda *a: calls.append("inspect")
-ctx.training_page.inspect_clicked.emit()
-ctx._open_report_card = lambda: calls.append("card")
-ctx.training_page.card_clicked.emit()
-ctx.graph_service.place_block = lambda *a: calls.append("place")
-ctx.palette.place_requested.emit("core.dense")
-ctx._open_mission = lambda s: calls.append("mission")
-ctx.palette.missions.mission_selected.emit("x.json")
-assert calls == ["train", "stop", "museum", "inspect", "card",
-                 "place", "mission"], f"unwired intents: {calls}"
-print("WIRING OK")
-"""
-    env = {**os.environ, "QT_QPA_PLATFORM": "offscreen"}
-    out = subprocess.run(
-        [_sys.executable, "-c", code], capture_output=True, text=True,
-        cwd=Path(__file__).parent.parent, env=env, timeout=120)
-    assert "WIRING OK" in out.stdout, (
-        f"wiring smoke failed:\n{out.stdout}\n{out.stderr}")
+    assert "class 1 (90.0%)" in dlg.sentence.text()

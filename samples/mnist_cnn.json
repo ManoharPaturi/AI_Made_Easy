@@ -164,6 +164,48 @@
         560.0,
         220.0
       ]
+    },
+    {
+      "id": "torchvision_x0",
+      "type": "data.torchvision",
+      "params": {
+        "dataset": "mnist"
+      },
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "normalize_x1",
+      "type": "prep.normalize",
+      "params": {
+        "mode": "fixed",
+        "mean": "0.1307",
+        "std": "0.3081"
+      },
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "f1_x2",
+      "type": "eval.f1",
+      "params": {},
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "confusion_matrix_x3",
+      "type": "eval.confusion_matrix",
+      "params": {},
+      "position": [
+        0,
+        0
+      ]
     }
   ],
   "edges": [
@@ -202,6 +244,7 @@
   ],
   "meta": {
     "framework": "pytorch",
-    "description": "two-conv CNN with global pooling"
+    "description": "Compact CNN for handwritten digits with fixed MNIST normalization.",
+    "title": "MNIST \u2014 Convolutional Network"
   }
 }

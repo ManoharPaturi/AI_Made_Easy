@@ -1,5 +1,4 @@
-"""Inspect view: "What is it looking at?" — Grad-CAM over the input plus a
-first-layer feature grid. The heavy lifting happens in a generated inspect
+"""Saliency view: Grad-CAM over the input plus a first-layer feature grid. The heavy lifting happens in a generated inspect
 script (run in the training workdir); this dialog just renders the .npy /
 .json artifacts and re-runs with new inputs on request.
 """
@@ -49,7 +48,7 @@ def _overlay(base: np.ndarray, cam: np.ndarray) -> QtGui.QImage:
     cam = (cam - cam.min()) / (cam.max() - cam.min() + 1e-9)
     h, w = cam.shape
     out = np.zeros((h, w, 3), dtype=np.uint8)
-    for i, (c_low, c_high) in enumerate(zip(_HEAT_LOW, _HEAT_HIGH)):
+    for i, (c_low, c_high) in enumerate(zip(_HEAT_LOW, _HEAT_HIGH, strict=True)):
         heat = c_low + (c_high - c_low) * cam
         out[:, :, i] = np.clip(img[:, :, i] * 255 * 0.55 + heat * 0.45, 0, 255)
     return QtGui.QImage(out.copy(), w, h, 3 * w,
@@ -64,7 +63,7 @@ class InspectDialog(QtWidgets.QDialog):
 
     def __init__(self, parent, workdir: Path):
         super().__init__(parent)
-        self.setWindowTitle("👀 What is it looking at?")
+        self.setWindowTitle("Saliency Maps (Grad-CAM)")
         self.setModal(True)
         self.resize(820, 560)
         self.workdir = Path(workdir)
@@ -74,49 +73,45 @@ class InspectDialog(QtWidgets.QDialog):
         controls = QtWidgets.QHBoxLayout()
         self.index_spin = QtWidgets.QSpinBox()
         self.index_spin.setRange(0, 299)
-        controls.addWidget(QtWidgets.QLabel("Test example #"))
+        controls.addWidget(QtWidgets.QLabel("Test sample"))
         controls.addWidget(self.index_spin)
-        run_btn = QtWidgets.QPushButton("🔎 Explain this one")
+        run_btn = QtWidgets.QPushButton("Explain sample")
         run_btn.clicked.connect(
             lambda: self.rerun_requested.emit(str(self.index_spin.value())))
         controls.addWidget(run_btn)
-        img_btn = QtWidgets.QPushButton("📁 My own image…")
+        img_btn = QtWidgets.QPushButton("Explain an image file…")
         img_btn.clicked.connect(self._pick_image)
         controls.addWidget(img_btn)
         controls.addStretch(1)
         layout.addLayout(controls)
 
-        self.sentence = QtWidgets.QLabel("Run an example to see the heatmap.")
-        self.sentence.setStyleSheet("font-weight: 700; padding: 4px;")
+        self.sentence = QtWidgets.QLabel("Choose a test sample or an image to compute a saliency map.")
+        self.sentence.setObjectName("blockTitle")
         self.sentence.setWordWrap(True)
         layout.addWidget(self.sentence)
 
         views = QtWidgets.QHBoxLayout()
-        self.cam_label = QtWidgets.QLabel("heatmap appears here")
+        self.cam_label = QtWidgets.QLabel("Grad-CAM overlay")
         self.cam_label.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
         self.cam_label.setMinimumSize(280, 280)
-        self.cam_label.setStyleSheet("background: #FFFDF8;"
-                                     "border: 1px solid #E1DDCF;"
-                                     "border-radius: 10px;")
+        self.cam_label.setObjectName("metricTile")
         views.addWidget(self.cam_label, 1)
-        self.feats_label = QtWidgets.QLabel("what the first layer saw")
+        self.feats_label = QtWidgets.QLabel("First convolution feature maps")
         self.feats_label.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
         self.feats_label.setMinimumSize(280, 280)
-        self.feats_label.setStyleSheet("background: #FFFDF8;"
-                                       "border: 1px solid #E1DDCF;"
-                                       "border-radius: 10px;")
+        self.feats_label.setObjectName("metricTile")
         views.addWidget(self.feats_label, 1)
         layout.addLayout(views, 1)
 
         note = QtWidgets.QLabel(
-            "Warm colours = where the model looked when it decided.\n"
-            "If the warmth is on the background, the model learned the "
-            "wrong thing — add more varied photos!")
+            "Warm regions contributed most to the predicted class (Grad-CAM on the last "
+            "convolution). Saliency concentrated on backgrounds or artefacts indicates a "
+            "shortcut the model has learned.")
         note.setWordWrap(True)
-        note.setStyleSheet("color: #7A7565;")
+        note.setObjectName("blockMeta")
         layout.addWidget(note)
 
-        close = QtWidgets.QPushButton("Got it 👍")
+        close = QtWidgets.QPushButton("Close")
         close.clicked.connect(self.accept)
         layout.addWidget(close)
 
@@ -132,19 +127,16 @@ class InspectDialog(QtWidgets.QDialog):
         try:
             result = json.loads((self.workdir / "inspect.json").read_text())
         except (OSError, ValueError):
-            self.sentence.setText("No inspection results yet — run one!")
+            self.sentence.setText("No saliency results yet.")
             return
         top = result.get("top", [])
         if result.get("single"):
             self.sentence.setText(
-                f"The model predicted {top[0]['prob']:.2f} "
-                "(a number, not a class)")
+                f"Predicted value: {top[0]['prob']:.4f}")
         else:
-            guesses = ", ".join(f"class {t['class']} ({t['prob']:.0%})"
+            guesses = ", ".join(f"class {t['class']} ({t['prob']:.1%})"
                                 for t in top[:3])
-            self.sentence.setText(
-                f"The model guessed {guesses} — mostly by looking at the "
-                "warm spots below")
+            self.sentence.setText(f"Top predictions: {guesses}")
         cam_path = self.workdir / "cam.npy"
         inp_path = self.workdir / "input.npy"
         if cam_path.exists() and inp_path.exists():

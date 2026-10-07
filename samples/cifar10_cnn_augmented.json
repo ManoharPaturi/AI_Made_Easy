@@ -270,6 +270,19 @@
         1760.0,
         200.0
       ]
+    },
+    {
+      "id": "normalize_x0",
+      "type": "prep.normalize",
+      "params": {
+        "mode": "fixed",
+        "mean": "0.4914, 0.4822, 0.4465",
+        "std": "0.247, 0.243, 0.261"
+      },
+      "position": [
+        0,
+        0
+      ]
     }
   ],
   "edges": [
@@ -320,6 +333,7 @@
   ],
   "meta": {
     "framework": "pytorch",
-    "description": "BatchNorm CNN, augmentations, AdamW + plateau"
+    "description": "BatchNorm CNN with flips, rotation and colour jitter on CIFAR-10.",
+    "title": "CIFAR-10 \u2014 CNN with Augmentation"
   }
 }

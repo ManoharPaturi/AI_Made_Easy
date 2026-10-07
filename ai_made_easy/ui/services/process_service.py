@@ -71,24 +71,37 @@ class ProcessService(QtCore.QObject):
     def run_training(self, graph: Graph) -> None:
         import importlib.util
 
-        if importlib.util.find_spec("torch") is None:
-            self.log.error("PyTorch is not installed in this environment "
-                           "(pip install torch)")
+        from ai_made_easy.core.classic.generate import is_classic
+
+        classic = is_classic(graph)
+        needed = "sklearn" if classic else "torch"
+        if importlib.util.find_spec(needed) is None:
+            package = "scikit-learn" if classic else "torch"
+            self.log.error(f"{package} is not installed in this environment "
+                           f"(pip install {package})")
             return
-        workdir = Path(tempfile.mkdtemp(prefix="aime_train_"))
-        script = export_training(graph, "pytorch", workdir)
+        workdir = Path(tempfile.mkdtemp(prefix="aime_run_"))
+        try:
+            script = export_training(graph, "sklearn" if classic else "pytorch", workdir)
+        except Exception as exc:  # noqa: BLE001 — reported to the user
+            self.log.error(f"could not generate the training script: {exc}")
+            return
         self.last_workdir = workdir
-        self.log.info(f"training started — workspace: {workdir}")
+        self.log.info(f"training started — run folder: {workdir}")
         self._start(script, workdir, "train")
 
     def run_test(self, graph: Graph) -> None:
         workdir = Path(tempfile.mkdtemp(prefix="aime_test_"))
-        script = export_model(graph, "pytorch", workdir)
-        self.log.info(f"testing forward pass in {workdir}")
+        try:
+            script = export_model(graph, "pytorch", workdir)
+        except Exception as exc:  # noqa: BLE001
+            self.log.error(f"could not generate the model: {exc}")
+            return
+        self.log.info(f"testing a forward pass in {workdir}")
         self._start(script, workdir, "test")
 
     def run_script(self, script: Path, workdir: Path, kind: str) -> None:
-        self.log.info(f"running {kind} export → {script}")
+        self.log.info(f"running {kind} → {script}")
         # runtime export scripts print plain output (no worker protocol)
         proc = QtCore.QProcess(self)
         proc.setProgram(sys.executable)
@@ -103,7 +116,7 @@ class ProcessService(QtCore.QObject):
                 self.run_store.FINISHED if int(code) == 0
                 else self.run_store.FAILED, kind)
             self.finished.emit(int(code), kind)
-            self.log.info(f"{kind} export finished (exit {int(code)})")
+            self.log.info(f"{kind} finished (exit code {int(code)})")
 
         proc.finished.connect(_done)
         self.run_store.set(self.run_store.RUNNING, kind)
