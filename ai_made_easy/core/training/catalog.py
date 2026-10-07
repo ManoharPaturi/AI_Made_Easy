@@ -494,7 +494,9 @@ TRAINER = Component(
      P("early_stopping_patience", "int", 0, lo=0, help="Epochs without improvement; 0 = off"),
      P("grad_clip_norm", "float", 0.0, lo=0.0, help="Max gradient norm; 0 = off"),
      P("accumulation_steps", "int", 1, lo=1, help="Batches per optimizer step"),
-     P("mixed_precision", "bool", False, help="Automatic mixed precision on CUDA/MPS")),
+     P("mixed_precision", "bool", False, help="Automatic mixed precision on CUDA/MPS"),
+     P("deterministic", "bool", False,
+       help="Deterministic kernels for bit-reproducible runs (slower)")),
     desc="Training loop: epochs, batching, device, early stopping, clipping, AMP.")
 
 KFOLD = Component(

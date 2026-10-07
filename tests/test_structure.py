@@ -135,7 +135,7 @@ win = Workbench(ctx)
 win.show()
 def check():
     docks = {d.objectName() for d in win.findChildren(QtWidgets.QDockWidget)}
-    assert docks == {"dock.library", "dock.inspector", "dock.problems", "dock.output",
+    assert docks == {"dock.library", "dock.inspector", "dock.problems", "dock.output", "dock.experiments",
                      "dock.training"}, docks
     menus = [m.text() for m in win.menuBar().actions() if m.text()]
     assert menus == ["&File", "&Edit", "&View", "&Model", "&Run", "E&xport", "&Help"], menus

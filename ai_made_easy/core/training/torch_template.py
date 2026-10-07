@@ -559,6 +559,10 @@ TORCH_MAIN = r'''
 def main() -> None:
     torch.manual_seed(SEED)
     np.random.seed(SEED)
+{% if spec.trainer.deterministic %}
+    torch.use_deterministic_algorithms(True, warn_only=True)
+    torch.backends.cudnn.benchmark = False
+{% endif %}
     device = pick_device()
     print(f"device: {device}")
 {% if spec.kfold %}

@@ -157,6 +157,7 @@ QLabel#sectionTitle {{ color: {t['TEXT_DIM']}; font-size: 11px; font-weight: 600
     padding: 6px 0 2px 0; }}
 QLabel#blockTitle {{ font-size: 15px; font-weight: 600; }}
 QLabel#blockMeta {{ color: {t['TEXT_DIM']}; font-size: 12px; }}
+QLabel#errorText {{ color: {t['ERROR']}; font-size: 12px; }}
 QLabel#blockDesc {{ color: {t['TEXT_DIM']}; }}
 QLabel#paramName {{ color: {t['TEXT_DIM']}; }}
 QLabel#emptyState {{ color: {t['TEXT_MUTED']}; padding: 24px; }}

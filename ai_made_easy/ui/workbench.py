@@ -14,7 +14,7 @@ from ai_made_easy.ui import icons
 from ai_made_easy.ui.actions_catalog import CATALOG, MENU_ORDER, TOOLBAR, build_actions
 
 _SETTINGS_KEY = "aime/workbench"
-SETTINGS_VERSION = 3  # v3: dock-based professional workbench
+SETTINGS_VERSION = 4  # v4: Experiments dock
 
 _APP_TITLE = "AI Made Easy"
 
@@ -99,6 +99,8 @@ class Workbench(QtWidgets.QMainWindow):
                 ("output", "Output", self.ctx.output_page,
                  QtCore.Qt.DockWidgetArea.BottomDockWidgetArea),
                 ("training", "Training", self.ctx.training_page,
+                 QtCore.Qt.DockWidgetArea.BottomDockWidgetArea),
+                ("experiments", "Experiments", self.ctx.experiments_page,
                  QtCore.Qt.DockWidgetArea.BottomDockWidgetArea)):
             dock = QtWidgets.QDockWidget(title, self)
             dock.setObjectName(f"dock.{key}")
@@ -110,6 +112,7 @@ class Workbench(QtWidgets.QMainWindow):
             self.docks[key] = dock
         self.tabifyDockWidget(self.docks["problems"], self.docks["output"])
         self.tabifyDockWidget(self.docks["output"], self.docks["training"])
+        self.tabifyDockWidget(self.docks["training"], self.docks["experiments"])
         self.docks["problems"].raise_()
         self.resizeDocks([self.docks["library"], self.docks["inspector"]], [270, 360],
                          QtCore.Qt.Orientation.Horizontal)

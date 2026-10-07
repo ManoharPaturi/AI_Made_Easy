@@ -174,6 +174,36 @@ def compare_runs(run_ids: list[str]) -> str:
         return _err(exc)
 
 
+@mcp.tool()
+def sweepable_parameters(graph: dict[str, Any]) -> str:
+    """Parameters of a graph a hyperparameter sweep can vary, with suggested
+    ranges (keys look like 'opt.lr')."""
+    return json.dumps(api.sweepable_params(graph), default=str)
+
+
+@mcp.tool()
+def start_sweep(graph: dict[str, Any], spec: dict[str, Any]) -> str:
+    """Start a hyperparameter sweep. spec = {"dimensions": [{"node", "param",
+    "kind": float|int|choice, "low", "high", "log", "values"}], "metric",
+    "direction": min|max, "strategy": tpe|random|grid, "max_trials"}.
+    Returns a sweep_id; poll get_sweep."""
+    try:
+        return json.dumps(api.start_sweep(graph, spec))
+    except api.ApiError as exc:
+        return _err(exc)
+
+
+@mcp.tool()
+def get_sweep(sweep_id: str) -> str:
+    """Sweep state, every trial (values, score, run_id) and the best trial."""
+    try:
+        record = api.get_sweep(sweep_id)
+        record.pop("graph", None)
+        return json.dumps(record, default=str)
+    except KeyError as exc:
+        return _err(exc)
+
+
 def main() -> None:
     mcp.run()  # stdio transport
 

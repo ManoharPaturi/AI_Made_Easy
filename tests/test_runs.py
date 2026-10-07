@@ -166,3 +166,21 @@ def test_cli_runs_lists_history(isolated_home):
     out = subprocess.run([sys.executable, "-m", "ai_made_easy.cli", "runs", "show", rec.run_id],
                          capture_output=True, text=True, env=env, timeout=120)
     assert json.loads(out.stdout)["project"] == "cli"
+
+
+@pytest.mark.parametrize("framework", ["pytorch", "keras"])
+def test_deterministic_runs_reproduce_exactly(tmp_path, framework):
+    pytest.importorskip("torch")
+    if framework == "keras":
+        pytest.importorskip("keras")
+    data = tiny_classifier_dict(epochs=2)
+    next(n for n in data["nodes"] if n["id"] == "trainer")["params"]["deterministic"] = True
+    mgr = RunManager(RunHistory(tmp_path))
+    a = mgr.start(Graph.from_dict(data), framework)
+    mgr.wait(a, 300)
+    b = mgr.start(Graph.from_dict(data), framework)
+    mgr.wait(b, 300)
+    ra, rb = mgr.history.get(a), mgr.history.get(b)
+    assert ra.status == rb.status == "finished", (ra.error, rb.error)
+    assert [e["metrics"] for e in mgr.history.epochs(a)] == \
+        [e["metrics"] for e in mgr.history.epochs(b)]
