@@ -99,6 +99,7 @@ into `main` with a merge commit.
 - [x] Live notification when a connection introduces a new error
 
 ## Phase 7 — Final QA
-- [ ] Full suite green, lint clean, every sample validates + exports + compiles
-- [ ] Screenshots of the final UI in README
-- [ ] Everything merged and pushed to GitHub
+- [x] Full suite green, lint clean, every sample validates + exports + compiles
+- [x] Screenshots of the final UI in README
+- [x] Everything merged and pushed to GitHub
+- [x] CI green on Ubuntu + macOS, Python 3.11 / 3.12
