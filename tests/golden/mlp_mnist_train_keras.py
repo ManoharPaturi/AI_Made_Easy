@@ -47,6 +47,9 @@ def build_model() -> keras.Model:
     return keras.Model(inputs=inputs, outputs=x, name="mnist_mlp")
 
 # ================================================================== data
+INFERENCE_STATE: dict = {}  # fitted preprocessing, saved with the model for serving
+
+
 def load_raw():
     """Load Torchvision mnist. Returns (features, targets, class names or None)."""
     (x_train, y_train), (x_test, y_test) = keras.datasets.mnist.load_data()
@@ -102,6 +105,7 @@ def make_arrays() -> dict[str, tuple[np.ndarray, np.ndarray]]:
     feats = {k: x[v] for k, v in parts.items()}
     targets = {k: np.asarray(y)[v] for k, v in parts.items()}
     pipeline = NumericPipeline().fit(feats["train"])
+    INFERENCE_STATE["numeric"] = dict(vars(pipeline))
     feats = {k: pipeline.transform(v) for k, v in feats.items()}
     out = {}
     for k in parts:
@@ -113,6 +117,30 @@ def make_arrays() -> dict[str, tuple[np.ndarray, np.ndarray]]:
                              f"{tuple(INPUT_SHAPE)}")
         out[k] = (xs, targets[k].astype(np.int64))
     return out
+
+
+def prepare_inputs(raw: list) -> np.ndarray:
+    """Raw inputs -> a model-ready batch, preprocessed exactly as during training.
+
+    raw: images as file paths, bytes, base64 strings or PIL images.
+    """
+    x = np.stack([image_array(item) for item in raw])
+    pipeline = NumericPipeline.__new__(NumericPipeline)
+    vars(pipeline).update(INFERENCE_STATE.get("numeric") or {})
+    x = pipeline.transform(x)
+    if x.ndim == 2 and len(INPUT_SHAPE) > 1 and x.shape[1] == int(np.prod(INPUT_SHAPE)):
+        x = x.reshape(len(x), *INPUT_SHAPE)
+    if tuple(x.shape[1:]) != tuple(INPUT_SHAPE):
+        raise ValueError(f"inputs have shape {tuple(x.shape[1:])}; the model expects "
+                         f"{tuple(INPUT_SHAPE)}")
+    return x
+
+
+def image_array(item) -> np.ndarray:
+    """An image (path, bytes, base64 string or PIL image) as a [C, H, W] array in [0, 1]."""
+    img = open_image(item).convert("L" if INPUT_SHAPE[0] == 1 else "RGB")
+    arr = np.asarray(img.resize((INPUT_SHAPE[2], INPUT_SHAPE[1])), dtype=np.float32) / 255.0
+    return arr[None] if arr.ndim == 2 else arr.transpose(2, 0, 1)
 
 
 
@@ -189,6 +217,7 @@ def main() -> None:
     train_model.fit(x_train, fit_y, validation_data=(x_val, val_y) if len(x_val) else None,
                     epochs=EPOCHS, batch_size=BATCH_SIZE, callbacks=callbacks, verbose=0)
     deploy_model.save(MODEL_FILE)
+    save_inference_state()
     print(f"saved model to {MODEL_FILE}")
     outputs = deploy_model.predict(x_test, verbose=0) if len(x_test) else np.zeros((0,))
     metrics = compute_metrics(outputs, y_test) if len(x_test) else {}
@@ -202,6 +231,88 @@ def main() -> None:
     mistakes = [it for it in items if int(np.argmax(it["probs"])) != it["true"]]
     Path("mistakes.json").write_text(json.dumps(mistakes[:50], indent=1))
     print(f"saved predictions.json ({len(items)} examples)")
+
+
+# ============================================================= inference
+INFERENCE_FILE = "inference_state.pkl"
+
+
+def save_inference_state() -> None:
+    """Persist the fitted preprocessing and class names for serving."""
+    import pickle
+
+    INFERENCE_STATE["classes"] = CLASS_NAMES
+    with open(INFERENCE_FILE, "wb") as fh:
+        pickle.dump(INFERENCE_STATE, fh)
+
+
+def load_inference_state(folder: str | Path = ".") -> None:
+    """Restore the state saved by a training run (trusted files only: pickle)."""
+    import pickle
+
+    global CLASS_NAMES
+    with open(Path(folder) / INFERENCE_FILE, "rb") as fh:
+        INFERENCE_STATE.update(pickle.load(fh))
+    CLASS_NAMES = INFERENCE_STATE.get("classes")
+
+
+def open_image(item):
+    """Path, raw bytes, base64 / data-URL string or PIL image -> PIL image."""
+    import base64
+    import io
+
+    from PIL import Image
+
+    if isinstance(item, Image.Image):
+        return item
+    if isinstance(item, (bytes, bytearray)):
+        return Image.open(io.BytesIO(item))
+    if isinstance(item, str):
+        if item.startswith("data:"):
+            item = item.split(",", 1)[1]
+        elif Path(item).exists():
+            return Image.open(item)
+        return Image.open(io.BytesIO(base64.b64decode(item)))
+    arr = np.asarray(item)
+    if arr.dtype != np.uint8:
+        arr = (np.clip(arr, 0, 1) * 255).astype(np.uint8) if arr.max() <= 1 else arr.astype(np.uint8)
+    return Image.fromarray(arr)
+
+
+def class_name(index: int) -> str:
+    return str(CLASS_NAMES[index]) if CLASS_NAMES and index < len(CLASS_NAMES) else str(index)
+
+
+def describe(outputs: np.ndarray) -> list[dict]:
+    """Model outputs -> JSON-friendly predictions."""
+    scores = to_scores(np.asarray(outputs, dtype=np.float32))
+    results = []
+    for row in scores:
+        best = int(np.argmax(row))
+        results.append({"label": class_name(best), "class_index": best,
+                        "confidence": round(float(row[best]), 6),
+                        "probabilities": {class_name(i): round(float(p), 6)
+                                          for i, p in enumerate(row)}})
+    return results
+
+
+_PREDICTOR = None
+
+
+def load_predictor(folder: str | Path = ".", device: str = "cpu"):
+    """Load the trained model and preprocessing state from a run folder."""
+    global _PREDICTOR
+    load_inference_state(folder)
+    _PREDICTOR = keras.models.load_model(Path(folder) / MODEL_FILE)
+    return _PREDICTOR
+
+
+def infer(raw: list) -> list[dict]:
+    """Predictions for a list of raw inputs (see ``prepare_inputs``)."""
+    if _PREDICTOR is None:
+        raise RuntimeError("call load_predictor(folder) first")
+    x = to_model_layout(prepare_inputs(raw))
+    return describe(np.asarray(_PREDICTOR.predict(x, verbose=0)))
 
 
 if __name__ == "__main__":

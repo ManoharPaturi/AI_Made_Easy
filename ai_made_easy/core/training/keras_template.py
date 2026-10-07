@@ -192,6 +192,7 @@ def main() -> None:
                     epochs=EPOCHS, batch_size=BATCH_SIZE, callbacks=callbacks, verbose=0{% if balance == "class weights" %},
                     class_weight=class_weight{% endif %})
     deploy_model.save(MODEL_FILE)
+    save_inference_state()
     print(f"saved model to {MODEL_FILE}")
     outputs = deploy_model.predict(x_test, verbose=0) if len(x_test) else np.zeros((0,))
     metrics = compute_metrics(outputs, y_test) if len(x_test) else {}

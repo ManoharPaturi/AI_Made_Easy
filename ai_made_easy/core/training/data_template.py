@@ -9,6 +9,9 @@ flows through this numpy code.
 
 DATA_TEMPLATE = r'''
 # ================================================================== data
+INFERENCE_STATE: dict = {}  # fitted preprocessing, saved with the model for serving
+
+
 {% if d.block == "data.csv" or d.block == "data.text_csv" or d.block == "data.timeseries_csv" %}
 def read_table(path: str, fmt: str) -> "pd.DataFrame":
     import pandas as pd
@@ -236,8 +239,8 @@ def preprocess_tables(train: "pd.DataFrame", frames: list) -> list[np.ndarray]:
 {% if steps["prep.drop_columns"] %}
     drop = {{ drop_columns | repr }}
     train = train.drop(columns=[c for c in drop if c in train.columns])
-    frames = [f.drop(columns=[c for c in drop if c in f.columns]) for f in frames]
 {% endif %}
+    state = {"columns": list(train.columns)}  # the inputs a deployed model needs
     categorical = [c for c in train.columns if not pd.api.types.is_numeric_dtype(train[c])]
     numeric = [c for c in train.columns if c not in categorical]
 {% if steps["prep.impute"] %}
@@ -252,32 +255,40 @@ def preprocess_tables(train: "pd.DataFrame", frames: list) -> list[np.ndarray]:
 {% else %}
         fill[c] = {{ steps["prep.impute"].constant }}
 {% endif %}
-{% if steps["prep.impute"].strategy == "drop rows" %}
-    frames = [f.dropna() for f in frames]
-{% else %}
-    frames = [f.fillna(value=fill) for f in frames]
-{% endif %}
+    state["fill"] = fill
 {% endif %}
 {% if steps["prep.ordinal_encode"] %}
     ordinal = {{ ordinal_columns | repr }} or categorical
-    codes = {c: {v: i for i, v in enumerate(sorted(train[c].dropna().astype(str).unique()))}
-             for c in ordinal}
-    frames = [f.assign(**{c: f[c].astype(str).map(codes[c]).fillna(-1) for c in ordinal})
-              for f in frames]
+    state["codes"] = {c: {v: i for i, v in enumerate(sorted(train[c].dropna().astype(str).unique()))}
+                      for c in ordinal}
     categorical = [c for c in categorical if c not in ordinal]
 {% endif %}
     one_hot = {{ one_hot_columns | repr }} or categorical
-    cats = {c: sorted(train[c].dropna().astype(str).unique())[:{{ max_categories }}]
-            for c in one_hot}
-    out = []
-    for f in frames:
-        parts = [f.drop(columns=one_hot).astype(np.float32)]
-        for c, values in cats.items():
-            col = f[c].astype(str)
-            parts.append(pd.DataFrame({f"{c}={v}": (col == v).astype(np.float32)
-                                       for v in values}, index=f.index))
-        out.append(pd.concat(parts, axis=1).to_numpy(np.float32))
-    return out
+    state["categories"] = {c: sorted(train[c].dropna().astype(str).unique())[:{{ max_categories }}]
+                           for c in one_hot}
+    INFERENCE_STATE["table"] = state
+    return [table_transform(f, state) for f in frames]
+
+
+def table_transform(frame: "pd.DataFrame", state: dict) -> np.ndarray:
+    """Apply the fitted column preprocessing to any frame with the training columns."""
+    import pandas as pd
+
+{% if steps["prep.drop_columns"] %}
+    frame = frame.drop(columns=[c for c in {{ drop_columns | repr }} if c in frame.columns])
+{% endif %}
+{% if steps["prep.impute"] and steps["prep.impute"].strategy != "drop rows" %}
+    frame = frame.fillna(value=state["fill"])
+{% endif %}
+    for c, codes in state.get("codes", {}).items():
+        frame = frame.assign(**{c: frame[c].astype(str).map(codes).fillna(-1)})
+    cats = state["categories"]
+    parts = [frame.drop(columns=list(cats)).astype(np.float32)]
+    for c, values in cats.items():
+        col = frame[c].astype(str)
+        parts.append(pd.DataFrame({f"{c}={v}": (col == v).astype(np.float32)
+                                   for v in values}, index=frame.index))
+    return pd.concat(parts, axis=1).to_numpy(np.float32)
 {% endif %}
 {% if text %}
 
@@ -305,28 +316,38 @@ def clean_text(text: str) -> str:
 def encode_texts(train_texts: list[str], groups: list[list[str]]) -> list[np.ndarray]:
     """{{ tok.method }} tokenization to [{{ tok.max_length }}] int64 ids (0 = pad, 1 = unknown)."""
 {% if tok.method == "huggingface" %}
+    return [encode_batch(texts) for texts in groups]
+
+
+def encode_batch(texts: list[str]) -> np.ndarray:
     from transformers import AutoTokenizer
 
     tokenizer = AutoTokenizer.from_pretrained({{ tok.hf_tokenizer | repr }})
-    return [np.asarray(tokenizer([clean_text(t) for t in texts], padding="max_length",
-                                 truncation=True, max_length={{ tok.max_length }})["input_ids"],
-                       dtype=np.int64) for texts in groups]
+    return np.asarray(tokenizer([clean_text(t) for t in texts], padding="max_length",
+                                truncation=True, max_length={{ tok.max_length }})["input_ids"],
+                      dtype=np.int64)
 {% else %}
     from collections import Counter
 
-    def tokens(text: str) -> list[str]:
-        text = clean_text(text)
-        return {{ "list(text)" if tok.method == "char" else "text.split()" }}
-
-    counts = Counter(t for text in train_texts for t in tokens(text))
+    counts = Counter(t for text in train_texts for t in text_tokens(text))
     vocab = [t for t, c in counts.most_common({{ tok.vocab_size }} - 2) if c >= {{ tok.min_freq }}]
-    index = {t: i + 2 for i, t in enumerate(vocab)}
+    INFERENCE_STATE["vocab"] = {t: i + 2 for i, t in enumerate(vocab)}
+    return [encode_batch(texts) for texts in groups]
+
+
+def text_tokens(text: str) -> list[str]:
+    text = clean_text(text)
+    return {{ "list(text)" if tok.method == "char" else "text.split()" }}
+
+
+def encode_batch(texts: list[str]) -> np.ndarray:
+    index = INFERENCE_STATE["vocab"]
 
     def encode(text: str) -> list[int]:
-        ids = [index.get(t, 1) for t in tokens(text)][: {{ tok.max_length }}]
+        ids = [index.get(t, 1) for t in text_tokens(text)][: {{ tok.max_length }}]
         return ids + [0] * ({{ tok.max_length }} - len(ids))
 
-    return [np.asarray([encode(t) for t in texts], dtype=np.int64) for texts in groups]
+    return np.asarray([encode(t) for t in texts], dtype=np.int64)
 {% endif %}
 {% endif %}
 {% if audio %}
@@ -497,6 +518,8 @@ def make_arrays() -> dict[str, tuple[np.ndarray, np.ndarray]]:
               "test": (n - n_test, n)}
     pipeline = NumericPipeline().fit(x[: bounds["train"][1]])
     target_pipeline = NumericPipeline().fit(y[: bounds["train"][1]]) if TARGET_SCALING else None
+    INFERENCE_STATE["numeric"] = dict(vars(pipeline))
+    INFERENCE_STATE["target"] = dict(vars(target_pipeline)) if target_pipeline else None
     splits = {}
     for name, (lo, hi) in bounds.items():
         feats = pipeline.transform(x[lo:hi])
@@ -508,6 +531,10 @@ def make_arrays() -> dict[str, tuple[np.ndarray, np.ndarray]]:
                             np.zeros((0, {{ n_outputs }}), np.float32))
     return splits
 {% else %}
+{% if table_steps and steps["prep.impute"] and steps["prep.impute"].strategy == "drop rows" %}
+    keep = x.notna().all(axis=1).to_numpy()
+    x, y = x[keep].reset_index(drop=True), np.asarray(y)[keep]
+{% endif %}
     train_i, val_i, test_i = split_indices(len(y), y)
     parts = {"train": train_i, "val": val_i, "test": test_i}
 {% if table_steps %}
@@ -528,6 +555,7 @@ def make_arrays() -> dict[str, tuple[np.ndarray, np.ndarray]]:
     targets = {k: np.asarray(y)[v] for k, v in parts.items()}
 {% if not text %}
     pipeline = NumericPipeline().fit(feats["train"])
+    INFERENCE_STATE["numeric"] = dict(vars(pipeline))
     feats = {k: pipeline.transform(v) for k, v in feats.items()}
 {% endif %}
     out = {}
@@ -540,5 +568,100 @@ def make_arrays() -> dict[str, tuple[np.ndarray, np.ndarray]]:
                              f"{tuple(INPUT_SHAPE)}")
         out[k] = (xs, targets[k].astype({{ y_dtype }}))
     return out
+{% endif %}
+
+
+def prepare_inputs(raw: list) -> np.ndarray:
+    """Raw inputs -> a model-ready batch, preprocessed exactly as during training.
+
+{% if table_steps %}    raw: records, e.g. [{"column": value, ...}, ...] with the training columns.
+{% elif text %}    raw: texts, e.g. ["first document", "second document"].
+{% elif audio %}    raw: mono waveforms ({{ sample_rate }} Hz float lists) or paths to .wav files.
+{% elif timeseries %}    raw: windows of {{ d.window }} time steps x feature columns.
+{% elif d.block in ("data.image_folder", "data.torchvision") %}    raw: images as file paths, bytes, base64 strings or PIL images.
+{% else %}    raw: samples shaped like INPUT_SHAPE (or flattened).
+{% endif %}    """
+{% if table_steps %}
+    import pandas as pd
+
+    frame = pd.DataFrame.from_records(raw)
+    columns = INFERENCE_STATE["table"]["columns"]
+    missing = [c for c in columns if c not in frame.columns]
+    if missing:
+        raise ValueError(f"missing input columns: {missing}")
+    x = table_transform(frame[columns], INFERENCE_STATE["table"])
+{% elif text %}
+    x = encode_batch([str(t) for t in raw])
+{% elif audio %}
+    n = int(round({{ d.duration }} * {{ sample_rate }}))
+    waves = []
+    for item in raw:
+        if isinstance(item, str):
+            waves.append(read_wav(item, {{ sample_rate }}, n))
+        else:
+            wave = np.asarray(item, dtype=np.float32).reshape(-1)[:n]
+            waves.append(np.pad(wave, (0, n - len(wave))))
+    x = audio_features(np.stack(waves))
+{% elif timeseries %}
+    x = np.asarray(raw, dtype=np.float32)
+    if x.ndim == 2:
+        x = x[None]
+    if x.shape[1] != {{ d.window }}:
+        raise ValueError(f"each window needs {{ d.window }} time steps, got {x.shape[1]}")
+{% elif d.block in ("data.image_folder", "data.torchvision") %}
+    x = np.stack([image_array(item) for item in raw])
+{% else %}
+    x = np.asarray(raw, dtype=np.float32)
+    if x.ndim == 1:
+        x = x[None]
+{% endif %}
+{% if not text %}
+    pipeline = NumericPipeline.__new__(NumericPipeline)
+    vars(pipeline).update(INFERENCE_STATE.get("numeric") or {})
+{% if timeseries %}
+    n, steps, channels = x.shape
+    x = pipeline.transform(x.reshape(-1, channels)).reshape(n, steps, -1)
+{% if ts_channels_first %}
+    x = x.transpose(0, 2, 1)
+{% endif %}
+{% else %}
+    x = pipeline.transform(x)
+{% endif %}
+{% endif %}
+    if x.ndim == 2 and len(INPUT_SHAPE) > 1 and x.shape[1] == int(np.prod(INPUT_SHAPE)):
+        x = x.reshape(len(x), *INPUT_SHAPE)
+    if tuple(x.shape[1:]) != tuple(INPUT_SHAPE):
+        raise ValueError(f"inputs have shape {tuple(x.shape[1:])}; the model expects "
+                         f"{tuple(INPUT_SHAPE)}")
+    return x
+{% if d.block in ("data.image_folder", "data.torchvision") %}
+
+
+def image_array(item) -> np.ndarray:
+    """An image (path, bytes, base64 string or PIL image) as a [C, H, W] array in [0, 1]."""
+    img = open_image(item).convert("L" if INPUT_SHAPE[0] == 1 else "RGB")
+    arr = np.asarray(img.resize((INPUT_SHAPE[2], INPUT_SHAPE[1])), dtype=np.float32) / 255.0
+    return arr[None] if arr.ndim == 2 else arr.transpose(2, 0, 1)
+{% endif %}
+{% if timeseries %}
+
+
+def inverse_targets(values: np.ndarray) -> np.ndarray:
+    """Undo target scaling so predictions are in the original units."""
+    state = INFERENCE_STATE.get("target")
+    if not state:
+        return values
+    flat = values.reshape(len(values), -1).astype(np.float64)
+{% if steps["prep.minmax"] %}
+    span = np.where(state["max"] - state["min"] > 0, state["max"] - state["min"], 1.0)
+    lo, hi = {{ steps["prep.minmax"].range_min }}, {{ steps["prep.minmax"].range_max }}
+    reps = flat.shape[1] // len(span)
+    flat = (flat - lo) / (hi - lo) * np.tile(span, reps) + np.tile(state["min"], reps)
+{% endif %}
+{% if steps["prep.normalize"] %}
+    reps = flat.shape[1] // len(np.atleast_1d(state["std"]))
+    flat = flat * np.tile(state["std"], reps) + np.tile(state["mean"], reps)
+{% endif %}
+    return flat.reshape(values.shape)
 {% endif %}
 '''

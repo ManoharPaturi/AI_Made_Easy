@@ -99,10 +99,17 @@ CATALOG: list[ActionSpec] = [
                "act_export_keras_train", separator_after=True),
     ActionSpec("export.sklearn", "&scikit-learn Pipeline (.py)", "E&xport",
                "act_export_sklearn", separator_after=True),
-    ActionSpec("export.onnx", "&ONNX (.onnx)", "E&xport", "act_export_onnx"),
-    ActionSpec("export.jit", "Torch&Script (.pt)", "E&xport", "act_export_jit"),
+    ActionSpec("export.onnx", "&ONNX Architecture (.onnx)", "E&xport", "act_export_onnx",
+               tooltip="The designed network with initial weights; trained models export "
+                       "through Model Server"),
+    ActionSpec("export.jit", "Torch&Script Architecture (.pt)", "E&xport", "act_export_jit",
+               tooltip="The designed network with initial weights; trained models export "
+                       "through Model Server"),
     ActionSpec("export.web", "&Web Demo (.html)", "E&xport", "act_export_web",
                "Single-file browser demo with the trained weights", separator_after=True),
+    ActionSpec("export.deploy", "Model &Server (FastAPI + Docker)…", "E&xport", "act_deploy",
+               "Ctrl+Shift+D", "Package the trained model as a deployable web service",
+               icon="package", separator_after=True),
     ActionSpec("export.llm", "&LLM Workflow Script (.py)", "E&xport", "act_export_llm"),
 
     # ---- Help ----

@@ -151,6 +151,11 @@ class AppContext(QtCore.QObject):
         ep.new_sweep_requested.connect(self.act_new_sweep)
         ep.stop_sweep_requested.connect(lambda _sid: es.stop_sweep())
         ep.apply_best_requested.connect(self._apply_best_sweep)
+        ep.register_requested.connect(self._register_run)
+        ep.deploy_run_requested.connect(self._deploy_run)
+        ep.model_deploy_requested.connect(self._deploy_model)
+        ep.model_stage_requested.connect(self._set_model_stage)
+        ep.model_delete_requested.connect(self._delete_model)
         es.changed.connect(self._refresh_experiments)
         es.sweep_finished.connect(self._on_sweep_finished)
         self.process_service.history_changed.connect(self._refresh_experiments)
@@ -631,6 +636,7 @@ class AppContext(QtCore.QObject):
             project = self._experiment_project()
             self.experiments_page.set_runs(self.experiment_service.runs(project))
             self.experiments_page.set_sweeps(self.experiment_service.sweep_records(project))
+            self.experiments_page.set_models(self.experiment_service.registry.list())
         except OSError as exc:
             self.log_bus.warning(f"could not read the run history: {exc}")
 
@@ -736,6 +742,74 @@ class AppContext(QtCore.QObject):
             self.window, "Run tags", "Comma-separated tags:", text=", ".join(rec.tags))
         if ok:
             history.update(run_id, tags=[t.strip() for t in text.split(",") if t.strip()])
+            self._refresh_experiments()
+
+    # ============================================================= deploy
+
+    def act_deploy(self, *_):
+        """Deploy the selected run, else this project's latest finished run."""
+        history = self.experiment_service.history
+        selected = self.experiments_page.selected_run_ids()
+        candidates = [history.get(r) for r in selected] if len(selected) == 1 else \
+            history.list(project=self.project_store.name)
+        run = next((r for r in candidates if r.status == "finished"), None)
+        if run is None:
+            self.status_message.emit("Train the model first — deployment needs a finished run")
+            return
+        self._deploy_run(run.run_id)
+
+    def _deploy_run(self, run_id: str) -> None:
+        from ai_made_easy.ui.features.deploy import DeployDialog
+
+        rec = self.experiment_service.history.get(run_id)
+        DeployDialog(self.window, self.experiment_service.history.path(run_id), rec.framework,
+                     rec.project or rec.name, default_dir=self._last_dir(),
+                     python=python_executable(),
+                     subtitle=f"Source: run {run_id} ({rec.name})").exec()
+
+    def _deploy_model(self, name: str, version: int) -> None:
+        from ai_made_easy.ui.features.deploy import DeployDialog
+
+        registry = self.experiment_service.registry
+        mv = registry.get(name, version)
+        DeployDialog(self.window, registry.path(name, version), mv.framework, name,
+                     version=str(version), default_dir=self._last_dir(),
+                     python=python_executable(),
+                     subtitle=f"Source: {name} v{version} ({mv.stage})").exec()
+
+    def _register_run(self, run_id: str) -> None:
+        import re
+
+        from ai_made_easy.core.deploy import RegistryError
+
+        rec = self.experiment_service.history.get(run_id)
+        default = re.sub(r"[^A-Za-z0-9._-]+", "-", rec.project or rec.name).strip("-") or "model"
+        name, ok = QtWidgets.QInputDialog.getText(
+            self.window, "Register Model", "Model name (letters, digits, . _ -):",
+            text=default)
+        if not ok or not name.strip():
+            return
+        try:
+            mv = self.experiment_service.registry.register(
+                self.experiment_service.history.path(run_id), name.strip())
+        except (RegistryError, OSError) as exc:
+            QtWidgets.QMessageBox.warning(self.window, "Register Model", str(exc))
+            return
+        self._refresh_experiments()
+        self.experiments_page.tabs.setCurrentIndex(2)
+        self.status_message.emit(f"Registered {mv.name} v{mv.version}")
+
+    def _set_model_stage(self, name: str, version: int, stage: str) -> None:
+        self.experiment_service.registry.set_stage(name, version, stage)
+        self._refresh_experiments()
+        self.status_message.emit(f"{name} v{version} → {stage}")
+
+    def _delete_model(self, name: str, version: int) -> None:
+        answer = QtWidgets.QMessageBox.question(
+            self.window, "Delete model version",
+            f"Delete {name} v{version} from the registry? This cannot be undone.")
+        if answer == QtWidgets.QMessageBox.StandardButton.Yes:
+            self.experiment_service.registry.delete(name, version)
             self._refresh_experiments()
 
     # ============================================================== file

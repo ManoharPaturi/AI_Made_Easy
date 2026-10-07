@@ -1,0 +1,249 @@
+"""Deployment packages: a trained run → a self-contained model server.
+
+``build_package(run_dir, out_dir)`` writes::
+
+    app.py              FastAPI server (/health, /metadata, /predict[/image])
+    model/              the generated training script (as model_def.py), the
+                        trained weights and the fitted preprocessing state
+    metadata.json       task, classes, input description, metrics, provenance
+    requirements.txt    pinned to the versions the model was trained with
+    Dockerfile          CPU image running uvicorn as a non-root user
+    README.md
+    export_formats.py   verification + optional ONNX / TorchScript / Core ML /
+                        TFLite exports (run in the training Python environment)
+
+Pure Python; the verification step runs as a subprocess.
+"""
+from __future__ import annotations
+
+import json
+import re
+import shutil
+import subprocess
+import sys
+import time
+from dataclasses import dataclass, field
+from pathlib import Path
+
+from ai_made_easy.core.deploy import templates
+
+FORMATS = {
+    "pytorch": ("onnx", "onnx_int8", "torchscript", "coreml"),
+    "keras": ("onnx", "saved_model", "tflite"),
+    "sklearn": ("onnx",),
+}
+FORMAT_LABELS = {
+    "onnx": "ONNX", "onnx_int8": "ONNX (int8 quantized)", "torchscript": "TorchScript",
+    "coreml": "Core ML", "saved_model": "TensorFlow SavedModel", "tflite": "TensorFlow Lite",
+}
+_SERVING_DROP = {"datasets", "torchaudio"}  # only needed to load training data
+_PIP_NAMES = {"pillow": "pillow", "scikit-learn": "scikit-learn", "keras>=3": "keras"}
+_INPUT_HELP = {
+    "records": "a list of records, e.g. [{\"column\": value, ...}]",
+    "texts": "a list of strings",
+    "images": "a list of base64-encoded images (or use POST /predict/image)",
+    "audio": "a list of mono waveforms (float arrays at the training sample rate)",
+    "windows": "a list of windows, each [time steps][feature columns]",
+    "arrays": "a list of samples shaped like the model input",
+}
+
+
+class DeployError(RuntimeError):
+    pass
+
+
+@dataclass
+class PackageResult:
+    path: Path
+    metadata: dict
+    formats: dict = field(default_factory=dict)
+    log: str = ""
+    verified: bool = False
+
+    def to_dict(self) -> dict:
+        return {"path": str(self.path), "metadata": self.metadata, "formats": self.formats,
+                "verified": self.verified, "log": self.log[-4000:]}
+
+
+def _artifacts(run_dir: Path, framework: str) -> tuple[Path, list[Path]]:
+    script = next(iter(sorted(run_dir.glob(f"*_train_{framework}.py"))), None)
+    if script is None:
+        raise DeployError(f"no {framework} training script in {run_dir}")
+    patterns = {"pytorch": ("*_best.pt", "inference_state.pkl"),
+                "keras": ("*_best.keras", "inference_state.pkl"),
+                "sklearn": ("*_model.joblib", "inference.json")}[framework]
+    files = []
+    for pattern in patterns:
+        found = sorted(run_dir.glob(pattern))
+        if not found:
+            raise DeployError(
+                f"the run has no {pattern} — it did not finish training, was trained with "
+                "k-fold cross-validation only, or predates AI Made Easy 2.0 (retrain it)")
+        files.extend(found)
+    for optional in ("classes.json", "metrics.json"):
+        if (run_dir / optional).exists():
+            files.append(run_dir / optional)
+    return script, files
+
+
+def _describe(graph_dict: dict) -> dict:
+    """Task, modality and input kind from the run's design."""
+    from ai_made_easy.core.classic.generate import collect_classic, is_classic
+    from ai_made_easy.core.graph import Graph
+
+    graph = Graph.from_dict(graph_dict)
+    if is_classic(graph):
+        spec = collect_classic(graph)
+        task, modality, block = spec.task, spec.modality, spec.dataset["block"]
+        tabular_frame = block in ("data.csv", "data.sklearn")
+    else:
+        from ai_made_easy.core.training.spec import collect_spec
+
+        spec = collect_spec(graph)
+        task, modality, block = spec.task, spec.modality, spec.dataset["block"]
+        tabular_frame = block == "data.csv"
+    if tabular_frame:
+        kind = "records"
+    elif modality == "text":
+        kind = "texts"
+    elif modality == "image":
+        kind = "images"
+    elif modality == "audio":
+        kind = "audio"
+    elif modality == "timeseries":
+        kind = "windows"
+    else:
+        kind = "arrays"
+    return {"task": task, "modality": modality, "dataset": block, "input_kind": kind,
+            "input_help": _INPUT_HELP[kind]}
+
+
+def _requirements(script_text: str, framework: str, env: dict, input_kind: str) -> list[str]:
+    match = re.search(r"^Needs:\s*(.+)$", script_text, re.M)
+    names = [n.strip() for n in (match.group(1) if match else "").split(",") if n.strip()]
+    names = [_PIP_NAMES.get(n, n) for n in names if n not in _SERVING_DROP]
+    if framework == "keras" and "torch" not in names and env.get("keras_backend", "torch") == "torch":
+        names.append("torch")
+    if input_kind == "images" and "pillow" not in names:
+        names.append("pillow")
+    if input_kind == "records" and "pandas" not in names:
+        names.append("pandas")
+    if framework != "sklearn" and "transformers" in script_text and "AutoTokenizer" in script_text:
+        names.append("transformers")
+    packages = env.get("packages", {})
+    pinned = []
+    for name in dict.fromkeys(names):
+        base = re.split(r"[<>=]", name)[0]
+        version = packages.get(base)
+        pinned.append(f"{base}=={version}" if version else name)
+    pinned += ["fastapi>=0.110", "uvicorn[standard]>=0.29"]
+    if input_kind == "images":
+        pinned.append("python-multipart>=0.0.9")
+    return pinned
+
+
+def _example(meta: dict, signature: dict) -> str:
+    kind = meta["input_kind"]
+    if kind == "records" and signature.get("columns"):
+        return json.dumps({"inputs": [{c: 0 for c in signature["columns"][:6]}]})
+    if kind == "texts":
+        return json.dumps({"inputs": ["an example text"]})
+    if kind == "images":
+        return '{"inputs": ["<base64 image>"]}'
+    shape = signature.get("input_shape") or []
+    if kind == "arrays" and len(shape) == 1 and shape[0] <= 16:
+        return json.dumps({"inputs": [[0.0] * int(shape[0])]})
+    return '{"inputs": [...]}'
+
+
+def build_package(run_dir: Path | str, out_dir: Path | str, *, formats: tuple[str, ...] = (),
+                  python: str | None = None, name: str | None = None, version: str = "1",
+                  record: dict | None = None, verify: bool = True,
+                  timeout: float = 900) -> PackageResult:
+    """Build a deployment package from a finished run folder."""
+    run_dir = Path(run_dir)
+    out_dir = Path(out_dir)
+    if record is None:
+        run_file = run_dir / "run.json"
+        if not run_file.exists():
+            raise DeployError(f"{run_dir} is not a run folder (no run.json)")
+        record = json.loads(run_file.read_text())
+    if record.get("status") not in (None, "finished"):
+        raise DeployError(f"the run is {record.get('status')}; only finished runs can be deployed")
+    framework = record.get("framework", "pytorch")
+    unknown = [f for f in formats if f not in FORMATS.get(framework, ())]
+    if unknown:
+        raise DeployError(f"{', '.join(unknown)} not available for {framework} models; "
+                          f"choose from {', '.join(FORMATS.get(framework, ())) or 'none'}")
+    script, files = _artifacts(run_dir, framework)
+    if out_dir.exists() and any(out_dir.iterdir()):
+        raise DeployError(f"{out_dir} is not empty")
+    model_dir = out_dir / "model"
+    model_dir.mkdir(parents=True, exist_ok=True)
+    script_text = script.read_text()
+    (model_dir / "model_def.py").write_text(script_text)
+    for file in files:
+        shutil.copy2(file, model_dir / file.name)
+
+    name = name or record.get("name") or "model"
+    image = re.sub(r"[^a-z0-9._-]+", "-", name.lower()).strip("-") or "model"
+    env = record.get("env") or {}
+    meta = {
+        "name": name, "version": str(version), "framework": framework,
+        **_describe(record.get("graph") or {}),
+        "run_id": record.get("run_id", ""), "project": record.get("project", ""),
+        "metrics": record.get("final_metrics") or {},
+        "trained_with": {"python": env.get("python"), "packages": env.get("packages", {})},
+        "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "generator": "AI Made Easy",
+    }
+    py = str(env.get("python") or "3.12")
+    py_minor = ".".join(py.split(".")[:2])
+    keras_env = ""
+    if framework == "keras":
+        meta["keras_backend"] = env.get("keras_backend") or "torch"
+        keras_env = f" \\\n    KERAS_BACKEND={meta['keras_backend']}"
+    reqs = _requirements(script_text, framework, env, meta["input_kind"])
+    (out_dir / "requirements.txt").write_text("\n".join(reqs) + "\n")
+    (out_dir / "app.py").write_text(templates.APP.format(
+        name=name, image=image,
+        image_route=templates.IMAGE_ROUTE if meta["input_kind"] == "images" else ""))
+    (out_dir / "Dockerfile").write_text(templates.DOCKERFILE.format(
+        name=name, python=py_minor, env=keras_env))
+    (out_dir / ".dockerignore").write_text(templates.DOCKERIGNORE)
+    (out_dir / "export_formats.py").write_text(templates.EXPORT_SCRIPT.format(
+        framework=framework, formats=tuple(formats)))
+
+    result = PackageResult(out_dir, meta)
+    signature: dict = {}
+    if verify:
+        import os
+
+        run_env = {**os.environ, "PYTHONWARNINGS": "ignore"}
+        if framework == "keras":
+            run_env["KERAS_BACKEND"] = meta["keras_backend"]
+        proc = subprocess.run([python or sys.executable, "export_formats.py"], cwd=out_dir,
+                              capture_output=True, text=True, timeout=timeout, env=run_env)
+        result.log = proc.stdout + proc.stderr
+        if "EXPORT-DONE" not in proc.stdout:
+            raise DeployError("the packaged model could not be loaded:\n" + result.log[-3000:])
+        report = json.loads((out_dir / "export_report.json").read_text())
+        signature = report.get("signature", {})
+        result.formats = report.get("formats", {})
+        result.verified = True
+    meta["signature"] = signature
+    meta["exports"] = {k: v.get("file") for k, v in result.formats.items() if v.get("ok")}
+    (out_dir / "metadata.json").write_text(json.dumps(meta, indent=1, default=str))
+
+    metrics_rows = "".join(f"| {k} | {v:.4g} |\n" for k, v in list(meta["metrics"].items())[:8]
+                           if isinstance(v, (int, float)))
+    exports = "".join(f"- {FORMAT_LABELS.get(k, k)}: `{v['file']}`\n"
+                      for k, v in result.formats.items() if v.get("ok"))
+    (out_dir / "README.md").write_text(templates.README.format(
+        name=name, run_id=meta["run_id"], task=meta["task"], framework=framework,
+        input_help=meta["input_help"], metrics_rows=metrics_rows, image=image,
+        image_endpoint=("- `POST /predict/image` — multipart image files\n"
+                        if meta["input_kind"] == "images" else ""),
+        example=_example(meta, signature).replace("'", "\\'"),
+        exports_section=("\n## Exported formats\n\n" + exports) if exports else ""))
+    return result

@@ -382,6 +382,7 @@ def main() -> None:
     if importances:
         print("top features: " + ", ".join(f"{n}={v:.3g}" for n, v in importances[:10]))
     joblib.dump(model, MODEL_FILE)
+    save_inference_state(X)
     print(f"saved model to {MODEL_FILE}")
     Path("metrics.json").write_text(json.dumps(
         {**test_metrics, "train": train_metrics,
@@ -431,6 +432,7 @@ def main() -> None:
           + f" ({time.time() - started:.1f}s)")
     print("test: " + " ".join(f"{k}={v:.4f}" for k, v in m.items()))
     joblib.dump(model, MODEL_FILE)
+    save_inference_state(X)
     Path("metrics.json").write_text(json.dumps(m, indent=1))
     Path("clusters.json").write_text(json.dumps([int(v) for v in labels]))
     print(f"saved model to {MODEL_FILE}")
@@ -442,8 +444,113 @@ def main() -> None:
     print(f"epoch 1/1 anomaly_rate={rate:.4f} ({time.time() - started:.1f}s)")
     print(f"test: anomaly_rate={rate:.4f}")
     joblib.dump(model, MODEL_FILE)
+    save_inference_state(X)
     Path("metrics.json").write_text(json.dumps({"anomaly_rate": rate}, indent=1))
     print(f"saved model to {MODEL_FILE}")
+{% endif %}
+
+
+# ============================================================= inference
+INFERENCE_FILE = "inference.json"
+_PREDICTOR = None
+_COLUMNS = None
+
+
+def save_inference_state(X) -> None:
+    """Record the input columns the pipeline expects (for serving)."""
+    columns = [str(c) for c in X.columns] if hasattr(X, "columns") else None
+    Path(INFERENCE_FILE).write_text(json.dumps({"columns": columns}))
+
+
+def load_predictor(folder: str | Path = ".", device: str = "cpu"):
+    """Load the fitted pipeline from a run folder."""
+    import __main__
+
+    global _PREDICTOR, _COLUMNS
+    # helper classes / functions were pickled from the training script's __main__
+    for name, value in list(globals().items()):
+        if callable(value) and getattr(value, "__module__", None) == __name__:
+            setattr(__main__, name, value)
+    _PREDICTOR = joblib.load(Path(folder) / MODEL_FILE)
+    state_file = Path(folder) / INFERENCE_FILE
+    _COLUMNS = json.loads(state_file.read_text()).get("columns") if state_file.exists() else None
+    return _PREDICTOR
+
+
+def prepare_inputs(raw: list):
+    """Raw inputs -> what the pipeline's fit() received.
+
+{% if text %}    raw: texts.
+{% elif table or d.block == "data.sklearn" %}    raw: records, e.g. [{"column": value, ...}, ...].
+{% elif d.block == "data.image_folder" %}    raw: images as file paths, bytes or base64 strings.
+{% elif d.block == "data.timeseries_csv" %}    raw: windows of {{ d.window }} time steps x feature columns.
+{% else %}    raw: feature vectors.
+{% endif %}    """
+{% if text %}
+    return [str(t) for t in raw]
+{% elif d.block == "data.image_folder" %}
+    import base64
+    import io
+
+    from PIL import Image
+
+    rows = []
+    for item in raw:
+        if isinstance(item, (bytes, bytearray)):
+            img = Image.open(io.BytesIO(item))
+        elif isinstance(item, str) and Path(item).exists():
+            img = Image.open(item)
+        else:
+            img = Image.open(io.BytesIO(base64.b64decode(str(item).split(",")[-1])))
+        img = img.convert("L" if {{ d.grayscale }} else "RGB").resize(({{ image_size }}, {{ image_size }}))
+        rows.append(np.asarray(img, dtype=np.float32).reshape(-1) / 255.0)
+    return np.stack(rows)
+{% else %}
+    if _COLUMNS is not None:
+        import pandas as pd
+
+        frame = raw if isinstance(raw, pd.DataFrame) else pd.DataFrame.from_records(raw)
+        missing = [c for c in _COLUMNS if c not in frame.columns]
+        if missing:
+            raise ValueError(f"missing input columns: {missing}")
+        return frame[_COLUMNS]
+    X = np.asarray(raw, dtype=float)
+    return X.reshape(len(X), -1)
+{% endif %}
+
+
+def infer(raw: list) -> list[dict]:
+    """Predictions for a list of raw inputs (see ``prepare_inputs``)."""
+    if _PREDICTOR is None:
+        raise RuntimeError("call load_predictor(folder) first")
+    X = prepare_inputs(raw)
+{% if task == "classification" %}
+    classes = [str(c) for c in _PREDICTOR.classes_]
+    scores = np.asarray(predict_scores(_PREDICTOR, X), dtype=float)
+{% if not proba %}
+    scores = np.exp(scores - scores.max(axis=1, keepdims=True))
+    scores = scores / scores.sum(axis=1, keepdims=True)
+{% endif %}
+    out = []
+    for row in scores:
+        best = int(np.argmax(row))
+        out.append({"label": classes[best], "class_index": best,
+                    "confidence": round(float(row[best]), 6),
+                    "probabilities": {c: round(float(p), 6) for c, p in zip(classes, row, strict=True)}})
+    return out
+{% elif task == "regression" %}
+    values = np.asarray(_PREDICTOR.predict(X), dtype=float)
+    return [{"prediction": (float(v) if np.ndim(v) == 0 else [float(x) for x in v])}
+            for v in values]
+{% elif task == "clustering" %}
+    if not hasattr(_PREDICTOR, "predict"):
+        raise RuntimeError("this clustering model cannot assign new samples")
+    return [{"cluster": int(c)} for c in _PREDICTOR.predict(X)]
+{% else %}
+    flags = _PREDICTOR.predict(X)
+    scores = (_PREDICTOR.decision_function(X) if hasattr(_PREDICTOR, "decision_function")
+              else np.zeros(len(flags)))
+    return [{"anomaly": bool(f == -1), "score": float(s)} for f, s in zip(flags, scores, strict=True)]
 {% endif %}
 
 

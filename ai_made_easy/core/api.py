@@ -278,3 +278,71 @@ def sweep_best_graph(sweep_id: str) -> dict:
         return best_graph(sweep_store().get(sweep_id))
     except SweepError as exc:
         raise ApiError(str(exc)) from exc
+
+
+# ---------------------------------------------------------------- deploy
+
+def model_registry():
+    from ai_made_easy.core.deploy import ModelRegistry
+
+    return ModelRegistry()
+
+
+def deploy_formats() -> dict:
+    from ai_made_easy.core.deploy import FORMAT_LABELS, FORMATS
+
+    return {fw: [{"id": f, "label": FORMAT_LABELS[f]} for f in fmts]
+            for fw, fmts in FORMATS.items()}
+
+
+def _package(source: Path, out_dir: str, formats, name=None, version="1") -> dict:  # noqa: ANN001
+    from ai_made_easy.core.deploy import DeployError, build_package
+
+    try:
+        return build_package(source, out_dir, formats=tuple(formats or ()), name=name,
+                             version=str(version), python=manager().python).to_dict()
+    except DeployError as exc:
+        raise ApiError(str(exc)) from exc
+
+
+def deploy_run(run_id: str, out_dir: str, formats: list[str] | None = None,
+               name: str | None = None) -> dict:
+    """Build a model-server package (FastAPI + Dockerfile) from a finished run."""
+    return _package(manager().history.path(run_id), out_dir, formats, name)
+
+
+def register_model(run_id: str, name: str, description: str = "") -> dict:
+    from ai_made_easy.core.deploy import RegistryError
+
+    try:
+        return model_registry().register(manager().history.path(run_id), name,
+                                         description).to_dict()
+    except RegistryError as exc:
+        raise ApiError(str(exc)) from exc
+
+
+def list_models() -> dict:
+    rows = [v.to_dict() for v in model_registry().list()]
+    return {"count": len(rows), "models": rows}
+
+
+def set_model_stage(name: str, version: int, stage: str) -> dict:
+    from ai_made_easy.core.deploy import RegistryError
+
+    try:
+        return model_registry().set_stage(name, int(version), stage).to_dict()
+    except RegistryError as exc:
+        raise ApiError(str(exc)) from exc
+
+
+def delete_model(name: str, version: int) -> dict:
+    model_registry().delete(name, int(version))
+    return {"deleted": f"{name}/{version}"}
+
+
+def deploy_model(name: str, version: str | int, out_dir: str,
+                 formats: list[str] | None = None) -> dict:
+    """Package a registered model version ('latest', 'production' or a number)."""
+    registry = model_registry()
+    mv = registry.get(name, version)
+    return _package(registry.path(name, mv.version), out_dir, formats, name, mv.version)
