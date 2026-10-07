@@ -48,6 +48,61 @@ class SqueezeExcite(nn.Module):
         s = torch.sigmoid(self.fc2(torch.relu(self.fc1(s))))
         return x * s.view(*s.shape, *([1] * len(dims)))
 ''',
+    "PretrainedBackbone": '''\
+class PretrainedBackbone(nn.Module):
+    """torchvision backbone with its classifier removed: image -> pooled features."""
+
+    def __init__(self, name: str, pretrained: bool = True, freeze: bool = True) -> None:
+        super().__init__()
+        import torchvision
+
+        weights = "DEFAULT" if pretrained else None
+        model = getattr(torchvision.models, name)(weights=weights)
+        if name.startswith(("resnet", "regnet")):
+            model.fc = nn.Identity()
+        elif name.startswith("vit"):
+            model.heads = nn.Identity()
+        elif name.startswith("vgg"):
+            model.avgpool = nn.AdaptiveAvgPool2d(1)
+            model.classifier = nn.Flatten()
+        elif name.startswith("densenet"):
+            model.classifier = nn.Identity()
+        elif name.startswith("convnext"):
+            model.classifier[-1] = nn.Identity()
+        else:  # mobilenet / efficientnet
+            model.classifier = nn.Identity()
+        self.model = model
+        if freeze:
+            for p in self.model.parameters():
+                p.requires_grad = False
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.model(x)
+''',
+    "HFTextEncoder": '''\
+class HFTextEncoder(nn.Module):
+    """Hugging Face transformer encoder over token ids (0 = padding)."""
+
+    def __init__(self, model_id: str, pooling: str = "cls", freeze: bool = True) -> None:
+        super().__init__()
+        from transformers import AutoModel
+
+        self.encoder = AutoModel.from_pretrained(model_id)
+        self.pooling = pooling
+        if freeze:
+            for p in self.encoder.parameters():
+                p.requires_grad = False
+
+    def forward(self, ids: torch.Tensor) -> torch.Tensor:
+        mask = (ids != 0).long()
+        hidden = self.encoder(input_ids=ids, attention_mask=mask).last_hidden_state
+        if self.pooling == "cls":
+            return hidden[:, 0]
+        if self.pooling == "mean":
+            m = mask.unsqueeze(-1).to(hidden.dtype)
+            return (hidden * m).sum(1) / m.sum(1).clamp_min(1.0)
+        return hidden
+''',
     "GaussianNoise": '''\
 class GaussianNoise(nn.Module):
     """Additive zero-mean Gaussian noise, active only in training mode."""
@@ -105,6 +160,14 @@ class LearnedPositionalEmbedding(nn.Module):
 }
 
 KERAS_HELPERS: dict[str, str] = {
+    "pretrained_backbone": '''\
+def pretrained_backbone(x, name: str, weights=None, trainable: bool = False):
+    """keras.applications backbone without its top: image -> pooled features."""
+    base = getattr(keras.applications, name)(include_top=False, weights=weights,
+                                             input_shape=tuple(x.shape[1:]), pooling="avg")
+    base.trainable = trainable
+    return base(x)
+''',
     "transformer_encoder": '''\
 def transformer_encoder(x, num_heads: int, ff_dim: int, dropout: float = 0.1,
                         epsilon: float = 1e-5, activation: str = "relu",
