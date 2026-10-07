@@ -9,6 +9,8 @@ Usage:
   aime train <project.json> -f pytorch [-o DIR] # generate training script
   aime onnx <project.json> [-o DIR]   # generate (and with --run, execute) an ONNX export script
   aime jit <project.json> [-o DIR]    # generate (and with --run, execute) a TorchScript export script
+  aime run <project.json> [-f auto]   # train headlessly (recorded in the run history)
+  aime runs [list | show ID | compare ID ID… | delete ID]
 """
 from __future__ import annotations
 
@@ -41,6 +43,13 @@ def main(argv: list[str] | None = None) -> int:
         p.add_argument("-o", "--out", default="exports", help="output directory")
     p_run = sub.add_parser("run", help="train headlessly and stream events")
     p_run.add_argument("project", help="path to project .json")
+    p_run.add_argument("-f", "--framework", default="auto",
+                       choices=("auto", "pytorch", "keras", "sklearn"))
+    p_runs = sub.add_parser("runs", help="run history")
+    p_runs.add_argument("action", nargs="?", default="list",
+                        choices=("list", "show", "compare", "delete"))
+    p_runs.add_argument("ids", nargs="*", help="run id(s)")
+    p_runs.add_argument("--project", default=None, help="filter by project name")
     p_sum = sub.add_parser("summary", help="print the analytic model summary as JSON")
     p_sum.add_argument("project", help="path to project .json")
     p_llm = sub.add_parser("llm", help="generate an LLM workflow script")
@@ -59,6 +68,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "blocks":
         print(json.dumps(get_registry().list_blocks(), indent=2))
         return 0
+
+    if args.command == "runs":
+        return _runs_command(args)
 
     with open(args.project) as fh:
         graph = Graph.from_dict(json.load(fh))
@@ -101,7 +113,11 @@ def main(argv: list[str] | None = None) -> int:
         from ai_made_easy.core.runner.manager import RunManager
 
         mgr = RunManager()
-        run_id = mgr.start(graph)
+        try:
+            run_id = mgr.start(graph, args.framework)
+        except Exception as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 1
         print(json.dumps({"type": "run_started", "run_id": run_id}), flush=True)
         import time as _time
 
@@ -160,6 +176,36 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     return 2
+
+
+def _runs_command(args) -> int:  # noqa: ANN001
+    from ai_made_easy.core import api
+
+    try:
+        if args.action == "list":
+            rows = api.list_runs(args.project)["runs"]
+            for r in rows:
+                metrics = " ".join(f"{k}={v:.4g}" for k, v in
+                                   list(r["final_metrics"].items())[:4])
+                print(f"{r['run_id']}  {r['status']:<9} {r['framework']:<8} "
+                      f"{r['name']:<24} {metrics}")
+            print(f"{len(rows)} run(s)")
+            return 0
+        if not args.ids:
+            print("error: give a run id", file=sys.stderr)
+            return 2
+        if args.action == "show":
+            print(json.dumps(api.get_run(args.ids[0]), indent=2, default=str))
+        elif args.action == "compare":
+            print(json.dumps(api.compare_runs(args.ids), indent=2, default=str))
+        elif args.action == "delete":
+            for run_id in args.ids:
+                api.delete_run(run_id)
+                print(f"deleted {run_id}")
+        return 0
+    except (KeyError, ValueError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
 
 
 if __name__ == "__main__":

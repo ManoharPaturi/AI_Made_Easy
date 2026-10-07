@@ -466,7 +466,7 @@ class AppContext(QtCore.QObject):
             return
         self.training_page.reset()
         self._run_kind = "train"
-        self.process_service.run_training(ir)
+        self.process_service.run_training(ir, project=self.project_store.name)
 
     def act_test_run(self, *_):
         ir = self.project_service.snapshot()
