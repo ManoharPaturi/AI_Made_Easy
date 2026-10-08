@@ -6,6 +6,7 @@ tests never touch the user's run history, registry or settings.
 from __future__ import annotations
 
 import os
+import sys
 import tempfile
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -66,3 +67,20 @@ def _forget_custom_blocks():
     for block in registry.all():
         if block.type_id.startswith("custom.") and block.type_id not in before:
             registry.unregister(block.type_id)
+
+
+_exit_status = {"code": 0}
+
+
+def pytest_sessionfinish(session, exitstatus):  # noqa: ANN001
+    _exit_status["code"] = int(exitstatus)
+
+
+@pytest.hookimpl(trylast=True)
+def pytest_unconfigure(config):  # noqa: ANN001
+    """On CI, skip native teardown: Qt, torch and Keras destructors can segfault at
+    interpreter exit (exit code 139) after every test has passed."""
+    if os.environ.get("CI"):
+        sys.stdout.flush()
+        sys.stderr.flush()
+        os._exit(_exit_status["code"])

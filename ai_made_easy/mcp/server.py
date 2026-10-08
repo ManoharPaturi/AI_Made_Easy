@@ -241,6 +241,36 @@ def import_model(kind: str, source: str, attr: str = "", input_shape: list[int] 
         return _err(exc)
 
 
+@mcp.tool()
+def profile_data(graph: dict | None = None, path: str = "", target: str = "") -> str:
+    """Profile a dataset: the dataset block of ``graph``, or any table / class-folder
+    ``path``. Returns rows, column statistics, class counts and findings (missing
+    values, constant / ID-like columns, target leakage, duplicates, imbalance)."""
+    try:
+        return json.dumps(api.profile_data(graph, path=path or None, target=target or None),
+                          default=str)
+    except api.ApiError as exc:
+        return _err(exc)
+
+
+@mcp.tool()
+def data_issues(graph: dict) -> str:
+    """Data warnings for the design's dataset in the context of its pipeline."""
+    try:
+        return json.dumps(api.data_issues(graph))
+    except api.ApiError as exc:
+        return _err(exc)
+
+
+@mcp.tool()
+def split_preview(graph: dict) -> str:
+    """Samples per class in train / validation / test, exactly as training splits them."""
+    try:
+        return json.dumps(api.split_preview(graph))
+    except api.ApiError as exc:
+        return _err(exc)
+
+
 def main() -> None:
     mcp.run()  # stdio transport
 

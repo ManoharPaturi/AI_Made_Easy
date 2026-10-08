@@ -57,7 +57,8 @@ def _mean_rgb(path: Path):
 
         with Image.open(path) as im:
             small = im.convert("RGB").resize((8, 8))
-            data = list(small.getdata())
+            flat = getattr(small, "get_flattened_data", None)  # Pillow >= 12
+            data = list(flat() if flat else small.getdata())
         n = len(data)
         return tuple(round(sum(c[i] for c in data) / n) for i in range(3))
     except Exception:

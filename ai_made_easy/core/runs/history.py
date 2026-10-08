@@ -100,12 +100,20 @@ class RunHistory:
     # ------------------------------------------------------------ create
     def create(self, graph_dict: dict, *, framework: str = "pytorch",
                project: str = "", kind: str = "train", parent: str = "",
-               trial: dict | None = None, tags: list[str] | None = None) -> RunRecord:
+               trial: dict | None = None, tags: list[str] | None = None,
+               data_fingerprint: str | None = None) -> RunRecord:
+        if data_fingerprint is None:
+            from ai_made_easy.core.data.fingerprint import graph_fingerprint
+
+            try:
+                data_fingerprint = graph_fingerprint(graph_dict)
+            except Exception:  # noqa: BLE001 — a fingerprint must never block a run
+                data_fingerprint = ""
         record = RunRecord(
             run_id=new_run_id(), name=str(graph_dict.get("name") or "model"),
             project=project, framework=framework, kind=kind, graph=graph_dict,
             params=graph_params(graph_dict), parent=parent, trial=dict(trial or {}),
-            tags=list(tags or []))
+            tags=list(tags or []), data_fingerprint=data_fingerprint)
         self.path(record.run_id).mkdir(parents=True, exist_ok=False)
         self.save(record)
         return record
@@ -257,4 +265,6 @@ def compare(records: list[RunRecord]) -> dict[str, Any]:
         "best_metrics": {k: [r.best_metrics.get(k) for r in records] for k in metric_keys},
         "status": [r.status for r in records],
         "duration": [r.duration for r in records],
+        "data": [r.data_fingerprint for r in records],
+        "same_data": len({r.data_fingerprint for r in records}) <= 1,
     }

@@ -78,6 +78,16 @@ CATALOG: list[ActionSpec] = [
     ActionSpec("model.import_blocks", "Import Custom Blocks…", "&Model", "act_import_blocks",
                tooltip="Install custom blocks from a .aimeblocks pack"),
 
+    # ---- Data ----
+    ActionSpec("data.workspace", "&Data Workspace", "&Data", "act_data", "Ctrl+Shift+G",
+               "Profile, browse and preview the design's dataset", icon="list"),
+    ActionSpec("data.profile_file", "&Profile a File…", "&Data", "act_profile_file",
+               tooltip="Profile any table or class folder", separator_after=True),
+    ActionSpec("data.split", "Preview &Split", "&Data", "act_data_split",
+               tooltip="Samples per class in train / validation / test"),
+    ActionSpec("data.augment", "Preview &Augmentation", "&Data", "act_data_augment",
+               tooltip="Run the image transforms on dataset samples", icon="image"),
+
     # ---- Run ----
     ActionSpec("run.train", "&Train", "&Run", "act_train", "Ctrl+R",
                "Generate the training script and run it", icon="play"),
@@ -125,7 +135,7 @@ CATALOG: list[ActionSpec] = [
     ActionSpec("help.about", "&About AI Made Easy", "&Help", "act_about", icon="help"),
 ]
 
-MENU_ORDER = ["&File", "&Edit", "&View", "&Model", "&Run", "E&xport", "&Help"]
+MENU_ORDER = ["&File", "&Edit", "&View", "&Model", "&Data", "&Run", "E&xport", "&Help"]
 
 TOOLBAR = ["file.new", "file.open", "file.save", "|", "edit.undo", "edit.redo", "|",
            "model.validate", "run.test", "run.train", "run.stop"]
