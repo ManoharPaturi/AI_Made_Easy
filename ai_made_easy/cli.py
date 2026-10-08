@@ -94,6 +94,14 @@ def main(argv: list[str] | None = None) -> int:
     p_imp.add_argument("--dtype", default="float32", choices=("float32", "int64"))
     p_imp.add_argument("--kwargs", default="{}", help="constructor arguments as JSON")
     p_imp.add_argument("-o", "--out", required=True, help="project .json to write")
+    p_data = sub.add_parser("data", help="profile datasets, preview splits and augmentation")
+    p_data.add_argument("action", choices=("profile", "check", "split", "augment",
+                                           "fingerprint"))
+    p_data.add_argument("source", help="project .json, or a data file / folder (profile)")
+    p_data.add_argument("--target", default=None, help="target column (profiling a table)")
+    p_data.add_argument("--json", action="store_true", help="print JSON")
+    p_data.add_argument("-o", "--out", default="augmentation_preview",
+                        help="output folder (augment)")
     p_sum = sub.add_parser("summary", help="print the analytic model summary as JSON")
     p_sum.add_argument("project", help="path to project .json")
     p_llm = sub.add_parser("llm", help="generate an LLM workflow script")
@@ -119,12 +127,16 @@ def main(argv: list[str] | None = None) -> int:
         return _deploy_command(args)
     if args.command == "import":
         return _import_command(args)
+    if args.command == "data":
+        return _data_command(args)
 
     with open(args.project) as fh:
         graph = Graph.from_dict(json.load(fh))
 
     if args.command == "validate":
-        issues = graph.validate()
+        from ai_made_easy.core.data.lints import data_issues, project_base
+
+        issues = graph.validate() + data_issues(graph, base=project_base(args.project))
         for issue in issues:
             print(issue)
         print(f"{len(issues)} issue(s)")
@@ -314,6 +326,72 @@ def _import_command(args) -> int:  # noqa: ANN001
     Path(args.out).write_text(json.dumps(result["graph"], indent=1))
     print(f"project: {args.out}")
     return 0 if result["ok"] else 1
+
+
+def _data_command(args) -> int:  # noqa: ANN001
+    from pathlib import Path
+
+    from ai_made_easy.core import api
+    from ai_made_easy.core.data.lints import project_base
+
+    source = Path(args.source).expanduser()
+    is_project = source.suffix == ".json" and source.is_file() and \
+        "nodes" in json.loads(source.read_text() or "{}")
+    try:
+        if args.action == "profile" and not args.json:
+            from ai_made_easy.core.data.lints import dataset_nodes
+            from ai_made_easy.core.data.profile import profile_dataset, profile_path
+
+            if not is_project:
+                print(profile_path(source, target=args.target).text())
+                return 0
+            nodes = dataset_nodes(Graph.from_dict(json.loads(source.read_text())))
+            if not nodes:
+                print("error: the design has no dataset block", file=sys.stderr)
+                return 1
+            print(profile_dataset(nodes[0][1], nodes[0][2], project_base(source)).text())
+            return 0
+        if args.action == "profile" and not is_project:
+            result = api.profile_data(path=str(source), target=args.target)
+        else:
+            if not is_project:
+                print("error: give a project .json", file=sys.stderr)
+                return 2
+            graph = json.loads(source.read_text())
+            base = str(project_base(source))
+            result = {
+                "profile": lambda: api.profile_data(graph, base=base),
+                "check": lambda: api.data_issues(graph, base=base),
+                "split": lambda: api.split_preview(graph, base=base),
+                "fingerprint": lambda: api.data_fingerprint(graph, base=base),
+                "augment": lambda: api.augmentation_preview(graph, args.out, base=base),
+            }[args.action]()
+    except (ValueError, KeyError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    if args.json or args.action == "profile":
+        print(json.dumps(result, indent=2, default=str))
+    elif args.action == "check":
+        for issue in result["issues"]:
+            print(f"{issue['severity']}: {issue['message']}")
+        print(f"{len(result['issues'])} data issue(s)")
+    elif args.action == "split":
+        print(f"split: {result['method']}")
+        print("            " + "".join(f"{s:>9}" for s in ("train", "val", "test")))
+        for cls, counts in result["per_class"].items():
+            print(f"{cls[:12]:<12}" + "".join(f"{counts[s]:>9,}" for s in
+                                                ("train", "val", "test")))
+        print(f"{'total':<12}" + "".join(f"{result['totals'][s]:>9,}" for s in
+                                         ("train", "val", "test")))
+        for note in result["notes"]:
+            print(f"note: {note}")
+    elif args.action == "augment":
+        for item in result["images"]:
+            print(f"{item['source']}: eval {item['eval']}, {len(item['train'])} training views")
+        print(f"preview images in {args.out}")
+    else:
+        print(result["fingerprint"] or "(no local data)")
+    return 0
 
 
 def _deploy_command(args) -> int:  # noqa: ANN001

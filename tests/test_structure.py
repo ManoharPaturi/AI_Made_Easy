@@ -135,10 +135,10 @@ win = Workbench(ctx)
 win.show()
 def check():
     docks = {d.objectName() for d in win.findChildren(QtWidgets.QDockWidget)}
-    assert docks == {"dock.library", "dock.inspector", "dock.problems", "dock.output", "dock.experiments",
+    assert docks == {"dock.library", "dock.inspector", "dock.problems", "dock.output", "dock.experiments", "dock.data",
                      "dock.training"}, docks
     menus = [m.text() for m in win.menuBar().actions() if m.text()]
-    assert menus == ["&File", "&Edit", "&View", "&Model", "&Run", "E&xport", "&Help"], menus
+    assert menus == ["&File", "&Edit", "&View", "&Model", "&Data", "&Run", "E&xport", "&Help"], menus
     assert len(win.actions) >= 40
     assert ctx.validation_store.valid, [str(i) for i in ctx.validation_store.issues]
     assert ctx.canvas.node_graph.all_nodes(), "demo project should be loaded"

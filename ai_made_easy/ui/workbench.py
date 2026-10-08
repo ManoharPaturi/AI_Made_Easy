@@ -14,7 +14,7 @@ from ai_made_easy.ui import icons
 from ai_made_easy.ui.actions_catalog import CATALOG, MENU_ORDER, TOOLBAR, build_actions
 
 _SETTINGS_KEY = "aime/workbench"
-SETTINGS_VERSION = 4  # v4: Experiments dock
+SETTINGS_VERSION = 5  # v5: Data dock
 
 _APP_TITLE = "AI Made Easy"
 
@@ -101,6 +101,8 @@ class Workbench(QtWidgets.QMainWindow):
                 ("training", "Training", self.ctx.training_page,
                  QtCore.Qt.DockWidgetArea.BottomDockWidgetArea),
                 ("experiments", "Experiments", self.ctx.experiments_page,
+                 QtCore.Qt.DockWidgetArea.BottomDockWidgetArea),
+                ("data", "Data", self.ctx.data_page,
                  QtCore.Qt.DockWidgetArea.BottomDockWidgetArea)):
             dock = QtWidgets.QDockWidget(title, self)
             dock.setObjectName(f"dock.{key}")
@@ -113,6 +115,7 @@ class Workbench(QtWidgets.QMainWindow):
         self.tabifyDockWidget(self.docks["problems"], self.docks["output"])
         self.tabifyDockWidget(self.docks["output"], self.docks["training"])
         self.tabifyDockWidget(self.docks["training"], self.docks["experiments"])
+        self.tabifyDockWidget(self.docks["experiments"], self.docks["data"])
         self.docks["problems"].raise_()
         self.resizeDocks([self.docks["library"], self.docks["inspector"]], [270, 360],
                          QtCore.Qt.Orientation.Horizontal)
@@ -163,6 +166,7 @@ class Workbench(QtWidgets.QMainWindow):
             event.ignore()
             return
         self._save_state()
+        self.ctx.data_service.shutdown()
         super().closeEvent(event)
 
     def _save_state(self) -> None:

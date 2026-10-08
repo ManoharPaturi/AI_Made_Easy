@@ -14,7 +14,7 @@ from pathlib import Path
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from ai_made_easy import __version__
-from ai_made_easy.core.graph import Graph, ValidationIssue
+from ai_made_easy.core.graph import Graph
 from ai_made_easy.core.registry import get_registry
 from ai_made_easy.core.summary import summarize
 from ai_made_easy.ui.canvas import CanvasArea, CanvasController, block_mime_data
@@ -24,6 +24,7 @@ from ai_made_easy.ui.dialogs import (
     SaveTemplateDialog,
     ShortcutsDialog,
 )
+from ai_made_easy.ui.features.data_workspace import DataPage
 from ai_made_easy.ui.features.experiments import CompareDialog, ExperimentsPage, SweepDialog
 from ai_made_easy.ui.features.inspector import AssistantPage, CodePage, SummaryPage
 from ai_made_easy.ui.features.library import BlockLibrary
@@ -31,6 +32,7 @@ from ai_made_easy.ui.features.problems import ProblemsPanel
 from ai_made_easy.ui.features.project_field import ProjectNameField
 from ai_made_easy.ui.features.properties import PropertyInspector
 from ai_made_easy.ui.features.runconsole import OutputPage, TrainingPage
+from ai_made_easy.ui.services.data_service import DataService
 from ai_made_easy.ui.services.experiment_service import ExperimentService
 from ai_made_easy.ui.services.export_service import ExportService, default_filename
 from ai_made_easy.ui.services.graph_service import GraphService
@@ -82,6 +84,7 @@ class AppContext(QtCore.QObject):
                                                     self, python=python_executable())
         self.project_service = ProjectService(self.project_store, self.graph_service,
                                               self.log_bus)
+        self.data_service = DataService(self, python=python_executable())
         self._last_ir: Graph | None = None
         self._run_kind = ""
         self._known_errors: set[tuple] = set()
@@ -103,6 +106,8 @@ class AppContext(QtCore.QObject):
         self.output_page = OutputPage(self.log_bus)
         self.training_page = TrainingPage(self.run_store)
         self.experiments_page = ExperimentsPage()
+        self.data_page = DataPage()
+        self._data_key = None
         self.validation_chip = StatusChip("Not validated")
         self.params_chip = StatusChip("")
         self.kind_chip = StatusChip("")
@@ -160,6 +165,20 @@ class AppContext(QtCore.QObject):
         es.sweep_finished.connect(self._on_sweep_finished)
         self.process_service.history_changed.connect(self._refresh_experiments)
         self.project_store.name_changed.connect(lambda *_: self._refresh_experiments())
+
+        dp, ds = self.data_page, self.data_service
+        dp.dataset_selected.connect(lambda _nid: self._profile_selected())
+        dp.refresh_requested.connect(lambda: self._profile_selected(refresh=True))
+        dp.open_file_requested.connect(self.act_profile_file)
+        dp.rows_requested.connect(self._load_rows)
+        dp.split_requested.connect(self.act_split_preview)
+        dp.augment_requested.connect(self.act_augmentation_preview)
+        ds.profiled.connect(self._on_profiled)
+        ds.rows_ready.connect(lambda key, frame: dp.set_rows(frame)
+                              if key == self._data_key else None)
+        ds.split_ready.connect(dp.set_split)
+        ds.preview_ready.connect(dp.set_augmentation)
+        ds.changed.connect(self._republish_issues)
 
         self.run_store.state_changed.connect(self._on_run_state)
         ps = self.process_service
@@ -279,7 +298,36 @@ class AppContext(QtCore.QObject):
 
     def _on_graph_settled(self, ir: Graph) -> None:
         self._last_ir = ir
-        issues = ir.validate() + self._dataset_health_issues(ir)
+        self._publish_issues(ir)
+        self._refresh_datasets(ir)
+        kind = project_kind(ir.to_dict())
+        self.kind_chip.set_state(kind)
+        self.summary_page.set_kind(kind.split()[0] if kind != "Neural network" else "Neural net")
+        try:
+            summary = summarize(ir) if kind == "Neural network" else None
+        except Exception:  # noqa: BLE001 — summaries need a valid model
+            summary = None
+        self.summary_page.set_summary(
+            summary, "" if summary else ("Classic ML pipelines have no layer summary."
+                                         if kind.startswith("Classic") else ""))
+        self.params_chip.set_state(f"{summary.total_params_display} parameters"
+                                   if summary else "")
+        self._refresh_preview(ir)
+        self.assistant_page.set_graph(ir.to_dict())
+        self._refresh_properties()
+        if not self.graph_service.settled_from_load:
+            self.project_store.mark_dirty()
+
+    def _republish_issues(self) -> None:
+        """Data profiles landed in the background: refresh the problems only."""
+        if self._last_ir is not None:
+            self._publish_issues(self._last_ir)
+
+    def _publish_issues(self, ir: Graph) -> None:
+        from ai_made_easy.core.data.lints import project_base
+
+        self.data_service.base = project_base(self.project_store.path)
+        issues = ir.validate() + self.data_service.issues_for(ir)
         self.validation_store.update(issues)
         self.graph_service.note_shapes(ir)
         self.graph_service.apply_validation(issues)
@@ -300,47 +348,6 @@ class AppContext(QtCore.QObject):
                                            "warning")
         else:
             self.validation_chip.set_state("No problems", "ok")
-        kind = project_kind(ir.to_dict())
-        self.kind_chip.set_state(kind)
-        self.summary_page.set_kind(kind.split()[0] if kind != "Neural network" else "Neural net")
-        try:
-            summary = summarize(ir) if kind == "Neural network" else None
-        except Exception:  # noqa: BLE001 — summaries need a valid model
-            summary = None
-        self.summary_page.set_summary(
-            summary, "" if summary else ("Classic ML pipelines have no layer summary."
-                                         if kind.startswith("Classic") else ""))
-        self.params_chip.set_state(f"{summary.total_params_display} parameters"
-                                   if summary else "")
-        self._refresh_preview(ir)
-        self.assistant_page.set_graph(ir.to_dict())
-        self._refresh_properties()
-        if not self.graph_service.settled_from_load:
-            self.project_store.mark_dirty()
-
-    def _dataset_health_issues(self, ir: Graph) -> list:
-        from ai_made_easy.core.dataset_health import (
-            AUDIO_SUFFIXES,
-            IMAGE_SUFFIXES,
-            TEXT_SUFFIXES,
-            scan_class_folder,
-        )
-
-        suffixes = {"data.image_folder": IMAGE_SUFFIXES, "data.text_folder": TEXT_SUFFIXES,
-                    "data.audio_folder": AUDIO_SUFFIXES}
-        out = []
-        for node in ir.nodes.values():
-            if node.type_id not in suffixes:
-                continue
-            root = Path(str(node.resolved_params().get("root", ""))).expanduser()
-            if not root.exists():
-                out.append(ValidationIssue("warning", f"dataset folder {root} was not found",
-                                           node.instance_id))
-                continue
-            report = scan_class_folder(root, suffixes[node.type_id])
-            out += [ValidationIssue("warning", f.message + (f" ({f.hint})" if f.hint else ""),
-                                    node.instance_id) for f in report.warnings]
-        return out
 
     def _refresh_preview(self, ir: Graph | None = None) -> None:
         ir = ir or self._last_ir
@@ -446,9 +453,88 @@ class AppContext(QtCore.QObject):
         definition = self.canvas.definition_of(node)
         if definition is None or not definition.type_id.startswith("data."):
             return
-        from ai_made_easy.ui.features.data_preview import DataPreviewDialog
+        self.data_page.select(node.id)
+        self.act_data()
 
-        DataPreviewDialog(self.window, definition, self.canvas.params_of(node.id)).exec()
+    # ================================================================ data
+
+    def act_data(self, *_):
+        if self.window is not None:
+            self.window.docks["data"].show()
+            self.window.docks["data"].raise_()
+        self._profile_selected()
+
+    def _refresh_datasets(self, ir: Graph) -> None:
+        from ai_made_easy.core.data.lints import dataset_nodes
+
+        items = []
+        for node_id, type_id, params in dataset_nodes(ir):
+            source = params.get("root") or params.get("path") or params.get("dataset") or \
+                params.get("repo_id") or params.get("kind") or ""
+            items.append((node_id, f"{self.canvas.node_title(node_id)} · {source}"))
+        previous = self.data_page.current_dataset()
+        self.data_page.set_datasets(items)
+        if not items:
+            self._data_key = None
+            self.data_page.clear()
+        elif self.data_page.current_dataset() == previous:
+            self._profile_selected()  # params may have changed
+
+    def _profile_selected(self, refresh: bool = False) -> None:
+        node_id = self.data_page.current_dataset()
+        ir = self._last_ir
+        if not node_id or ir is None or node_id not in ir.nodes:
+            return
+        node = ir.nodes[node_id]
+        key = self.data_service.cache.key(node.type_id, dict(node.resolved_params()),
+                                          self.data_service.base)
+        if key == self._data_key and not refresh and self.data_page.profile is not None:
+            return
+        self._data_key = key
+        self.data_page.set_loading()
+        self.data_service.request(node.type_id, dict(node.resolved_params()), refresh=refresh)
+
+    def _on_profiled(self, key, profile) -> None:  # noqa: ANN001
+        if key == self._data_key:
+            self.data_page.set_profile(profile)
+
+    def _load_rows(self) -> None:
+        if self.data_page.profile is not None:
+            self.data_service.load_rows(self._data_key, self.data_page.profile)
+
+    def act_profile_file(self, *_):
+        path, _ = QtWidgets.QFileDialog.getOpenFileName(
+            self.window, "Profile a Data File", str(self._last_dir()),
+            "Data files (*.csv *.tsv *.parquet *.xlsx *.xls *.json *.jsonl *.npz);;"
+            "All files (*)")
+        if not path:
+            return
+        self.data_page.set_loading(f"Profiling {Path(path).name}…")
+        self._data_key = self.data_service.request_path(path)
+
+    def act_data_split(self, *_):
+        self.act_data()
+        self.data_page.tabs.setCurrentIndex(4)
+        self.act_split_preview()
+
+    def act_data_augment(self, *_):
+        self.act_data()
+        self.data_page.tabs.setCurrentIndex(5)
+        self.act_augmentation_preview()
+
+    def act_split_preview(self, *_):
+        if self._last_ir is None:
+            return
+        self.data_page.split_btn.setEnabled(False)
+        self.data_page.split_info.setText("Computing the split…")
+        self.data_service.split(self._last_ir)
+
+    def act_augmentation_preview(self, *_):
+        if self._last_ir is None:
+            return
+        self.data_page.augment_btn.setEnabled(False)
+        self.data_page.augment_info.setText("Rendering training views…")
+        self.data_service.augment(self._last_ir)
 
     # ================================================================ runs
 

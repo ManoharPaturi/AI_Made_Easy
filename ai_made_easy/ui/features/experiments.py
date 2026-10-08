@@ -442,7 +442,9 @@ class CompareDialog(QtWidgets.QDialog):
                  if any(x is not None for x in v)]
         rows += [("Parameter", k, v) for k, v in data["params"].items()]
         rows += [("Run", "status", data["status"]),
-                 ("Run", "duration", [_duration(d) for d in data["duration"]])]
+                 ("Run", "duration", [_duration(d) for d in data["duration"]]),
+                 ("Run", "data" if data["same_data"] else "data (DIFFERENT)",
+                  [d or "—" for d in data["data"]])]
         self.table = QtWidgets.QTableWidget(len(rows), len(records) + 2)
         self.table.setHorizontalHeaderLabels(["Section", "Name", *names])
         self.table.verticalHeader().setVisible(False)

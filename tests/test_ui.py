@@ -300,13 +300,14 @@ def test_model_card_dialog_renders_markdown(app, tmp_path):
     assert "| accuracy | 0.4200 |" in markdown and "internal triage" in markdown
 
 
-def test_data_preview_describes_datasets(app, tmp_path):
-    from ai_made_easy.ui.features.data_preview import _table, describe
+def test_data_profile_describes_datasets(tmp_path):
+    from ai_made_easy.core.data.profile import describe, profile_path
 
     csv = tmp_path / "t.csv"
     csv.write_text("a,b,label\n1,2,x\n3,,y\n")
-    cols, rows, info = _table(str(csv))
-    assert cols == ["a", "b", "label"] and len(rows) == 2 and "1 missing" in info
+    profile = profile_path(csv, target="label")
+    assert [c.name for c in profile.columns] == ["a", "b", "label"] and profile.rows == 2
+    assert "1 missing" in profile.summary
     assert "Handwritten digits" in describe("data.torchvision", {"dataset": "mnist"})
     root = tmp_path / "imgs"
     (root / "a").mkdir(parents=True)
