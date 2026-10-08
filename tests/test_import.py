@@ -121,6 +121,20 @@ def test_onnx_round_trip(name, tmp_path):
     _check(import_onnx(str(path)))
 
 
+def test_onnx_fixed_batch_size(tmp_path):
+    """Exports without dynamic axes accept only their batch size (usually 1)."""
+    pytest.importorskip("onnx")
+    pytest.importorskip("onnxruntime")
+    import import_models
+
+    from ai_made_easy.core.importers.onnx_import import import_onnx
+
+    path = tmp_path / "fixed.onnx"
+    torch.onnx.export(import_models.FunctionalMLP().eval(), (torch.randn(1, 20),), str(path),
+                      input_names=["x"], dynamo=False, opset_version=17)
+    _check(import_onnx(str(path)))
+
+
 # -------------------------------------------------------------------- Keras
 
 def _keras_models():

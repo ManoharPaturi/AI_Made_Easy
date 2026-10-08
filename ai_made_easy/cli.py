@@ -102,6 +102,10 @@ def main(argv: list[str] | None = None) -> int:
     p_data.add_argument("--json", action="store_true", help="print JSON")
     p_data.add_argument("-o", "--out", default="augmentation_preview",
                         help="output folder (augment)")
+    p_web = sub.add_parser("web", help="serve the browser UI and REST API")
+    p_web.add_argument("--host", default="127.0.0.1")
+    p_web.add_argument("--port", type=int, default=8765)
+    p_web.add_argument("--open", action="store_true", help="open the browser")
     p_sum = sub.add_parser("summary", help="print the analytic model summary as JSON")
     p_sum.add_argument("project", help="path to project .json")
     p_llm = sub.add_parser("llm", help="generate an LLM workflow script")
@@ -129,6 +133,14 @@ def main(argv: list[str] | None = None) -> int:
         return _import_command(args)
     if args.command == "data":
         return _data_command(args)
+    if args.command == "web":
+        try:
+            from ai_made_easy.server.app import main as serve_web
+        except ImportError as exc:
+            print(f"error: {exc} — pip install 'ai-made-easy[web]'", file=sys.stderr)
+            return 1
+        serve_web(args.host, args.port, args.open)
+        return 0
 
     with open(args.project) as fh:
         graph = Graph.from_dict(json.load(fh))
