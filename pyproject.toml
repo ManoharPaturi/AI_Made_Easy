@@ -39,6 +39,7 @@ keras = ["keras>=3.6"]
 serve = ["fastapi>=0.110", "uvicorn[standard]>=0.29", "python-multipart>=0.0.9", "httpx>=0.27"]
 export = ["onnx>=1.16", "onnxruntime>=1.18", "onnxscript>=0.1", "skl2onnx>=1.17"]
 tuning = ["optuna>=3.6"]
+web = ["ai-made-easy[serve]"]
 all = ["ai-made-easy[torch,vision,data,classic,keras,llm,mcp-server,serve,export,tuning]"]
 dev = ["pytest>=8.0", "pytest-qt>=4.4", "pillow>=10", "ruff>=0.6", "httpx>=0.27"]
 perception = ["sounddevice>=0.4"]
@@ -55,7 +56,7 @@ aime-mcp = "ai_made_easy.mcp.server:main"
 include = ["ai_made_easy*"]
 
 [tool.setuptools.package-data]
-ai_made_easy = ["samples/*.json", "assets/*"]
+ai_made_easy = ["samples/*.json", "assets/*", "server/static/*", "server/static/**/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

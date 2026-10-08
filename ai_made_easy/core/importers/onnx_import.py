@@ -579,10 +579,14 @@ def verify(path: str, imp: OnnxImporter, graph_dict: dict) -> dict:
             missing += 1
     report = {"ok": True, "parameters": int(sum(p.numel() for p in rebuilt.parameters())),
               "weights_copied": copied, "weights_missing": missing}
+    # models exported with a fixed batch size (often 1) only accept that batch
+    real = [i for i in imp.graph.input if i.name not in imp.init]
+    dim0 = (imp.shapes.get(real[0].name) or [None])[0] if real else None
+    batch = dim0 if isinstance(dim0, int) and dim0 > 0 else 2
     if imp.dtype == "int64":
-        x = np.random.default_rng(0).integers(0, 2, (2, *imp.per_sample)).astype(np.int64)
+        x = np.random.default_rng(0).integers(0, 2, (batch, *imp.per_sample)).astype(np.int64)
     else:
-        x = np.random.default_rng(0).normal(size=(2, *imp.per_sample)).astype(np.float32)
+        x = np.random.default_rng(0).normal(size=(batch, *imp.per_sample)).astype(np.float32)
     with torch.no_grad():
         out = rebuilt(torch.from_numpy(x)).float().numpy()
     report["output_shape"] = list(out.shape[1:])
