@@ -498,7 +498,7 @@ def prepare_inputs(raw: list):
     for item in raw:
         if isinstance(item, (bytes, bytearray)):
             img = Image.open(io.BytesIO(item))
-        elif isinstance(item, str) and Path(item).exists():
+        elif isinstance(item, str) and _is_file(item):
             img = Image.open(item)
         else:
             img = Image.open(io.BytesIO(base64.b64decode(str(item).split(",")[-1])))
@@ -519,6 +519,15 @@ def prepare_inputs(raw: list):
 {% endif %}
 
 
+{% if d.block == "data.image_folder" %}
+def _is_file(text: str) -> bool:
+    try:
+        return len(text) < 1024 and Path(text).is_file()
+    except (OSError, ValueError):  # base64 strings can exceed the file-name limit
+        return False
+
+
+{% endif %}
 def infer(raw: list) -> list[dict]:
     """Predictions for a list of raw inputs (see ``prepare_inputs``)."""
     if _PREDICTOR is None:

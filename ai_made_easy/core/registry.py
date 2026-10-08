@@ -23,13 +23,20 @@ class BlockRegistry:
         self._blocks[block.type_id] = block
         return block
 
+    def unregister(self, type_id: str) -> None:
+        self._blocks.pop(type_id, None)
+
     def get(self, type_id: str) -> BlockDefinition:
         try:
             return self._blocks[type_id]
         except KeyError:
-            raise RegistryError(
-                f"unknown block type: {type_id!r} (known: {sorted(self._blocks)})"
-            ) from None
+            import difflib
+
+            close = difflib.get_close_matches(type_id, list(self._blocks), n=3)
+            hint = f"; did you mean {', '.join(close)}?" if close else ""
+            if type_id.startswith("custom."):
+                hint = " (a custom block that is not installed on this machine)"
+            raise RegistryError(f"unknown block type {type_id!r}{hint}") from None
 
     def has(self, type_id: str) -> bool:
         return type_id in self._blocks
@@ -72,4 +79,10 @@ def get_registry() -> BlockRegistry:
     if _REGISTRY is None:
         _REGISTRY = BlockRegistry()
         import ai_made_easy.core.blocks  # noqa: F401  (registers built-ins)
+        from ai_made_easy.core.block_packs import register_custom_blocks
+
+        try:
+            register_custom_blocks()  # the user's saved custom blocks
+        except OSError:
+            pass
     return _REGISTRY

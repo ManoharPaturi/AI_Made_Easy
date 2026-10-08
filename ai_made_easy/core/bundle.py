@@ -59,6 +59,13 @@ def write_bundle(path: Path, graph_dict: dict, *, name: str = "project",
         if thumbnail_png:
             zf.writestr("thumbnail.png", thumbnail_png)
             entries["thumbnail"] = True
+        from ai_made_easy.core.block_packs import blocks_used
+
+        custom = blocks_used(graph_dict)
+        for slug, data in custom.items():
+            zf.writestr(f"blocks/{slug}.json", json.dumps(data, indent=1))
+        if custom:
+            entries["custom_blocks"] = len(custom)
         if dataset_dir and Path(dataset_dir).exists():
             count = size = 0
             for f in sorted(Path(dataset_dir).rglob("*")):
@@ -79,7 +86,9 @@ def write_bundle(path: Path, graph_dict: dict, *, name: str = "project",
                                     ("metrics.json", "run/metrics.json"),
                                     ("classes.json", "run/classes.json"),
                                     ("predictions.json", "run/predictions.json"),
-                                    ("mistakes.json", "run/mistakes.json")):
+                                    ("mistakes.json", "run/mistakes.json"),
+                                    ("inference_state.pkl", "run/inference_state.pkl"),
+                                    ("inference.json", "run/inference.json")):
                 hits = sorted(Path(workdir).glob(pattern))
                 if hits:
                     zf.write(hits[0], member)
@@ -113,7 +122,10 @@ def read_bundle(path: Path) -> dict:
             "card": (zf.read("model_card.md").decode()
                      if "model_card.md" in names else None),
             "has_dataset": any(n.startswith("dataset/") for n in names),
-            "has_run": "run/checkpoint.pt" in names,
+            "has_run": any(n in names for n in ("run/checkpoint.pt", "run/model.keras",
+                                                "run/model.joblib")),
+            "custom_blocks": {n[len("blocks/"):-len(".json")]: json.loads(zf.read(n))
+                              for n in names if n.startswith("blocks/") and n.endswith(".json")},
             "run_dir": None,
             "dataset_dir": None,
         }
@@ -130,3 +142,33 @@ def read_bundle(path: Path) -> dict:
                     zf.extract(n, ds_dir)
             out["dataset_dir"] = ds_dir / "dataset"
     return out
+
+
+def restore_run(bundle: dict, history) -> str | None:  # noqa: ANN001
+    """Add a bundle's trained run to the run history (so it can be analysed,
+    registered and deployed). Returns the new run id, or None without a run."""
+    import re
+    import shutil
+
+    run_dir = bundle.get("run_dir")
+    if not run_dir or not (Path(run_dir) / "train.py").exists():
+        return None
+    run_dir = Path(run_dir)
+    script = (run_dir / "train.py").read_text()
+    framework = ("keras" if (run_dir / "model.keras").exists() else
+                 "sklearn" if (run_dir / "model.joblib").exists() else "pytorch")
+    match = re.search(r'^(?:CHECKPOINT|MODEL_FILE) = "([^"]+)"', script, re.M)
+    record = history.create(bundle["graph"], framework=framework,
+                            project=bundle["manifest"].get("name", ""), tags=["archive"])
+    target = history.path(record.run_id)
+    stem = (match.group(1).rsplit("_", 1)[0] if match else "model")
+    (target / f"{stem}_train_{framework}.py").write_text(script)
+    renames = {"checkpoint.pt": match.group(1) if match else f"{stem}_best.pt",
+               "model.keras": match.group(1) if match else f"{stem}_best.keras",
+               "model.joblib": match.group(1) if match else f"{stem}_model.joblib"}
+    for f in run_dir.iterdir():
+        if f.name == "train.py":
+            continue
+        shutil.copy2(f, target / renames.get(f.name, f.name))
+    history.finalize(record.run_id, "finished", 0)
+    return record.run_id

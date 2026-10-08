@@ -229,6 +229,18 @@ def list_models() -> str:
     return json.dumps(api.list_models(), default=str)
 
 
+@mcp.tool()
+def import_model(kind: str, source: str, attr: str = "", input_shape: list[int] | None = None,
+                 dtype: str = "float32") -> str:
+    """Import an existing model as an editable graph: kind = pytorch (source = .py
+    file or module, attr = class / factory, input_shape required), onnx (.onnx)
+    or keras (.keras / .h5). Returns the graph and a fidelity report."""
+    try:
+        return json.dumps(api.import_model(kind, source, attr, input_shape, dtype), default=str)
+    except api.ApiError as exc:
+        return _err(exc)
+
+
 def main() -> None:
     mcp.run()  # stdio transport
 

@@ -55,9 +55,7 @@ def test_expand_selected_splices_wires(qapp):
 
 
 def test_save_selection_roundtrip(qapp, tmp_path: Path, monkeypatch):
-    from ai_made_easy.ui.canvas import templates as canvas_mod
-
-    monkeypatch.setattr(canvas_mod, "TEMPLATES_DIR", tmp_path / "templates")
+    monkeypatch.setenv("AIME_HOME", str(tmp_path))
 
     canvas = _make_canvas(qapp)
     canvas.seed_demo()
