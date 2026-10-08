@@ -14,6 +14,8 @@ Usage:
   aime deploy RUN_ID -o DIR [--formats onnx,torchscript]   # model server package
   aime models [list | register RUN_ID NAME | stage NAME VERSION STAGE | deploy NAME VERSION -o DIR]
   aime serve DIR [--port 8000]       # run a deployment package locally
+  aime import pytorch model.py --attr Net --shape 3,32,32 -o project.json
+  aime import onnx model.onnx -o project.json      (also: keras model.keras)
   aime sweep <project.json> -p opt.lr=log:1e-4:1e-1 -p d1.units=int:16:128 \
              -p opt.nesterov=choice:true,false --metric accuracy --strategy tpe -n 20
 """
@@ -84,6 +86,14 @@ def main(argv: list[str] | None = None) -> int:
     p_srv.add_argument("package")
     p_srv.add_argument("--host", default="127.0.0.1")
     p_srv.add_argument("--port", type=int, default=8000)
+    p_imp = sub.add_parser("import", help="import a PyTorch / ONNX / Keras model as a project")
+    p_imp.add_argument("kind", choices=("pytorch", "onnx", "keras"))
+    p_imp.add_argument("source", help=".py file or module (pytorch), .onnx, .keras / .h5")
+    p_imp.add_argument("--attr", default="", help="model class or factory (pytorch)")
+    p_imp.add_argument("--shape", default="", help="per-sample input shape, e.g. 3,224,224")
+    p_imp.add_argument("--dtype", default="float32", choices=("float32", "int64"))
+    p_imp.add_argument("--kwargs", default="{}", help="constructor arguments as JSON")
+    p_imp.add_argument("-o", "--out", required=True, help="project .json to write")
     p_sum = sub.add_parser("summary", help="print the analytic model summary as JSON")
     p_sum.add_argument("project", help="path to project .json")
     p_llm = sub.add_parser("llm", help="generate an LLM workflow script")
@@ -107,6 +117,8 @@ def main(argv: list[str] | None = None) -> int:
         return _runs_command(args)
     if args.command in ("deploy", "models", "serve"):
         return _deploy_command(args)
+    if args.command == "import":
+        return _import_command(args)
 
     with open(args.project) as fh:
         graph = Graph.from_dict(json.load(fh))
@@ -280,6 +292,28 @@ def _sweep_command(args, graph) -> int:  # noqa: ANN001
                   flush=True)
             return 0 if record["state"] == "finished" and record["best"] else 1
         _time.sleep(0.5)
+
+
+def _import_command(args) -> int:  # noqa: ANN001
+    from pathlib import Path
+
+    from ai_made_easy.core import api
+
+    try:
+        shape = [int(d) for d in args.shape.replace("x", ",").split(",") if d.strip()] or None
+        result = api.import_model(args.kind, args.source, attr=args.attr, input_shape=shape,
+                                  dtype=args.dtype, kwargs=json.loads(args.kwargs))
+    except (ValueError, KeyError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    print(result["summary"])
+    for warning in result["warnings"]:
+        print(f"warning: {warning}")
+    if result["unsupported"]:
+        return 1
+    Path(args.out).write_text(json.dumps(result["graph"], indent=1))
+    print(f"project: {args.out}")
+    return 0 if result["ok"] else 1
 
 
 def _deploy_command(args) -> int:  # noqa: ANN001

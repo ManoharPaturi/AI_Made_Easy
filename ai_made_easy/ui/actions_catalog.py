@@ -28,6 +28,9 @@ CATALOG: list[ActionSpec] = [
     ActionSpec("file.open", "&Open Project…", "&File", "act_open", "Ctrl+O", icon="open"),
     ActionSpec("file.examples", "Open &Example…", "&File", "act_samples", "Ctrl+Shift+O",
                "Open a ready-made example project", separator_after=True),
+    ActionSpec("file.import_model", "&Import Model…", "&File", "act_import_model",
+               "Ctrl+Shift+I", "Turn a PyTorch, ONNX or Keras model into editable blocks",
+               icon="download", separator_after=True),
     ActionSpec("file.save", "&Save", "&File", "act_save", "Ctrl+S", icon="save"),
     ActionSpec("file.save_as", "Save &As…", "&File", "act_save_as", "Ctrl+Shift+S",
                separator_after=True),
@@ -70,6 +73,10 @@ CATALOG: list[ActionSpec] = [
     ActionSpec("model.save_selection", "Save Selection as &Block…", "&Model",
                "act_save_selection", "Ctrl+Shift+B",
                "Turn the selected blocks into a reusable custom block", icon="plus_box"),
+    ActionSpec("model.export_blocks", "Export Custom Blocks…", "&Model", "act_export_blocks",
+               tooltip="Share your custom blocks as a .aimeblocks pack"),
+    ActionSpec("model.import_blocks", "Import Custom Blocks…", "&Model", "act_import_blocks",
+               tooltip="Install custom blocks from a .aimeblocks pack"),
 
     # ---- Run ----
     ActionSpec("run.train", "&Train", "&Run", "act_train", "Ctrl+R",

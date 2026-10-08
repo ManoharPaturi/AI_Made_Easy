@@ -744,6 +744,31 @@ class AppContext(QtCore.QObject):
             history.update(run_id, tags=[t.strip() for t in text.split(",") if t.strip()])
             self._refresh_experiments()
 
+    # ============================================================= import
+
+    def act_import_model(self, *_):
+        from ai_made_easy.ui.features.import_model import ImportModelDialog
+
+        if not self._confirm_discard():
+            return
+        dialog = ImportModelDialog(self.window, python=python_executable(),
+                                   start_dir=self._last_dir())
+        if dialog.exec() != QtWidgets.QDialog.DialogCode.Accepted or dialog.result is None:
+            return
+        self.open_imported(dialog.result.graph)
+
+    def open_imported(self, graph: dict) -> bool:
+        """Load an imported graph as a new, unsaved project and arrange it."""
+        if not self.project_service.apply_graph_dict(graph):
+            return False
+        self.project_store.set_path(None)
+        self.canvas.auto_layout(self.project_service.snapshot())
+        self.canvas.center_view()
+        self.project_store.mark_dirty()
+        self.status_message.emit(f"Imported {graph.get('name', 'model')} — "
+                                 f"{len(graph.get('nodes', []))} blocks")
+        return True
+
     # ============================================================= deploy
 
     def act_deploy(self, *_):
@@ -903,9 +928,26 @@ class AppContext(QtCore.QObject):
         except (ValueError, OSError) as exc:
             self.log_bus.error(str(exc))
             return
+        if bundle.get("custom_blocks"):
+            from ai_made_easy.core.block_packs import install_for_project
+            from ai_made_easy.ui.canvas import templates as template_store
+            from ai_made_easy.ui.canvas.node_factory import make_node_class
+
+            installed = install_for_project(bundle["graph"], bundle["custom_blocks"])
+            template_store.register_user_templates(get_registry().register, make_node_class)
+            self.library.rebuild()
+            if installed["imported"] or installed["renamed"]:
+                self.log_bus.info(f"installed custom blocks from the archive: {installed}")
         self.graph_service.load(Graph.from_dict(bundle["graph"]))
         self.project_store.set_name(bundle["manifest"].get("name", "untitled"))
         self.project_store.set_path(None)
+        from ai_made_easy.core.bundle import restore_run
+
+        run_id = restore_run(bundle, self.experiment_service.history)
+        if run_id:
+            self._refresh_experiments()
+            self._load_run_results(run_id)
+            self.log_bus.info(f"the archive's trained run is available as {run_id}")
         self.log_bus.info(f"opened archive {path}")
 
     def act_quit(self, *_):
@@ -1000,6 +1042,51 @@ class AppContext(QtCore.QObject):
         self.library.rebuild()
         self.log_bus.info(f"saved custom block → {path}")
         self.status_message.emit(f"Saved custom block '{dialog.template_name()}'")
+
+    def act_export_blocks(self, *_):
+        from ai_made_easy.core.block_packs import PackError, export_pack, list_blocks
+
+        if not list_blocks():
+            self.status_message.emit("No custom blocks yet — use Model ▸ Save Selection as Block")
+            return
+        path, _ = QtWidgets.QFileDialog.getSaveFileName(
+            self.window, "Export Custom Blocks", str(self._last_dir() / "blocks.aimeblocks"),
+            "Custom block packs (*.aimeblocks)")
+        if not path:
+            return
+        try:
+            export_pack(path)
+        except (PackError, OSError) as exc:
+            QtWidgets.QMessageBox.warning(self.window, "Export Custom Blocks", str(exc))
+            return
+        self._remember_dir(path)
+        self.status_message.emit(f"Exported {len(list_blocks())} custom block(s)")
+
+    def act_import_blocks(self, *_):
+        from ai_made_easy.core.block_packs import PackError, import_pack
+        from ai_made_easy.core.registry import get_registry
+        from ai_made_easy.ui.canvas import templates as template_store
+        from ai_made_easy.ui.canvas.node_factory import make_node_class
+
+        path, _ = QtWidgets.QFileDialog.getOpenFileName(
+            self.window, "Import Custom Blocks", str(self._last_dir()),
+            "Custom block packs (*.aimeblocks)")
+        if not path:
+            return
+        try:
+            result = import_pack(path)
+        except (PackError, OSError) as exc:
+            QtWidgets.QMessageBox.warning(self.window, "Import Custom Blocks", str(exc))
+            return
+        template_store.register_user_templates(get_registry().register, make_node_class)
+        self.library.rebuild()
+        parts = [f"{len(result['imported'])} imported"]
+        if result["skipped"]:
+            parts.append(f"{len(result['skipped'])} already installed")
+        if result["renamed"]:
+            parts.append("renamed: " + ", ".join(f"{a} → {b}"
+                                                 for a, b in result["renamed"].items()))
+        self.status_message.emit("Custom blocks: " + "; ".join(parts))
 
     # ============================================================ export
 

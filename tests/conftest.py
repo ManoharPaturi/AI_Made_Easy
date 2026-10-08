@@ -53,3 +53,16 @@ def isolated_home(tmp_path, monkeypatch):
     """A fresh ``$AIME_HOME`` for one test."""
     monkeypatch.setenv("AIME_HOME", str(tmp_path / "home"))
     return tmp_path / "home"
+
+
+@pytest.fixture(autouse=True)
+def _forget_custom_blocks():
+    """Custom blocks registered by a test must not leak into later tests."""
+    from ai_made_easy.core.registry import get_registry
+
+    registry = get_registry()
+    before = {b.type_id for b in registry.all()}
+    yield
+    for block in registry.all():
+        if block.type_id.startswith("custom.") and block.type_id not in before:
+            registry.unregister(block.type_id)

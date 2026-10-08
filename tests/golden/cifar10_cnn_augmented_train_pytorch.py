@@ -355,13 +355,20 @@ def open_image(item):
     if isinstance(item, str):
         if item.startswith("data:"):
             item = item.split(",", 1)[1]
-        elif Path(item).exists():
+        elif len(item) < 1024 and _is_file(item):
             return Image.open(item)
         return Image.open(io.BytesIO(base64.b64decode(item)))
     arr = np.asarray(item)
     if arr.dtype != np.uint8:
         arr = (np.clip(arr, 0, 1) * 255).astype(np.uint8) if arr.max() <= 1 else arr.astype(np.uint8)
     return Image.fromarray(arr)
+
+
+def _is_file(text: str) -> bool:
+    try:
+        return Path(text).is_file()
+    except (OSError, ValueError):  # e.g. base64 strings longer than a file name may be
+        return False
 
 
 def class_name(index: int) -> str:
