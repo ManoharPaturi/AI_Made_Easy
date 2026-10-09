@@ -17,7 +17,7 @@ from typing import Callable
 # how a model is trained; the training template is chosen by this
 TRAINER_KINDS = ("supervised", "detection", "segmentation", "forecasting", "speech",
                  "adversarial", "diffusion", "vae", "language_model", "seq2seq",
-                 "self_supervised", "rl", "bayesian")
+                 "flow", "self_supervised", "rl", "bayesian")
 
 
 @dataclass(frozen=True)

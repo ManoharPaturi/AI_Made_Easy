@@ -96,6 +96,9 @@ CONTEXTS: dict[str, tuple] = {
                                [("core.embedding", {"num_embeddings": 256,
                                                     "embedding_dim": 32})],
                                [("core.dense", {"units": 256})]),
+    # flows need at least one learnable transform next to ActNorm / permutations
+    "flow.actnorm": ([8], "float32", [], [("flow.affine_coupling", {})]),
+    "flow.permute": ([8], "float32", [], [("flow.affine_coupling", {})]),
 }
 
 CANDIDATE_SHAPES = ([32], [8, 16], [4, 16, 16], [4, 8, 8, 8], [8, 16, 16], [1, 16],

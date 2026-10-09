@@ -1,0 +1,169 @@
+{
+  "schema_version": 1,
+  "name": "flow_checkerboard_spline",
+  "meta": {
+    "title": "Normalizing Flow \u2014 Neural Spline Flow",
+    "description": "Three spline coupling layers (with ActNorm) learn a checkerboard density that no Gaussian can describe. The live picture shows the data, samples drawn from the flow and the learned density; the deployed model returns exact log-densities and new samples."
+  },
+  "nodes": [
+    {
+      "id": "input",
+      "type": "core.input",
+      "params": {
+        "shape": "2"
+      },
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "actnorm_0",
+      "type": "flow.actnorm",
+      "params": {},
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "spline_0",
+      "type": "flow.spline_coupling",
+      "params": {
+        "hidden": 64,
+        "layers": 2,
+        "bins": 8,
+        "bound": 4.0,
+        "parity": "even"
+      },
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "actnorm_1",
+      "type": "flow.actnorm",
+      "params": {},
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "spline_1",
+      "type": "flow.spline_coupling",
+      "params": {
+        "hidden": 64,
+        "layers": 2,
+        "bins": 8,
+        "bound": 4.0,
+        "parity": "odd"
+      },
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "actnorm_2",
+      "type": "flow.actnorm",
+      "params": {},
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "spline_2",
+      "type": "flow.spline_coupling",
+      "params": {
+        "hidden": 64,
+        "layers": 2,
+        "bins": 8,
+        "bound": 4.0,
+        "parity": "even"
+      },
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "output",
+      "type": "core.output",
+      "params": {},
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "data",
+      "type": "data.density_2d",
+      "params": {
+        "kind": "checkerboard",
+        "n_samples": 8000,
+        "noise": 0.0,
+        "seed": 0
+      },
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "opt",
+      "type": "train.adam",
+      "params": {
+        "lr": 0.003
+      },
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "trainer",
+      "type": "train.trainer",
+      "params": {
+        "epochs": 60,
+        "batch_size": 256
+      },
+      "position": [
+        0,
+        0
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "from": "input/out",
+      "to": "actnorm_0/in"
+    },
+    {
+      "from": "actnorm_0/out",
+      "to": "spline_0/in"
+    },
+    {
+      "from": "spline_0/out",
+      "to": "actnorm_1/in"
+    },
+    {
+      "from": "actnorm_1/out",
+      "to": "spline_1/in"
+    },
+    {
+      "from": "spline_1/out",
+      "to": "actnorm_2/in"
+    },
+    {
+      "from": "actnorm_2/out",
+      "to": "spline_2/in"
+    },
+    {
+      "from": "spline_2/out",
+      "to": "output/in"
+    }
+  ]
+}

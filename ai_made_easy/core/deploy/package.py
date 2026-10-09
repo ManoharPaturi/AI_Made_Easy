@@ -58,6 +58,8 @@ _INPUT_HELP = {
               "\"future_covariates\": [[...]] (history + horizon rows)} or a plain list of "
               "values",
     "arrays": "a list of samples shaped like the model input",
+    "density": "a list of points ([values] or {\"column\": value}) -> log-density, or "
+               "{\"sample\": n, \"seed\": 0} -> points drawn from the model",
 }
 
 
@@ -161,6 +163,14 @@ def _describe(graph_dict: dict) -> dict:
         return {"task": task.id, "modality": "image" if kind == "generation" else "text",
                 "dataset": data.type_id if data else "",
                 "input_kind": kind, "input_help": _INPUT_HELP[kind], "response": task.serving}
+    if task is not None and task.trainer_kind == "flow":
+        from ai_made_easy.core.flows.tasks import dataset_of as flow_data
+
+        data = flow_data(graph)
+        return {"task": task.id, "modality": "tabular",
+                "dataset": data.type_id if data else "data.density_2d",
+                "input_kind": "density", "input_help": _INPUT_HELP["density"],
+                "response": task.serving}
     if task is not None and task.trainer_kind == "speech":
         from ai_made_easy.core.speech.tasks import dataset_of as speech_data
 
@@ -235,6 +245,9 @@ def _example(meta: dict, signature: dict) -> str:
         return json.dumps({"inputs": [{"n": 4, "seed": 0}]})
     if kind == "prompt":
         return json.dumps({"inputs": ["the cat"]})
+    if kind == "density":
+        shape = signature.get("input_shape") or [2]
+        return json.dumps({"inputs": [[0.0] * int(shape[0]), {"sample": 3, "seed": 0}]})
     if kind == "speech":
         return '{"inputs": ["<base64 WAV file>"]}'
     if kind == "series":
@@ -297,7 +310,8 @@ def build_package(run_dir: Path | str, out_dir: Path | str, *, formats: tuple[st
     (out_dir / "app.py").write_text(templates.APP.format(
         name=name, image=image,
         image_route=(templates.IMAGE_ROUTE if meta["input_kind"] == "images" else
-                     templates.GENERATE_ROUTE if meta["input_kind"] in ("generation", "prompt")
+                     templates.GENERATE_ROUTE if meta["input_kind"] in ("generation", "prompt",
+                                                                       "density")
                      else "")))
     (out_dir / "Dockerfile").write_text(templates.DOCKERFILE.format(
         name=name, python=py_minor, env=keras_env))
