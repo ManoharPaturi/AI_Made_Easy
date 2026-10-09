@@ -369,7 +369,8 @@ class Graph:
         optimizers = [n for n in self.nodes.values()
                       if n.type_id in _OPTIMIZERS]
         losses = [n for n in self.nodes.values()
-                  if n.type_id.startswith(("train.loss", "vision.loss"))]
+                  if n.type_id.startswith("train.loss")
+                  or (n.definition().meta or {}).get("kind") == "loss"]
         schedulers = [n for n in self.nodes.values()
                       if n.type_id in _SCHEDULERS]
         if trainers:

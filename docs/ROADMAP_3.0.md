@@ -113,7 +113,7 @@ Goal: about 750+ blocks, every family validated at design time, generating runna
   - Mask2Former
   - torchmetrics (mAP is computed in-house and matches pycocotools exactly)
 
-## Phase 3 — Sequences, time series and audio
+## Phase 3 — Sequences, time series and audio ✅
 - **Forecasting:**
   - TCN, N-BEATS, N-HiTS, PatchTST, DLinear, TiDE, Informer-style attention, TFT-lite
   - probabilistic heads: quantile, Student-t / NegBin DeepAR-style
@@ -135,6 +135,10 @@ Goal: about 750+ blocks, every family validated at design time, generating runna
   - sampling-rate match with the pretrained audio model
   - CTC: output length ≥ label length
 - **Samples:** forecasting (synthetic seasonal series), keyword spotting (synthetic tones).
+- **Status:** shipped, plus a CTC speech-recognition sample. Not in this phase (moved to a later release):
+  - TFT-lite and the AST audio backbone
+  - LSTM projection / peephole variants (the existing LSTM / GRU blocks cover bidirectional and stacked use)
+  - torchaudio / jiwer (mel features, resampling and WER / CER are implemented in-house and need no extra)
 
 ## Phase 4 — Generative models
 - **Families:**

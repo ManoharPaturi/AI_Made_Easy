@@ -34,6 +34,12 @@ boilerplate. It runs on the desktop or in the browser.
   RT-DETR), instance segmentation (Mask R-CNN), keypoints and semantic
   segmentation (DeepLabV3, SegFormer, U-Net family) on COCO, YOLO, Pascal VOC or
   mask-folder datasets, with box / mask-aware augmentation and COCO mAP.
+- **Forecasting and speech.** Probabilistic forecasting of one or many series
+  (DLinear, N-BEATS, N-HiTS, PatchTST, TiDE, TCN, DeepAR-style RNN, Informer-style
+  Transformer) with quantile / Student-t / negative-binomial heads, covariates,
+  rolling-origin backtests and MASE / CRPS. Keyword spotting, CTC speech
+  recognition and audio tagging with in-model mel features, wav2vec 2.0 / HuBERT /
+  WavLM / Whisper encoders, and Mamba, S4D, sLSTM and TCN sequence blocks.
 - **Resource budgets.** FLOPs, training memory and latency estimates for 11
   devices (laptop CPU to H100, iPhone, Jetson, Raspberry Pi), with warnings and
   Quick Fixes when a design will not fit.
@@ -76,6 +82,7 @@ Install only what you need with the optional extras:
 | `torch` | In-app training, ONNX / TorchScript export |
 | `vision` | torchvision datasets, transforms and pretrained backbones |
 | `vision-tasks` | timm backbones, Hugging Face DETR / SegFormer / DINOv2, COCO RLE masks |
+| `audio` | Hugging Face speech encoders (wav2vec 2.0, HuBERT, WavLM, Whisper) |
 | `data` | pandas-backed table files (CSV, TSV, Parquet, Excel, JSON) |
 | `classic` | scikit-learn, XGBoost, LightGBM, CatBoost |
 | `keras` | Keras 3 for running exported Keras code |
@@ -118,11 +125,12 @@ desktop app. Hosting, authentication and the REST API are covered in
 
 | Section | Blocks | Contents |
 |---|---|---|
-| Data | 19 | Input / Output, torchvision benchmarks, image / text / audio folders, table files, scikit-learn datasets, NumPy, JSON, Hugging Face, time series, COCO, YOLO, Pascal VOC, mask folders, synthetic |
+| Data | 23 | Input / Output, torchvision benchmarks, image / text / audio folders, table files, scikit-learn datasets, NumPy, JSON, Hugging Face, time series, forecasting tables, speech manifests, COCO, YOLO, Pascal VOC, mask folders, synthetic |
 | Preprocessing | 41 | Split, loader, class balancing, imputation, encoding, scaling, outlier clipping, tokenization, audio features, SpecAugment, 24 image transforms incl. RandAugment, AutoAugment, AugMix, MixUp / CutMix |
 | Layers | 132 | Linear, convolution (1-3D, transposed, depthwise, separable), pooling, padding / resizing, recurrent, attention & transformers, embeddings, 27 activations, normalization, regularization, merges, tensor ops |
-| Models | 19 | Detectors, instance / semantic segmenters, keypoint detector, U-Net family, 39 torchvision + 87 timm backbones, Hugging Face text and image encoders, architecture templates |
-| Training | 76 | 18 losses (incl. Dice, Tversky, Lovász), 12 optimizers, 12 LR schedulers, trainer, k-fold, 32 metrics (incl. COCO mAP, mean IoU, PCK) |
+| Sequences & Forecasting | 14 | TCN, Mamba, S4D, sLSTM; mel spectrogram / MFCC front-ends; 8 forecasters with point, quantile, Student-t and negative-binomial heads |
+| Models | 20 | Detectors, instance / semantic segmenters, keypoint detector, U-Net family, 39 torchvision + 87 timm backbones, Hugging Face text, image and speech encoders, architecture templates |
+| Training | 85 | 19 losses (incl. Dice, Tversky, Lovász, CTC), 12 optimizers, 12 LR schedulers, trainer, k-fold, 40 metrics (incl. COCO mAP, mean IoU, PCK, MASE, CRPS, WER / CER) |
 | Classic ML | 68 | 55 estimators (linear, SVM, neighbors, Bayes, trees, ensembles, boosting, clustering, anomaly detection), feature engineering, TF-IDF, hyperparameter search |
 | LLM | 15 | Model, tokenizer, prompts, LoRA / QLoRA fine-tuning, embeddings, vector store, retrieval, RAG |
 
