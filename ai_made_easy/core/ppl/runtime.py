@@ -164,7 +164,7 @@ def posterior_grid(draws: dict, max_panels: int = 12, size=(240, 130)) -> "Image
         for q in (lo, hi):
             xq = ox + 10 + (q - edges[0]) / span * (w - 20)
             draw.line([xq, oy + 22, xq, oy + h - 20], fill=(240, 170, 60))
-        draw.text((ox + 8, oy + 4), f"{label}  {values.mean():.3g} ± {values.std():.2g}",
+        draw.text((ox + 8, oy + 4), f"{label}  {values.mean():.3g} +/- {values.std():.2g}",
                   fill=(225, 225, 225))
         draw.text((ox + 8, oy + h - 16), f"{edges[0]:.3g}", fill=(150, 150, 150))
         draw.text((ox + w - 60, oy + h - 16), f"{edges[-1]:.3g}", fill=(150, 150, 150))
@@ -212,8 +212,8 @@ def ppc_plot(observed: np.ndarray, mean: np.ndarray, lower: np.ndarray, upper: n
         xm, ym = xy(observed[i], mean[i])
         draw.ellipse([xm - 2, ym - 2, xm + 2, ym + 2], fill=(240, 120, 80))
     draw.text((10, 6), title, fill=(225, 225, 225))
-    draw.text((w - 120, h - 18), "observed →", fill=(150, 150, 150))
-    draw.text((6, 22), "predicted ↑", fill=(150, 150, 150))
+    draw.text((w - 120, h - 18), "observed ->", fill=(150, 150, 150))
+    draw.text((6, 22), "predicted ^", fill=(150, 150, 150))
     return img
 '''
 

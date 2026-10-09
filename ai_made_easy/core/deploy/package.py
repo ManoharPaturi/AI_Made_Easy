@@ -83,6 +83,7 @@ def _artifacts(run_dir: Path, framework: str) -> tuple[Path, list[Path]]:
     if script is None:
         raise DeployError(f"no {framework} training script in {run_dir}")
     patterns = {"pgmpy": ("*_model.pkl",), "pymc": ("*_draws.npz", "*_state.json"),
+                "gpytorch": ("*_gp.pt", "inference_state.json"),
                 "pytorch": ("*_best.pt", "inference_state.pkl"),
                 "keras": ("*_best.keras", "inference_state.pkl"),
                 "sklearn": ("*_model.joblib", "inference.json")}[framework]
@@ -109,6 +110,10 @@ def _describe(graph_dict: dict) -> dict:
     from ai_made_easy.core.tasks import task_of
 
     task = None if is_classic(graph) else task_of(graph)
+    if task is not None and task.family == "gp":
+        return {"task": task.id, "modality": "tabular", "dataset": "", "input_kind": "records",
+                "input_help": "a list of rows {\"feature\": value}; returns the predictive "
+                "mean, std and a 95% interval (or a class probability)", "response": task.serving}
     if task is not None and task.family == "ppl":
         from ai_made_easy.core.ppl.tasks import dataset_of as ppl_data
 
