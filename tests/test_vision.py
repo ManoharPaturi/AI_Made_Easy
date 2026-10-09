@@ -595,3 +595,14 @@ def test_overlay_draws_keypoints_with_or_without_visibility(rt):
     hidden = np.asarray(rt["overlay"](img, None, {"boxes": np.zeros((0, 4)), "labels": [],
                                                   "keypoints": np.asarray([[[5, 5, 0]]])}))
     assert not hidden.any()
+
+
+def test_profile_reports_missing_packages(monkeypatch):
+    from ai_made_easy.core.data import profile as prof
+
+    def broken(params, base):
+        raise ModuleNotFoundError("No module named 'PIL'", name="PIL")
+
+    monkeypatch.setitem(prof.PROFILERS, "data.synthetic_shapes", broken)
+    result = prof.profile_dataset("data.synthetic_shapes", {})
+    assert result.error == "profiling this dataset needs pillow: pip install pillow"

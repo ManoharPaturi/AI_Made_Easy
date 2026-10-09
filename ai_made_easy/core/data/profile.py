@@ -681,6 +681,11 @@ def profile_dataset(type_id: str, params: dict, base: str | Path | None = None) 
     if type_id in PROFILERS:
         try:
             return PROFILERS[type_id](params, base)
+        except ImportError as exc:
+            package = {"PIL": "pillow"}.get(exc.name or "", exc.name or "a package")
+            return DataProfile(type_id, "annotations",
+                               error=f"profiling this dataset needs {package}: "
+                                     f"pip install {package}")
         except Exception as exc:  # noqa: BLE001 — unreadable data is reported, not raised
             return DataProfile(type_id, "annotations", error=f"could not read the dataset: {exc}")
     if type_id in TABLE_BLOCKS:
