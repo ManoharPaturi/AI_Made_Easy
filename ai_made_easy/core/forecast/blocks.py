@@ -241,7 +241,7 @@ def _datasets() -> list[BlockDefinition]:
               "rolling-origin backtest split."),
         _data("data.synthetic_series", "Synthetic Series",
               (P("n_series", "int", 30, lo=1), P("length", "int", 400, lo=20),
-               P("trend", "float", 0.2, help="Relative growth over the series"),
+               P("trend", "float", 0.2, lo=-0.9, hi=10.0, help="Relative growth over the series"),
                P("noise", "float", 0.1, lo=0.0), P("counts", "bool", False,
                                                     help="Poisson counts (try the negbin head)"),
                P("promotions", "bool", True,

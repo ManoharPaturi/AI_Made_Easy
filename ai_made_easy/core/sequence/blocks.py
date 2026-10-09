@@ -98,8 +98,15 @@ def _mel_shape(kind: str):
         if int(p["hop_length"]) > n_fft:
             raise ShapeError("hop_length larger than n_fft skips audio between frames")
         bins = int(p["n_mfcc"]) if kind == "MFCC" else int(p["n_mels"])
-        return [1, bins, h.frames(samples, int(p["hop_length"]))]
+        frames = h.frames(samples, int(p["hop_length"]))
+        return [frames, bins] if str(p.get("layout", "")).startswith("sequence") \
+            else [1, bins, frames]
     return fn
+
+
+LAYOUT = P("layout", "enum", "image [1, bins, frames]",
+           options=("image [1, bins, frames]", "sequence [frames, bins]"),
+           help="image for Conv2D; sequence for RNNs, Transformers and CTC speech recognition")
 
 
 def _mel_checks(p):
@@ -125,9 +132,10 @@ def _mel_cost(in_shapes, p):
 def _mel_torch(kind: str):
     def fn(c):
         mfcc = f", n_mfcc={int(c['n_mfcc'])}" if kind == "mfcc" else ""
+        seq = ", sequence=True" if str(c.get("layout", "")).startswith("sequence") else ""
         return (f"MelSpectrogram(sample_rate={int(c['sample_rate'])}, n_fft={int(c['n_fft'])}, "
                 f"hop_length={int(c['hop_length'])}, n_mels={int(c['n_mels'])}, "
-                f"log={bool(c.get('log', True))}{mfcc})")
+                f"log={bool(c.get('log', True))}{mfcc}{seq})")
     return fn
 
 
@@ -200,17 +208,19 @@ def _blocks() -> list:
                   P("hop_length", "int", 160, lo=1), P("n_mels", "int", 64, lo=1))
     mel = nn_block(
         "audio.mel_spectrogram", "Mel Spectrogram", AUDIO, family="tensor",
-        params=(*mel_params, P("log", "bool", True, help="Log-compress the energies")),
+        params=(*mel_params, P("log", "bool", True, help="Log-compress the energies"), LAYOUT),
         shape=_mel_shape("Mel Spectrogram"), checks=_mel_checks,
         torch=_mel_torch("mel"), torch_helpers=("MelSpectrogram",),
         desc="Waveform [1, samples] → mel spectrogram [1, n_mels, frames], computed inside "
-             "the model (runs on the GPU, exported with it).")
+             "the model (runs on the GPU, exported with it). Sequence layout gives "
+             "[frames, n_mels] for RNNs / Transformers / CTC.")
     mfcc = nn_block(
         "audio.mfcc", "MFCC", AUDIO, family="tensor",
-        params=(*mel_params, P("n_mfcc", "int", 13, lo=1)),
+        params=(*mel_params, P("n_mfcc", "int", 13, lo=1), LAYOUT),
         shape=_mel_shape("MFCC"), checks=_mel_checks,
         torch=_mel_torch("mfcc"), torch_helpers=("MelSpectrogram",),
-        desc="Waveform [1, samples] → MFCCs [1, n_mfcc, frames] inside the model.")
+        desc="Waveform [1, samples] → MFCCs [1, n_mfcc, frames] (or [frames, n_mfcc]) inside "
+             "the model.")
     encoder = nn_block(
         "audio.hf_encoder", "Speech Encoder (wav2vec 2.0 / HuBERT / Whisper)",
         "Pretrained Models", family="model",

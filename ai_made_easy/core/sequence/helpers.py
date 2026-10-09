@@ -181,12 +181,15 @@ def mel_filterbank(n_fft: int, n_mels: int, sample_rate: int, f_min: float = 0.0
 
 
 class MelSpectrogram(nn.Module):
-    """Waveform [B, 1, samples] -> (log) mel spectrogram [B, 1, n_mels, frames] on any device."""
+    """Waveform [B, 1, samples] -> (log) mel spectrogram [B, 1, n_mels, frames] on any device
+    ([B, frames, n_mels] with sequence=True)."""
 
     def __init__(self, sample_rate: int = 16000, n_fft: int = 400, hop_length: int = 160,
-                 n_mels: int = 64, log: bool = True, n_mfcc: int = 0) -> None:
+                 n_mels: int = 64, log: bool = True, n_mfcc: int = 0,
+                 sequence: bool = False) -> None:
         super().__init__()
         self.n_fft, self.hop, self.log, self.n_mfcc = n_fft, hop_length, log, n_mfcc
+        self.sequence = sequence
         self.register_buffer("window", torch.hann_window(n_fft), persistent=False)
         self.register_buffer("fb", mel_filterbank(n_fft, n_mels, sample_rate), persistent=False)
         if n_mfcc:
@@ -204,7 +207,7 @@ class MelSpectrogram(nn.Module):
             mel = torch.log(mel + 1e-6)
         if self.n_mfcc:
             mel = torch.matmul(self.dct, mel)
-        return mel.unsqueeze(1)
+        return mel.transpose(1, 2) if self.sequence else mel.unsqueeze(1)
 '''
 
 HF_AUDIO = '''\

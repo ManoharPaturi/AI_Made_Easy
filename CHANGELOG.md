@@ -3,6 +3,33 @@
 ## Unreleased (3.0 in progress — see docs/ROADMAP_3.0.md)
 
 ### Added
+- Time-series forecasting (`core/forecast`), with its own training loop.
+  - Models: DLinear, N-BEATS, N-HiTS, PatchTST, TiDE, TCN, a DeepAR-style RNN and
+    an Informer-style Transformer, each with a point, quantile (non-crossing),
+    Student-t or negative-binomial head.
+  - Data: long-format tables with several series (id column), past and
+    known-future covariates (promotions, holidays), and generated seasonal demand
+    series. Rolling-origin backtest split, per-window scaling.
+  - Metrics: MASE (with the seasonal-naive baseline reported alongside), sMAPE,
+    WAPE, CRPS, pinball loss, 80% interval coverage and error by horizon step;
+    forecast plots with intervals; deploy packages serve forecasts for histories.
+  - Rules with Quick Fixes: Input vs window × channels, model vs dataset horizon,
+    future-covariate counts, TCN receptive field vs window, head vs data type.
+    Profiles report series lengths, gaps, missing values, count data and the
+    detected seasonal period.
+- Speech (`core/speech`): keyword spotting, speech recognition with CTC and
+  audio tagging, with their own training loop.
+  - Speech manifests (CSV / TSV of WAV files with keywords, transcripts or tags)
+    and generated tone-coded speech; waveform augmentation; CTC loss; accuracy /
+    F1, CER / WER and tag mAP; spectrogram samples with predictions. Deploy
+    packages accept base64 WAV or waveforms and resample them.
+  - Rules: Input vs clip length, class / alphabet counts, CTC frames vs
+    transcript length, sample rate vs mel features and 16 kHz pretrained encoders.
+- Sequence blocks: TCN, Mamba (selective SSM), S4D and sLSTM (xLSTM) in pure
+  PyTorch; in-model mel spectrogram / MFCC front-ends (image or sequence layout);
+  wav2vec 2.0, HuBERT, WavLM and Whisper encoders (`audio` extra).
+- Samples: demand forecasting (N-HiTS, quantiles), keyword spotting (mel CNN) and
+  speech recognition (BiLSTM + CTC).
 - Vision tasks (`core/vision`): object detection, instance segmentation, keypoint
   detection and semantic segmentation, with their own training loop and metrics.
   - Models: torchvision Faster / Mask / Keypoint R-CNN, RetinaNet, FCOS, SSD(lite),
@@ -49,6 +76,8 @@
   800MF–3.2GF, ShuffleNetV2, MNASNet, ViT-B/32, ViT-L/16, Swin(V2), MaxViT.
 
 ### Fixed
+- Deploy packages of vision runs listed no PyTorch requirement: task-specific
+  training scripts now declare what they need.
 - RegNet backbones were mapped to Keras classes that Keras 3 does not provide;
   they are now reported as PyTorch-only.
 

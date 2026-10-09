@@ -1,0 +1,159 @@
+{
+ "schema_version": 1,
+ "name": "speech_recognition_ctc",
+ "meta": {
+  "title": "Speech \u2014 Recognition with CTC (BiLSTM)",
+  "description": "A bidirectional LSTM over log-mel frames transcribes tone-coded sentences such as \"up no down\" letter by letter, trained with CTC. Character and word error rates fall to near zero. Use a Speech Manifest with a transcript column for real recordings."
+ },
+ "nodes": [
+  {
+   "id": "input",
+   "type": "core.input",
+   "params": {
+    "shape": "1, 24000",
+    "dtype": "float32"
+   },
+   "position": [
+    0,
+    0
+   ]
+  },
+  {
+   "id": "mel",
+   "type": "audio.mel_spectrogram",
+   "params": {
+    "sample_rate": 16000,
+    "n_fft": 400,
+    "hop_length": 160,
+    "n_mels": 40,
+    "layout": "sequence [frames, bins]"
+   },
+   "position": [
+    200,
+    0
+   ]
+  },
+  {
+   "id": "lstm",
+   "type": "core.lstm",
+   "params": {
+    "hidden_size": 96,
+    "num_layers": 2,
+    "bidirectional": true
+   },
+   "position": [
+    400,
+    0
+   ]
+  },
+  {
+   "id": "chars",
+   "type": "core.dense",
+   "params": {
+    "units": 29
+   },
+   "position": [
+    600,
+    0
+   ]
+  },
+  {
+   "id": "output",
+   "type": "core.output",
+   "params": {},
+   "position": [
+    800,
+    0
+   ]
+  },
+  {
+   "id": "speech",
+   "type": "data.synthetic_speech",
+   "params": {
+    "task": "transcripts",
+    "n_clips": 1200,
+    "n_keywords": 4,
+    "noise": 0.03,
+    "seed": 0,
+    "sample_rate": 16000,
+    "duration": 1.5,
+    "augment": true,
+    "val_fraction": 0.1,
+    "test_fraction": 0.1
+   },
+   "position": [
+    0,
+    220
+   ]
+  },
+  {
+   "id": "ctc",
+   "type": "speech.loss_ctc",
+   "params": {},
+   "position": [
+    200,
+    220
+   ]
+  },
+  {
+   "id": "optimizer",
+   "type": "train.adamw",
+   "params": {
+    "lr": 0.003
+   },
+   "position": [
+    400,
+    220
+   ]
+  },
+  {
+   "id": "cer",
+   "type": "eval.cer",
+   "params": {},
+   "position": [
+    600,
+    220
+   ]
+  },
+  {
+   "id": "wer",
+   "type": "eval.wer",
+   "params": {},
+   "position": [
+    800,
+    220
+   ]
+  },
+  {
+   "id": "trainer",
+   "type": "train.trainer",
+   "params": {
+    "epochs": 40,
+    "batch_size": 32,
+    "device": "auto"
+   },
+   "position": [
+    1000,
+    220
+   ]
+  }
+ ],
+ "edges": [
+  {
+   "from": "input/out",
+   "to": "mel/in"
+  },
+  {
+   "from": "mel/out",
+   "to": "lstm/in"
+  },
+  {
+   "from": "lstm/out",
+   "to": "chars/in"
+  },
+  {
+   "from": "chars/out",
+   "to": "output/in"
+  }
+ ]
+}

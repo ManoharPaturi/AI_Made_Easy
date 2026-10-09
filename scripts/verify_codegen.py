@@ -63,6 +63,10 @@ VARIANTS: dict[str, list[dict]] = {
     "audio.mfcc": [{"n_fft": 512, "hop_length": 256, "n_mels": 40, "n_mfcc": 20}],
     "audio.hf_encoder": [{"model_id": m, "weights": "none", "pooling": "none"} for m in (
         "facebook/wav2vec2-base", "openai/whisper-tiny")],
+    **{f"forecast.{m}": [{"head": h} for h in ("quantile", "student_t", "negbin")]
+       for m in ("dlinear", "nbeats", "nhits", "tcn", "patchtst", "tide", "rnn",
+                 "transformer")},
+    "audio.mel_spectrogram": [{"layout": "sequence [frames, bins]"}],
     "vision.unet": [{"variant": v, "depth": 3} for v in (
         "unet_plus_plus", "attention_unet", "resunet")] + [{"upsample": "bilinear",
                                                              "norm": "group"}],
@@ -81,7 +85,7 @@ DEFAULT_OVERRIDES = {"core.pretrained_backbone": {"weights": "none"},
                          "vision.hf_image_encoder", "audio.hf_encoder")}}
 
 CANDIDATE_SHAPES = ([32], [8, 16], [4, 16, 16], [4, 8, 8, 8], [8, 16, 16], [1, 16],
-                    [3, 64, 64], [3, 224, 224], [1, 16000])
+                    [3, 64, 64], [3, 224, 224], [1, 16000], [48, 1])
 
 
 def _graph_for(type_id: str, shape: list[int], params: dict | None = None) -> Graph:

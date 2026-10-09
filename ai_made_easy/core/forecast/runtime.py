@@ -219,8 +219,11 @@ def namespace() -> dict:
     from pathlib import Path
 
     import numpy as np
-    from PIL import Image, ImageDraw
 
+    try:   # plots only; reading data and metrics work without pillow
+        from PIL import Image, ImageDraw
+    except ImportError:
+        Image = ImageDraw = None
     ns: dict = {"np": np, "json": json, "Path": Path, "Image": Image, "ImageDraw": ImageDraw}
     for code in (DATA_CODE, METRICS_CODE, PLOT_CODE):
         exec(compile(code, "<forecast-runtime>", "exec"), ns)  # noqa: S102 — our own source

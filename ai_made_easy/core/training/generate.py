@@ -1,6 +1,8 @@
 """Render complete, runnable training scripts from a TrainingSpec."""
 from __future__ import annotations
 
+import re
+
 from typing import Callable
 
 from jinja2 import Environment, StrictUndefined, Undefined
@@ -350,6 +352,15 @@ def _validate(graph: Graph) -> None:
 TrainerRenderer = Callable[[Graph, "TrainingSpec | None", str], str]
 TRAINERS: dict[str, TrainerRenderer] = {}
 _GRAPH_TRAINERS: set[str] = set()
+
+
+def own_loop_requirements(model_code: str, extra: tuple[str, ...] = ()) -> str:
+    """The "Needs:" line of a task-specific training script (deploy packages read it)."""
+    reqs = ["torch", "numpy", "pillow"]
+    for module in ("torchvision", "transformers", "timm"):
+        if re.search(rf"^\s*(import|from) {module}\b", model_code, re.M):
+            reqs.append(module)
+    return ", ".join(dict.fromkeys([*reqs, *extra]))
 
 
 def register_trainer(kind: str, renderer: TrainerRenderer, needs_spec: bool = True) -> None:

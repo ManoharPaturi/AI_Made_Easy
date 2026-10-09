@@ -118,6 +118,24 @@ without touching the classification pipeline:
 Loading a trained model sets `AIME_SKIP_PRETRAINED=1` so wrappers rebuild the
 same architecture without downloading pretrained weights.
 
+## Forecasting and speech
+
+`core/forecast` and `core/speech` follow the vision layout (blocks, tasks and a
+resolver, `runtime.py` shared by scripts and the app, `template.py`, `rules.py`,
+`profile.py`) with trainer kinds `forecasting` and `speech`.
+
+- Forecasters subclass `Forecaster` (`forecast/helpers.py`): `forward(x)` reads the
+  history window `[L, C]` (channel 0 is the target, then past and future
+  covariates) and `forecast(x, future)` also takes known-future covariates for the
+  horizon. A shared `ForecastHead` maps features to the chosen distribution's
+  parameters; the training script owns per-window scaling and the head's loss.
+- A dataset block decides the task: forecasting data → `forecasting`; a speech
+  dataset's `task` → keyword spotting, speech recognition or audio tagging.
+  Generic layer stacks (e.g. TCN + Dense) train as forecasters when they end in
+  `[horizon]`.
+- `sequence/` holds the reusable TCN / Mamba / S4D / sLSTM / mel front-end
+  helpers; their `meta["cost"]` feeds the summary and budgets.
+
 ## Resource budgets
 
 `core/budget.py` estimates a neural design's cost from the IR alone (no

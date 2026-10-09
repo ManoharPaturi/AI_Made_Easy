@@ -45,6 +45,7 @@ Data:   {{ data_comment }}
 Model:  {{ head_label }}
 Usage:  python {{ filename }}                      train, test, save weights + overlays
         python {{ filename }} --predict IMG ...    predictions (JSON) for image files
+Needs:  {{ requirements }}
 {% for note in notes %}
 Note:   {{ note }}
 {% endfor %}
@@ -692,7 +693,11 @@ def context(graph: Graph, framework: str) -> dict:
     head_label = (head.definition().display_name + f" ({head.resolved_params().get('arch') or head.resolved_params().get('variant', '')})"
                   if head is not None else "custom layers")
     batch = int(loader.get("batch_size") or 0) or int(trainer["batch_size"])
+    from ai_made_easy.core.training.generate import own_loop_requirements
+
+    model_code = generate(graph, "pytorch")
     return {
+        "requirements": own_loop_requirements(model_code, ("torchvision",)),
         "title": graph.name, "task": task.id, "task_label": task.label,
         "filename": f"{name}_train_pytorch.py", "name": name,
         "data_comment": _data_comment(dataset), "head_label": head_label, "notes": notes,
@@ -704,7 +709,7 @@ def context(graph: Graph, framework: str) -> dict:
         "split": {k: split[k] for k in ("val_fraction", "test_fraction", "seed", "shuffle")},
         "primary": primary, "ignore_index": int(dataset.get("ignore_index", 255)),
         "pck_threshold": pck, "box_task": box_task,
-        "model_code": _strip_main(generate(graph, "pytorch")),
+        "model_code": _strip_main(model_code),
         "data_code": runtime.DATA_CODE, "metrics_code": runtime.METRICS_CODE,
         "encode_code": runtime.ENCODE_CODE,
         "always": always, "augment": augment, "losses": _losses(graph),

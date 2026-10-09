@@ -68,3 +68,18 @@ test("vision sample: detection design with box-aware pipeline", async ({ page })
   await page.getByPlaceholder(/Search/).fill("detector");
   await expect(page.getByTestId("lib-vision.detector")).toBeVisible();
 });
+
+test("forecasting and speech samples", async ({ page }) => {
+  await page.getByRole("button", { name: "Open" }).click();
+  await page.getByTestId("sample-demand_forecasting.json").click();
+  await expect(page.getByTestId("design-kind")).toHaveText(
+    "Neural network · Time-series forecasting");
+  await expect(page.getByTestId("status")).toHaveText("No problems");
+  await page.getByRole("button", { name: "Open" }).click();
+  await page.getByTestId("sample-speech_recognition_ctc.json").click();
+  await expect(page.getByTestId("design-kind")).toHaveText(
+    "Neural network · Speech recognition (CTC)");
+  await expect(page.getByTestId("status")).toHaveText("No problems");
+  await page.getByPlaceholder(/Search/).fill("mamba");
+  await expect(page.getByTestId("lib-seq.mamba")).toBeVisible();
+});

@@ -1,0 +1,281 @@
+{
+ "schema_version": 1,
+ "name": "keyword_spotting",
+ "meta": {
+  "title": "Speech \u2014 Keyword Spotting (mel CNN)",
+  "description": "A small CNN on log-mel spectrograms recognises six spoken commands (yes, no, up, down, left, right) in tone-coded synthetic speech. Swap Synthetic Speech for a Speech Manifest of your own WAV clips."
+ },
+ "nodes": [
+  {
+   "id": "input",
+   "type": "core.input",
+   "params": {
+    "shape": "1, 16000",
+    "dtype": "float32"
+   },
+   "position": [
+    0,
+    0
+   ]
+  },
+  {
+   "id": "mel",
+   "type": "audio.mel_spectrogram",
+   "params": {
+    "sample_rate": 16000,
+    "n_fft": 400,
+    "hop_length": 160,
+    "n_mels": 40
+   },
+   "position": [
+    200,
+    0
+   ]
+  },
+  {
+   "id": "conv1",
+   "type": "core.conv2d",
+   "params": {
+    "out_channels": 16
+   },
+   "position": [
+    400,
+    0
+   ]
+  },
+  {
+   "id": "bn1",
+   "type": "core.batch_norm2d",
+   "params": {},
+   "position": [
+    600,
+    0
+   ]
+  },
+  {
+   "id": "relu1",
+   "type": "core.relu",
+   "params": {},
+   "position": [
+    800,
+    0
+   ]
+  },
+  {
+   "id": "pool1",
+   "type": "core.maxpool2d",
+   "params": {},
+   "position": [
+    1000,
+    0
+   ]
+  },
+  {
+   "id": "conv2",
+   "type": "core.conv2d",
+   "params": {
+    "out_channels": 32
+   },
+   "position": [
+    1200,
+    0
+   ]
+  },
+  {
+   "id": "bn2",
+   "type": "core.batch_norm2d",
+   "params": {},
+   "position": [
+    1400,
+    0
+   ]
+  },
+  {
+   "id": "relu2",
+   "type": "core.relu",
+   "params": {},
+   "position": [
+    1600,
+    0
+   ]
+  },
+  {
+   "id": "pool2",
+   "type": "core.maxpool2d",
+   "params": {},
+   "position": [
+    1800,
+    0
+   ]
+  },
+  {
+   "id": "conv3",
+   "type": "core.conv2d",
+   "params": {
+    "out_channels": 64
+   },
+   "position": [
+    2000,
+    0
+   ]
+  },
+  {
+   "id": "relu3",
+   "type": "core.relu",
+   "params": {},
+   "position": [
+    2200,
+    0
+   ]
+  },
+  {
+   "id": "gap",
+   "type": "core.global_avgpool2d",
+   "params": {},
+   "position": [
+    2400,
+    0
+   ]
+  },
+  {
+   "id": "logits",
+   "type": "core.dense",
+   "params": {
+    "units": 6
+   },
+   "position": [
+    2600,
+    0
+   ]
+  },
+  {
+   "id": "output",
+   "type": "core.output",
+   "params": {},
+   "position": [
+    2800,
+    0
+   ]
+  },
+  {
+   "id": "speech",
+   "type": "data.synthetic_speech",
+   "params": {
+    "task": "keywords",
+    "n_clips": 600,
+    "n_keywords": 6,
+    "noise": 0.03,
+    "seed": 0,
+    "sample_rate": 16000,
+    "duration": 1.0,
+    "augment": true,
+    "val_fraction": 0.1,
+    "test_fraction": 0.1
+   },
+   "position": [
+    0,
+    220
+   ]
+  },
+  {
+   "id": "ce",
+   "type": "train.loss_cross_entropy",
+   "params": {},
+   "position": [
+    200,
+    220
+   ]
+  },
+  {
+   "id": "optimizer",
+   "type": "train.adamw",
+   "params": {
+    "lr": 0.001
+   },
+   "position": [
+    400,
+    220
+   ]
+  },
+  {
+   "id": "accuracy",
+   "type": "eval.accuracy",
+   "params": {},
+   "position": [
+    600,
+    220
+   ]
+  },
+  {
+   "id": "trainer",
+   "type": "train.trainer",
+   "params": {
+    "epochs": 25,
+    "batch_size": 32,
+    "device": "auto"
+   },
+   "position": [
+    800,
+    220
+   ]
+  }
+ ],
+ "edges": [
+  {
+   "from": "input/out",
+   "to": "mel/in"
+  },
+  {
+   "from": "mel/out",
+   "to": "conv1/in"
+  },
+  {
+   "from": "conv1/out",
+   "to": "bn1/in"
+  },
+  {
+   "from": "bn1/out",
+   "to": "relu1/in"
+  },
+  {
+   "from": "relu1/out",
+   "to": "pool1/in"
+  },
+  {
+   "from": "pool1/out",
+   "to": "conv2/in"
+  },
+  {
+   "from": "conv2/out",
+   "to": "bn2/in"
+  },
+  {
+   "from": "bn2/out",
+   "to": "relu2/in"
+  },
+  {
+   "from": "relu2/out",
+   "to": "pool2/in"
+  },
+  {
+   "from": "pool2/out",
+   "to": "conv3/in"
+  },
+  {
+   "from": "conv3/out",
+   "to": "relu3/in"
+  },
+  {
+   "from": "relu3/out",
+   "to": "gap/in"
+  },
+  {
+   "from": "gap/out",
+   "to": "logits/in"
+  },
+  {
+   "from": "logits/out",
+   "to": "output/in"
+  }
+ ]
+}
