@@ -126,6 +126,17 @@ def fix_for_issue(graph: "Graph", issue: "ValidationIssue"):
         node.params[spec.name] = value
         return (f"Set {spec.name} = {value}", f"set {spec.name} to {value}", g)
 
+    # "... set <param> to <option>" for an enum parameter -> pick that option
+    m = re.search(r"[Ss]et (\w+) to ([A-Za-z_][\w-]*)\b", msg)
+    if node is not None and m:
+        spec = next((p for p in node.definition().params if p.name == m.group(1)), None)
+        if spec is not None and spec.type == "enum" and m.group(2) in spec.options:
+            node.params[spec.name] = m.group(2)
+            return (f"Set {spec.name} = {m.group(2)}", f"set {spec.name} to {m.group(2)}", g)
+        if spec is not None and spec.type == "bool" and m.group(2) in ("true", "false"):
+            node.params[spec.name] = m.group(2) == "true"
+            return (f"Set {spec.name} = {m.group(2)}", f"set {spec.name} to {m.group(2)}", g)
+
     # training memory over budget -> mixed precision, else a batch size that fits
     if msg.startswith("Training needs about"):
         fixed = _fit_training_memory(g)

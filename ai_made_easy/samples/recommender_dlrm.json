@@ -1,0 +1,107 @@
+{
+  "schema_version": 1,
+  "name": "recommender_dlrm",
+  "meta": {
+    "title": "Recommender \u2014 DLRM with User and Item Features",
+    "description": "DLRM reads the user and item ids plus their dense features: a bottom MLP for the features, embeddings for the ids and dot-product interactions between them. Unknown users fall back to popular items when deployed."
+  },
+  "nodes": [
+    {
+      "id": "input",
+      "type": "core.input",
+      "params": {
+        "shape": "10"
+      },
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "model",
+      "type": "rec.dlrm",
+      "params": {
+        "n_users": 600,
+        "n_items": 400,
+        "dim": 16,
+        "bottom": "64",
+        "top": "64, 32"
+      },
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "output",
+      "type": "core.output",
+      "params": {},
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "data",
+      "type": "data.synthetic_interactions",
+      "params": {
+        "n_users": 600,
+        "n_items": 400,
+        "per_user": 30,
+        "feedback": "implicit",
+        "features": 4,
+        "seed": 0
+      },
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "opt",
+      "type": "train.adam",
+      "params": {
+        "lr": 0.01
+      },
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "trainer",
+      "type": "train.trainer",
+      "params": {
+        "epochs": 20,
+        "batch_size": 512
+      },
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "objective",
+      "type": "rec.objective",
+      "params": {
+        "objective": "bpr",
+        "negatives": 4,
+        "top_k": 10
+      },
+      "position": [
+        0,
+        0
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "from": "input/out",
+      "to": "model/in"
+    },
+    {
+      "from": "model/out",
+      "to": "output/in"
+    }
+  ]
+}

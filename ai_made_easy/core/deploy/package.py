@@ -61,6 +61,8 @@ _INPUT_HELP = {
     "graph": "a list of graphs {\"x\": [[node features]], \"edges\": [[u, v], ...]}; "
              "node models also take {\"nodes\": [index, ...]} for the training graph, link "
              "models {\"pairs\": [[u, v], ...]}",
+    "ranking": "a list of requests {\"user\": id, \"k\": 10, \"exclude_seen\": true} -> "
+               "the top items, or {\"user\": id, \"items\": [ids]} -> their scores",
     "density": "a list of points ([values] or {\"column\": value}) -> log-density, or "
                "{\"sample\": n, \"seed\": 0} -> points drawn from the model",
 }
@@ -185,6 +187,14 @@ def _describe(graph_dict: dict) -> dict:
                 "response": task.serving,
                 "export_note": "graph models are served by the FastAPI package; ONNX export "
                                "of message-passing layers is not supported"}
+    if task is not None and task.trainer_kind == "recommendation":
+        from ai_made_easy.core.recsys.tasks import dataset_of as rec_data
+
+        data = rec_data(graph)
+        return {"task": task.id, "modality": "interactions",
+                "dataset": data.type_id if data else "data.synthetic_interactions",
+                "input_kind": "ranking", "input_help": _INPUT_HELP["ranking"],
+                "response": task.serving}
     if task is not None and task.trainer_kind == "flow":
         from ai_made_easy.core.flows.tasks import dataset_of as flow_data
 
@@ -267,6 +277,8 @@ def _example(meta: dict, signature: dict) -> str:
         return json.dumps({"inputs": [{"n": 4, "seed": 0}]})
     if kind == "prompt":
         return json.dumps({"inputs": ["the cat"]})
+    if kind == "ranking":
+        return json.dumps({"inputs": [{"user": "1", "k": 5}]})
     if kind == "graph":
         return json.dumps({"inputs": [{"nodes": [0, 1, 2]}]})
     if kind == "density":
