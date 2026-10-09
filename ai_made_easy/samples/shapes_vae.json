@@ -1,0 +1,309 @@
+{
+ "schema_version": 1,
+ "name": "shapes_vae",
+ "meta": {
+  "title": "Shapes \u2014 Variational Autoencoder",
+  "description": "A convolutional VAE compresses 32\u00d732 shapes into a 16-number latent space through the Reparameterize block, then decodes them. Sample grids show new shapes drawn from the prior; reconstructions show what the latent keeps."
+ },
+ "nodes": [
+  {
+   "id": "input",
+   "type": "core.input",
+   "params": {
+    "shape": "1, 32, 32",
+    "dtype": "float32"
+   },
+   "position": [
+    0,
+    0
+   ]
+  },
+  {
+   "id": "enc1",
+   "type": "core.conv2d",
+   "params": {
+    "out_channels": 32,
+    "kernel_size": 4,
+    "stride": 2,
+    "padding": 1
+   },
+   "position": [
+    200,
+    0
+   ]
+  },
+  {
+   "id": "act1",
+   "type": "core.relu",
+   "params": {},
+   "position": [
+    400,
+    0
+   ]
+  },
+  {
+   "id": "enc2",
+   "type": "core.conv2d",
+   "params": {
+    "out_channels": 64,
+    "kernel_size": 4,
+    "stride": 2,
+    "padding": 1
+   },
+   "position": [
+    600,
+    0
+   ]
+  },
+  {
+   "id": "act2",
+   "type": "core.relu",
+   "params": {},
+   "position": [
+    800,
+    0
+   ]
+  },
+  {
+   "id": "flatten",
+   "type": "core.flatten",
+   "params": {},
+   "position": [
+    1000,
+    0
+   ]
+  },
+  {
+   "id": "stats",
+   "type": "core.dense",
+   "params": {
+    "units": 32
+   },
+   "position": [
+    1200,
+    0
+   ]
+  },
+  {
+   "id": "z",
+   "type": "gen.reparameterize",
+   "params": {
+    "beta": 1.0,
+    "kl_warmup": 5
+   },
+   "position": [
+    1400,
+    0
+   ]
+  },
+  {
+   "id": "expand",
+   "type": "core.dense",
+   "params": {
+    "units": 4096
+   },
+   "position": [
+    1600,
+    0
+   ]
+  },
+  {
+   "id": "act3",
+   "type": "core.relu",
+   "params": {},
+   "position": [
+    1800,
+    0
+   ]
+  },
+  {
+   "id": "unflatten",
+   "type": "core.reshape",
+   "params": {
+    "target": "64, 8, 8"
+   },
+   "position": [
+    2000,
+    0
+   ]
+  },
+  {
+   "id": "dec1",
+   "type": "core.conv_transpose2d",
+   "params": {
+    "out_channels": 32,
+    "kernel_size": 4,
+    "stride": 2,
+    "padding": 1
+   },
+   "position": [
+    2200,
+    0
+   ]
+  },
+  {
+   "id": "act4",
+   "type": "core.relu",
+   "params": {},
+   "position": [
+    2400,
+    0
+   ]
+  },
+  {
+   "id": "dec2",
+   "type": "core.conv_transpose2d",
+   "params": {
+    "out_channels": 1,
+    "kernel_size": 4,
+    "stride": 2,
+    "padding": 1
+   },
+   "position": [
+    2600,
+    0
+   ]
+  },
+  {
+   "id": "pixels",
+   "type": "core.sigmoid",
+   "params": {},
+   "position": [
+    2800,
+    0
+   ]
+  },
+  {
+   "id": "output",
+   "type": "core.output",
+   "params": {},
+   "position": [
+    3000,
+    0
+   ]
+  },
+  {
+   "id": "shapes",
+   "type": "data.synthetic_images",
+   "params": {
+    "kind": "shapes",
+    "n_images": 2000,
+    "image_size": 32,
+    "channels": 1,
+    "seed": 0,
+    "val_fraction": 0.1
+   },
+   "position": [
+    0,
+    240
+   ]
+  },
+  {
+   "id": "recon",
+   "type": "train.loss_bce",
+   "params": {},
+   "position": [
+    200,
+    240
+   ]
+  },
+  {
+   "id": "optimizer",
+   "type": "train.adam",
+   "params": {
+    "lr": 0.001
+   },
+   "position": [
+    400,
+    240
+   ]
+  },
+  {
+   "id": "fid",
+   "type": "eval.fid",
+   "params": {
+    "features": "pixels",
+    "samples": 500
+   },
+   "position": [
+    600,
+    240
+   ]
+  },
+  {
+   "id": "trainer",
+   "type": "train.trainer",
+   "params": {
+    "epochs": 30,
+    "batch_size": 64,
+    "device": "auto"
+   },
+   "position": [
+    800,
+    240
+   ]
+  }
+ ],
+ "edges": [
+  {
+   "from": "input/out",
+   "to": "enc1/in"
+  },
+  {
+   "from": "enc1/out",
+   "to": "act1/in"
+  },
+  {
+   "from": "act1/out",
+   "to": "enc2/in"
+  },
+  {
+   "from": "enc2/out",
+   "to": "act2/in"
+  },
+  {
+   "from": "act2/out",
+   "to": "flatten/in"
+  },
+  {
+   "from": "flatten/out",
+   "to": "stats/in"
+  },
+  {
+   "from": "stats/out",
+   "to": "z/in"
+  },
+  {
+   "from": "z/out",
+   "to": "expand/in"
+  },
+  {
+   "from": "expand/out",
+   "to": "act3/in"
+  },
+  {
+   "from": "act3/out",
+   "to": "unflatten/in"
+  },
+  {
+   "from": "unflatten/out",
+   "to": "dec1/in"
+  },
+  {
+   "from": "dec1/out",
+   "to": "act4/in"
+  },
+  {
+   "from": "act4/out",
+   "to": "dec2/in"
+  },
+  {
+   "from": "dec2/out",
+   "to": "pixels/in"
+  },
+  {
+   "from": "pixels/out",
+   "to": "output/in"
+  }
+ ]
+}

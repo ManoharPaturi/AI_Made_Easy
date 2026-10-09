@@ -138,11 +138,13 @@ function Training() {
   const [status, setStatus] = useState("idle");
   const [epochs, setEpochs] = useState<{ epoch: number; metrics: Record<string, number> }[]>([]);
   const [log, setLog] = useState<string[]>([]);
+  const [sample, setSample] = useState<{ data_url?: string; text?: string; epoch?: number } | null>(null);
 
   useEffect(() => {
     if (!runId) return;
     setEpochs([]);
     setLog([]);
+    setSample(null);
     return streamRun(runId, (event: RunEvent) => {
       if (event.type === "epoch") {
         setEpochs((es) => [...es.filter((e) => e.epoch !== event.epoch),
@@ -154,6 +156,10 @@ function Training() {
           : Number(event.returncode) === 0 ? "finished" : "failed");
       } else if (event.type === "status") {
         setStatus(String(event.status));
+      } else if (event.type === "samples") {
+        setSample({ data_url: event.data_url as string | undefined,
+                    text: event.text as string | undefined,
+                    epoch: event.epoch == null ? undefined : Number(event.epoch) });
       }
     });
   }, [runId]);
@@ -186,9 +192,20 @@ function Training() {
         </div>
         <LineChart series={metricSeries(epochs, (k) => k.includes("loss"))} height={150} />
       </div>
-      <pre className="code" style={{ overflow: "auto", maxHeight: 200 }} data-testid="train-log">
-        {log.join("\n") || "Training output appears here."}
-      </pre>
+      <div style={{ display: "flex", flexDirection: "column", gap: 6, minHeight: 0 }}>
+        {sample && (
+          <div data-testid="live-samples" style={{ overflow: "auto", maxHeight: 200 }}>
+            <div className="dim">Samples{sample.epoch != null && ` · epoch ${sample.epoch}`}</div>
+            {sample.data_url
+              ? <img src={sample.data_url} alt="generated samples"
+                     style={{ maxWidth: "100%", maxHeight: 170, imageRendering: "pixelated" }} />
+              : <pre className="code" style={{ whiteSpace: "pre-wrap" }}>{sample.text}</pre>}
+          </div>)}
+        <pre className="code" style={{ overflow: "auto", maxHeight: sample ? 90 : 200 }}
+             data-testid="train-log">
+          {log.join("\n") || "Training output appears here."}
+        </pre>
+      </div>
     </div>
   );
 }

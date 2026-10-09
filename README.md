@@ -40,6 +40,11 @@ boilerplate. It runs on the desktop or in the browser.
   rolling-origin backtests and MASE / CRPS. Keyword spotting, CTC speech
   recognition and audio tagging with in-model mel features, wav2vec 2.0 / HuBERT /
   WavLM / Whisper encoders, and Mamba, S4D, sLSTM and TCN sequence blocks.
+- **Generative models.** VAEs designed layer by layer with a Reparameterize
+  bottleneck, DCGAN / WGAN-GP GANs, class-conditional diffusion (DDPM / DDIM,
+  classifier-free guidance, EMA), GPT-style language models and encoder-decoder
+  transformers trained from scratch, with live sample grids, FID / KID, perplexity,
+  BLEU / chrF / ROUGE-L, and `/generate` endpoints in deploy packages.
 - **Resource budgets.** FLOPs, training memory and latency estimates for 11
   devices (laptop CPU to H100, iPhone, Jetson, Raspberry Pi), with warnings and
   Quick Fixes when a design will not fit.
@@ -125,12 +130,13 @@ desktop app. Hosting, authentication and the REST API are covered in
 
 | Section | Blocks | Contents |
 |---|---|---|
-| Data | 23 | Input / Output, torchvision benchmarks, image / text / audio folders, table files, scikit-learn datasets, NumPy, JSON, Hugging Face, time series, forecasting tables, speech manifests, COCO, YOLO, Pascal VOC, mask folders, synthetic |
+| Data | 28 | Input / Output, torchvision benchmarks, image / text / audio folders, table files, scikit-learn datasets, NumPy, JSON, Hugging Face, time series, forecasting tables, speech manifests, text corpora and pairs, COCO, YOLO, Pascal VOC, mask folders, synthetic |
 | Preprocessing | 41 | Split, loader, class balancing, imputation, encoding, scaling, outlier clipping, tokenization, audio features, SpecAugment, 24 image transforms incl. RandAugment, AutoAugment, AugMix, MixUp / CutMix |
 | Layers | 132 | Linear, convolution (1-3D, transposed, depthwise, separable), pooling, padding / resizing, recurrent, attention & transformers, embeddings, 27 activations, normalization, regularization, merges, tensor ops |
 | Sequences & Forecasting | 14 | TCN, Mamba, S4D, sLSTM; mel spectrogram / MFCC front-ends; 8 forecasters with point, quantile, Student-t and negative-binomial heads |
+| Generative | 8 | Reparameterize (VAE), causal transformer, DCGAN generator, diffusion U-Net, GPT, seq2seq transformer, discriminator, noise scheduler |
 | Models | 20 | Detectors, instance / semantic segmenters, keypoint detector, U-Net family, 39 torchvision + 87 timm backbones, Hugging Face text, image and speech encoders, architecture templates |
-| Training | 85 | 19 losses (incl. Dice, Tversky, Lovász, CTC), 12 optimizers, 12 LR schedulers, trainer, k-fold, 40 metrics (incl. COCO mAP, mean IoU, PCK, MASE, CRPS, WER / CER) |
+| Training | 91 | 19 losses (incl. Dice, Tversky, Lovász, CTC), 12 optimizers, 12 LR schedulers, trainer, k-fold, 46 metrics (incl. COCO mAP, mean IoU, PCK, MASE, CRPS, WER / CER, FID, KID, perplexity, BLEU, chrF) |
 | Classic ML | 68 | 55 estimators (linear, SVM, neighbors, Bayes, trees, ensembles, boosting, clustering, anomaly detection), feature engineering, TF-IDF, hyperparameter search |
 | LLM | 15 | Model, tokenizer, prompts, LoRA / QLoRA fine-tuning, embeddings, vector store, retrieval, RAG |
 

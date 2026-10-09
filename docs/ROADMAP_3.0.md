@@ -140,7 +140,7 @@ Goal: about 750+ blocks, every family validated at design time, generating runna
   - LSTM projection / peephole variants (the existing LSTM / GRU blocks cover bidirectional and stacked use)
   - torchaudio / jiwer (mel features, resampling and WER / CER are implemented in-house and need no extra)
 
-## Phase 4 — Generative models
+## Phase 4 — Generative models ✅
 - **Families:**
   - VAE / β-VAE: reparameterize block, KL loss
   - GAN, DCGAN-style: generator + discriminator subgraphs; the adversarial trainer has two optimizers and supports WGAN-GP
@@ -159,6 +159,10 @@ Goal: about 750+ blocks, every family validated at design time, generating runna
   - metrics: FID / IS / KID (torchmetrics), BLEU / ROUGE / chrF, perplexity
   - a sample grid after each epoch (worker `samples` event), shown in the Training panel and the web
 - **Serving:** `/generate` endpoints (seed, steps, guidance, prompt).
+- **Status:** shipped. Generator / discriminator / denoiser "sub-graphs" are expressed as a generator chain on the canvas plus configuration blocks (Discriminator, Noise Scheduler) rather than named sub-graphs; composite blocks for multi-model designs come with Phase 8 pipelines. Not in this phase (moved to a later release):
+  - LoRA fine-tuning of Stable Diffusion via `diffusers`
+  - Inception Score (FID / KID cover image quality; IS needs ImageNet-like classes)
+  - BPE tokenizers for language models (byte-level tokens need no tokenizer files)
 
 ## Phase 5 — Probabilistic models (new families)
 - **Graphical models (pgmpy):**

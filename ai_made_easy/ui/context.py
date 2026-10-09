@@ -185,6 +185,7 @@ class AppContext(QtCore.QObject):
         self.run_store.state_changed.connect(self._on_run_state)
         ps = self.process_service
         ps.epoch_received.connect(self.training_page.on_epoch)
+        ps.samples_received.connect(self.training_page.on_samples)
         ps.epoch_received.connect(self._on_epoch_progress)
         ps.log_received.connect(self.log_bus.info)
         ps.error_received.connect(self.log_bus.error)

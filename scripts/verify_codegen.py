@@ -67,6 +67,10 @@ VARIANTS: dict[str, list[dict]] = {
        for m in ("dlinear", "nbeats", "nhits", "tcn", "patchtst", "tide", "rnn",
                  "transformer")},
     "audio.mel_spectrogram": [{"layout": "sequence [frames, bins]"}],
+    "gen.diffusion_unet": [{"num_classes": 4, "attention": False, "depth": 2}],
+    "gen.gpt": [{"tie_weights": False, "layers": 2}],
+    "gen.seq2seq_transformer": [{"encoder_layers": 1, "decoder_layers": 2, "max_target_len": 5}],
+    "gen.dcgan_generator": [{"channels": 3, "image_size": 16, "width": 16}],
     "vision.unet": [{"variant": v, "depth": 3} for v in (
         "unet_plus_plus", "attention_unet", "resunet")] + [{"upsample": "bilinear",
                                                              "norm": "group"}],
@@ -84,21 +88,43 @@ DEFAULT_OVERRIDES = {"core.pretrained_backbone": {"weights": "none"},
                          "vision.hf_segmenter", "vision.timm_backbone",
                          "vision.hf_image_encoder", "audio.hf_encoder")}}
 
+# blocks that only make sense inside a larger design: (input shape, dtype, layers before,
+# layers after) — e.g. a VAE bottleneck must be decoded back to the input size
+CONTEXTS: dict[str, tuple] = {
+    "gen.reparameterize": ([32], "float32", [], [("core.dense", {"units": 32})]),
+    "gen.causal_transformer": ([16], "int64",
+                               [("core.embedding", {"num_embeddings": 256,
+                                                    "embedding_dim": 32})],
+                               [("core.dense", {"units": 256})]),
+}
+
 CANDIDATE_SHAPES = ([32], [8, 16], [4, 16, 16], [4, 8, 8, 8], [8, 16, 16], [1, 16],
                     [3, 64, 64], [3, 224, 224], [1, 16000], [48, 1])
 
 
-def _graph_for(type_id: str, shape: list[int], params: dict | None = None) -> Graph:
+def _graph_for(type_id: str, shape: list[int], params: dict | None = None,
+               context: tuple | None = None) -> Graph:
     defn = get_registry().get(type_id)
     g = Graph(name=f"case_{type_id.replace('.', '_')}")
-    dtype = "int64" if defn.input_dtype == "int" else "float32"
+    dtype = context[1] if context else ("int64" if defn.input_dtype == "int" else "float32")
     g.add_node(NodeInstance("inp", "core.input",
                             {"shape": ",".join(map(str, shape)), "dtype": dtype}))
+    before, after = (context[2], context[3]) if context else ([], [])
+    prev = "inp"
+    for i, (t, p) in enumerate(before):
+        g.add_node(NodeInstance(f"pre{i}", t, dict(p)))
+        g.add_edge(Edge(prev, "out", f"pre{i}", "in"))
+        prev = f"pre{i}"
     g.add_node(NodeInstance("blk", type_id, dict(params or {})))
-    g.add_node(NodeInstance("out", "core.output", {}))
     for port in defn.inputs:
-        g.add_edge(Edge("inp", "out", "blk", port.name))
-    g.add_edge(Edge("blk", defn.outputs[0].name, "out", "in"))
+        g.add_edge(Edge(prev, "out", "blk", port.name))
+    prev, port_out = "blk", defn.outputs[0].name
+    for i, (t, p) in enumerate(after):
+        g.add_node(NodeInstance(f"post{i}", t, dict(p)))
+        g.add_edge(Edge(prev, port_out, f"post{i}", "in"))
+        prev, port_out = f"post{i}", "out"
+    g.add_node(NodeInstance("out", "core.output", {}))
+    g.add_edge(Edge(prev, port_out, "out", "in"))
     return g
 
 
@@ -117,9 +143,10 @@ def block_cases(extra_params: dict | None = None):
             continue  # optional package not installed (the extra's CI job covers it)
         variants = [DEFAULT_OVERRIDES.get(defn.type_id, {})] + list(
             (extra_params or {}).get(defn.type_id, []))
+        context = CONTEXTS.get(defn.type_id)
         for params in variants:
-            for shape in CANDIDATE_SHAPES:
-                g = _graph_for(defn.type_id, shape, params)
+            for shape in ([context[0]] if context else CANDIDATE_SHAPES):
+                g = _graph_for(defn.type_id, shape, params, context)
                 if not [i for i in g.validate() if i.severity == "error"]:
                     yield defn.type_id, shape, params, g
                     break

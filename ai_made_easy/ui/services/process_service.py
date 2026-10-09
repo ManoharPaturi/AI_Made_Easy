@@ -39,6 +39,7 @@ def python_executable() -> str:
 class ProcessService(QtCore.QObject):
     log_received = QtCore.Signal(str)
     epoch_received = QtCore.Signal(dict)
+    samples_received = QtCore.Signal(dict)   # live sample grid / text of generative runs
     error_received = QtCore.Signal(str)
     finished = QtCore.Signal(int, str)  # returncode, kind
     history_changed = QtCore.Signal()
@@ -193,8 +194,13 @@ class ProcessService(QtCore.QObject):
         elif run_id and kind == "env":
             self._safely(self.history.update, run_id,
                          env={k: v for k, v in event.items() if k != "type"})
+        elif run_id and kind == "resources":
+            self._safely(self.history.update, run_id,
+                         resources={k: v for k, v in event.items() if k != "type"})
         if kind == "epoch":
             self.epoch_received.emit(event)
+        elif kind == "samples":
+            self.samples_received.emit(event)
         elif kind == "log":
             self.log_received.emit(str(event.get("line", "")))
         elif kind == "error":

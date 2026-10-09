@@ -138,6 +138,11 @@ def dtype_flow(ctx: LintContext):
 
 def softmax_before_logit_loss(ctx: LintContext):
     loss, last = ctx.loss_type(), ctx.last_compute()
+    from ai_made_easy.core.tasks import task_of
+
+    task = task_of(ctx.graph)
+    if task is not None and task.trainer_kind != "supervised":
+        loss = task.meta.get("default_loss")   # tasks with their own loop choose the loss
     if loss not in LOGIT_LOSSES or last is None or last.type_id not in SOFTMAX_LIKE:
         return []
     loss_name = {"train.loss_bce_logits": "BCEWithLogitsLoss"}.get(loss, "CrossEntropyLoss")

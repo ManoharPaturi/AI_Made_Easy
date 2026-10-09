@@ -1,0 +1,116 @@
+{
+ "schema_version": 1,
+ "name": "reverse_seq2seq",
+ "meta": {
+  "title": "Text \u2014 Sequence to Sequence (reverse words)",
+  "description": "An encoder-decoder transformer learns to reverse words letter by letter, scored with BLEU and chrF. Use Text Pairs with your own source / target columns for translation or rewriting."
+ },
+ "nodes": [
+  {
+   "id": "input",
+   "type": "core.input",
+   "params": {
+    "shape": "12",
+    "dtype": "int64"
+   },
+   "position": [
+    0,
+    0
+   ]
+  },
+  {
+   "id": "seq2seq",
+   "type": "gen.seq2seq_transformer",
+   "params": {
+    "vocab_size": 259,
+    "max_target_len": 12,
+    "d_model": 64,
+    "encoder_layers": 2,
+    "decoder_layers": 2,
+    "heads": 4,
+    "dropout": 0.1
+   },
+   "position": [
+    200,
+    0
+   ]
+  },
+  {
+   "id": "output",
+   "type": "core.output",
+   "params": {},
+   "position": [
+    400,
+    0
+   ]
+  },
+  {
+   "id": "pairs",
+   "type": "data.synthetic_pairs",
+   "params": {
+    "task": "reverse",
+    "n_pairs": 4000,
+    "max_length": 8,
+    "seed": 0,
+    "val_fraction": 0.1,
+    "test_fraction": 0.1
+   },
+   "position": [
+    0,
+    240
+   ]
+  },
+  {
+   "id": "optimizer",
+   "type": "train.adamw",
+   "params": {
+    "lr": 0.0005
+   },
+   "position": [
+    200,
+    240
+   ]
+  },
+  {
+   "id": "bleu",
+   "type": "eval.bleu",
+   "params": {},
+   "position": [
+    400,
+    240
+   ]
+  },
+  {
+   "id": "chrf",
+   "type": "eval.chrf",
+   "params": {},
+   "position": [
+    600,
+    240
+   ]
+  },
+  {
+   "id": "trainer",
+   "type": "train.trainer",
+   "params": {
+    "epochs": 30,
+    "batch_size": 64,
+    "device": "auto"
+   },
+   "position": [
+    800,
+    240
+   ]
+  }
+ ],
+ "edges": [
+  {
+   "from": "input/out",
+   "to": "seq2seq/in"
+  },
+  {
+   "from": "seq2seq/out",
+   "to": "output/in"
+  }
+ ]
+}

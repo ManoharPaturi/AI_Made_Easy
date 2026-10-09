@@ -1,0 +1,121 @@
+{
+ "schema_version": 1,
+ "name": "shapes_gan",
+ "meta": {
+  "title": "Shapes \u2014 DCGAN",
+  "description": "A DCGAN generator turns 64 random numbers into a 32\u00d732 shape while a discriminator learns to tell generated shapes from real ones. Watch the live sample grid sharpen epoch by epoch."
+ },
+ "nodes": [
+  {
+   "id": "input",
+   "type": "core.input",
+   "params": {
+    "shape": "64",
+    "dtype": "float32"
+   },
+   "position": [
+    0,
+    0
+   ]
+  },
+  {
+   "id": "generator",
+   "type": "gen.dcgan_generator",
+   "params": {
+    "channels": 1,
+    "image_size": 32,
+    "width": 32
+   },
+   "position": [
+    200,
+    0
+   ]
+  },
+  {
+   "id": "output",
+   "type": "core.output",
+   "params": {},
+   "position": [
+    400,
+    0
+   ]
+  },
+  {
+   "id": "shapes",
+   "type": "data.synthetic_images",
+   "params": {
+    "kind": "shapes",
+    "n_images": 2000,
+    "image_size": 32,
+    "channels": 1,
+    "seed": 0,
+    "val_fraction": 0.1
+   },
+   "position": [
+    0,
+    240
+   ]
+  },
+  {
+   "id": "critic",
+   "type": "gen.discriminator",
+   "params": {
+    "width": 32,
+    "norm": "batch",
+    "loss": "bce",
+    "lr": 0.0002
+   },
+   "position": [
+    200,
+    240
+   ]
+  },
+  {
+   "id": "optimizer",
+   "type": "train.adam",
+   "params": {
+    "lr": 0.0002,
+    "beta1": 0.5
+   },
+   "position": [
+    400,
+    240
+   ]
+  },
+  {
+   "id": "fid",
+   "type": "eval.fid",
+   "params": {
+    "features": "pixels",
+    "samples": 500
+   },
+   "position": [
+    600,
+    240
+   ]
+  },
+  {
+   "id": "trainer",
+   "type": "train.trainer",
+   "params": {
+    "epochs": 40,
+    "batch_size": 64,
+    "device": "auto"
+   },
+   "position": [
+    800,
+    240
+   ]
+  }
+ ],
+ "edges": [
+  {
+   "from": "input/out",
+   "to": "generator/in"
+  },
+  {
+   "from": "generator/out",
+   "to": "output/in"
+  }
+ ]
+}

@@ -88,7 +88,8 @@ def new_run_id() -> str:
 def lower_is_better(metric: str) -> bool:
     m = metric.lower()
     return any(t in m for t in ("loss", "error", "mae", "mse", "rmse", "mape", "mase", "wape",
-                                "crps", "pinball", "nll", "perplexity", "wer", "cer"))
+                                "crps", "pinball", "nll", "perplexity", "wer", "cer", "fid", "kid",
+                                "bits_per_byte"))
 
 
 class RunHistory:
