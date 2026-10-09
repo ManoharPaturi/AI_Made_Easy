@@ -1,5 +1,60 @@
 # Changelog
 
+## 2.0.0
+
+The designer becomes a complete model workflow: track and tune experiments,
+deploy trained models as services, import existing models, inspect data before
+training, and work from the browser as well as the desktop.
+
+### Added
+- **Experiments.** Every run is recorded in a persistent history
+  (`$AIME_HOME/runs`) with its design snapshot, parameters, per-epoch metrics,
+  environment (Python, platform, package versions) and data fingerprint.
+  The Experiments dock lists, filters, tags, compares (metrics, differing
+  parameters, overlaid curves) and restores runs.
+- **Hyperparameter sweeps** over any numeric or choice parameter in the design:
+  grid, random or Bayesian (Optuna TPE) search, invalid configurations skipped,
+  trials recorded as child runs, leaderboard and "Apply best". Deterministic
+  training option.
+- **Deploy.** Serving packages from a finished run: FastAPI app (`/predict`,
+  `/health`, `/metadata`) with the exact fitted preprocessing, the model,
+  requirements, Dockerfile and README. Optional ONNX (verified against
+  onnxruntime), int8-quantized ONNX, TorchScript and Core ML exports. A model
+  registry with versions and staging / production stages.
+- **Import.** PyTorch modules (`torch.fx`), ONNX files and Keras models become
+  editable designs. Weights are copied into the rebuilt model and outputs are
+  compared numerically; unsupported operations are listed.
+- **Custom block packs.** Versioned custom blocks, shareable as `.aimeblocks`
+  files; `.aime` archives embed the custom blocks they use and restore their
+  source run.
+- **Data workspace.** Dataset profiles (column statistics, class balance,
+  image / text / audio statistics) with findings: missing values, constant and
+  identifier columns, target leakage, duplicates, high cardinality, skew,
+  broken images. Pipeline-aware data warnings in the Problems panel, an exact
+  split preview and an augmentation preview.
+- **Web version.** `aime web` serves the designer in the browser (React +
+  React Flow) with live validation, training with streamed charts, data,
+  experiments and model pages, on a REST + WebSocket API with optional token
+  auth. A Docker image is provided.
+- Command line: `aime runs`, `sweep`, `deploy`, `models`, `serve`, `import`,
+  `data`, `web`. MCP tools for runs, sweeps, deployment, import and data.
+
+### Changed
+- One headless API (`core/api.py`) backs the CLI, the MCP server and the web
+  server.
+- Problems-panel data checks run in the background with a cache instead of
+  hashing dataset files on every edit.
+- Generated training scripts save the fitted preprocessing state and include
+  `load_predictor()` / `infer()` for serving.
+- Settings layout version 5 (new Experiments and Data docks); saved window
+  layouts from 1.x are reset once.
+
+### Fixed
+- Serving inputs that are long base64 strings no longer crash path detection
+  (`File name too long`).
+- ONNX import verification for models exported with a fixed batch size.
+- Several native teardown crashes on CI after successful test sessions.
+
 ## 1.0.0
 
 First production release: a professional designer for practitioners.

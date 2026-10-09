@@ -14,7 +14,17 @@ ai_made_easy/
 │   │                     PyTorch + Keras training-script templates, metrics code
 │   ├── classic/          scikit-learn / boosting estimators and pipeline codegen
 │   ├── targets.py        the single export-target table (UI, CLI, MCP)
-│   └── …                 summary, fixes, suggestions, model card, bundles, runner
+│   ├── api.py            headless facade used by the CLI, MCP server and web server
+│   ├── paths.py          $AIME_HOME (default ~/.aime) and its sub-folders
+│   ├── runs/             persistent run history: run.json, epochs.jsonl, artefacts
+│   ├── runner/           RunManager: training subprocesses + event listeners
+│   ├── sweeps.py         grid / random / Optuna sweeps over design parameters
+│   ├── deploy/           serving packages (FastAPI + Dockerfile), exports, model registry
+│   ├── importers/        PyTorch (torch.fx), ONNX and Keras importers (run in a subprocess)
+│   ├── block_packs.py    versioned custom blocks and .aimeblocks packs
+│   ├── data/             dataset profiles, data lints, fingerprints, split and
+│   │                     augmentation previews
+│   └── …                 summary, fixes, suggestions, model card, bundles
 ├── ui/                   PySide6 application
 │   ├── context.py        composition root: builds and wires everything
 │   ├── workbench.py      main window shell (layout only)
@@ -24,8 +34,10 @@ ai_made_easy/
 │   ├── features/         panels and dialogs (presentation only)
 │   └── services/         graph settle pipeline, processes, exports, projects
 ├── worker/               subprocess wrapper streaming JSON training events
-├── mcp/                  MCP server over the core engine
+├── mcp/                  MCP server over core/api.py
+├── server/               FastAPI REST + WebSocket server and the built web UI (static/)
 └── cli.py                headless command line
+web/                      React + TypeScript + Vite + React Flow frontend (built into server/static)
 ```
 
 ## Design rules
@@ -40,6 +52,11 @@ ai_made_easy/
 | Every dataset modality trains end to end | `tests/test_training_e2e.py` |
 | Every classic estimator fits end to end | `tests/test_classic.py` |
 | Every block can be placed and edited on the canvas | `tests/test_ui.py` |
+| Imported models reproduce the original outputs | `tests/test_import.py` |
+| Serving packages answer `/predict` like the checkpoint | `tests/test_deploy.py` |
+| The split preview equals the generated split | `tests/test_data.py` |
+| Every REST endpoint and the run WebSocket | `tests/test_server.py` |
+| The browser UI loads, validates and edits | `web/e2e/smoke.spec.ts` (Playwright) |
 
 ## Data flow
 
@@ -52,6 +69,42 @@ Train ─► training script (core/training or core/classic) ─► worker subpr
       ─► epoch events ─► Training panel ─► run folder (checkpoint, metrics,
          predictions) ─► Error analysis · Saliency · Model card · Web demo
 ```
+
+## Runs, sweeps and deployment
+
+```
+RunManager.start(graph) ─► RunHistory.create (design snapshot, params, data fingerprint)
+      ─► training script in $AIME_HOME/runs/<run_id>/ ─► worker subprocess
+      ─► env / epoch / log / done events ─► epochs.jsonl + listeners
+         (desktop panels, MCP, WebSocket clients)
+SweepRunner ─► for each trial: apply values ─► validate ─► RunManager.start(parent=sweep)
+build_package(run dir) ─► app.py + model + inference state + Dockerfile (+ ONNX / TorchScript / Core ML)
+ModelRegistry.register(run dir) ─► $AIME_HOME/models/<name>/<version>/ with a stage
+```
+
+Generated training scripts save `inference_state.pkl` (the preprocessing fitted
+on the training split) and define `load_predictor()` / `infer()`, which the
+serving package imports, so served predictions use exactly the training
+pipeline.
+
+## Data workspace
+
+`core/data/profile.py` reads datasets the way the generated scripts do (same
+readers, label encoding and folder order). `core/data/lints.py` turns profile
+findings into Problems-panel warnings in the context of the pipeline,
+suppressing what the design already handles. Profiles are cached by file
+signature; the desktop computes them on a background thread
+(`ui/services/data_service.py`). `core/data/splits.py` reproduces the generated
+split exactly, and `core/data/augment.py` runs the design's torchvision
+pipeline in the training environment.
+
+## Web server
+
+`server/app.py` exposes `core/api.py` over REST (`/api/...`) and streams run
+events over `WS /api/runs/{id}/events`. It also serves the built frontend with
+an SPA fallback. When `AIME_WEB_TOKEN` is set, every request needs the bearer
+token. The frontend keeps the project as React Flow nodes / edges, converts to
+the project JSON for every API call, and validates with a debounce.
 
 ## Intermediate representation
 

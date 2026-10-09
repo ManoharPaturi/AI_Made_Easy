@@ -90,7 +90,7 @@ into `main` with a merge commit.
 - [x] Status bar: validation state, parameter count, device
 
 ## Phase 6 — Production readiness ✅
-- [x] Version 1.0.0, About dialog, app icon (PNG + macOS .icns)
+- [x] Version 2.0.0, About dialog, app icon (PNG + macOS .icns)
 - [x] Rotating log file (~/.aime/logs) + global exception handler with error dialog
 - [x] Autosave every 2 minutes + crash recovery, Open Recent, project-file migrations
 - [x] CI: GitHub Actions (ruff + pytest offscreen, Linux + macOS, Python 3.11/3.12)

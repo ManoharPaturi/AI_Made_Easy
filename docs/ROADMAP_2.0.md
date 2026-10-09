@@ -1,5 +1,22 @@
 # AI Made Easy 2.0 — major update plan
 
+> **Status: complete — released as 2.0.0.**
+>
+> | Phase | Delivered in |
+> |---|---|
+> | 0 Headless foundations | `core/api.py`, `core/runs/`, `core/paths.py` |
+> | 1 Experiments & tuning | `core/sweeps.py`, Experiments dock |
+> | 2 Deploy & serve | `core/deploy/`, Models tab, `aime deploy / serve / models` |
+> | 3 Import & round-trip | `core/importers/`, `core/block_packs.py` |
+> | 4 Data workspace | `core/data/`, Data dock |
+> | 5 Web version | `ai_made_easy/server/`, `web/`, `Dockerfile` |
+> | 6 Release 2.0.0 | docs, CHANGELOG, CI (web, docker, package jobs) |
+>
+> Differences from the plan: the run store landed as `core/runs/history.py`
+> (`$AIME_HOME/runs/<run_id>/`, not per-project folders); TFLite export was
+> left out (Core ML, ONNX and TorchScript cover the targets); the project
+> schema did not change, so no migration was needed.
+
 ## Context
 1.0 (main @ f842216) is a production desktop designer: 345 blocks, live validation,
 verified PyTorch / Keras / sklearn codegen, in-app training. The user wants a major
