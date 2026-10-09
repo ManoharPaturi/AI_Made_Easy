@@ -155,6 +155,34 @@ Transformer → language model.
 - `runtime.py` holds the data generators / readers and the metrics (FID, KID,
   BLEU, chrF, ROUGE-L) shared by scripts, profiles and tests.
 
+## Probabilistic models
+
+Three families have their own scripts (`Family.generators`) and validators and are
+trained in the app like any other run:
+
+- `pgm` (framework `pgmpy`): variables are nodes, edges are dependencies; a
+  `pgm.model` block picks the network kind (`acyclic=False` for Markov networks).
+  CPDs are `table` parameters whose columns follow the parents in sorted order.
+- `ppl` (framework `pymc`): `model.py` resolves distribution ports into a sandboxed
+  expression graph and emits literal PyMC code; `runtime.py` holds the convergence
+  diagnostics (compared with ArviZ in the tests).
+- `gp` (frameworks `gpytorch` / `sklearn`, chosen by the model's `library`):
+  `kernels.py` turns the Sum / Product tree into either library's expression.
+- `ssm` (framework `statsmodels`): component blocks feed a multi-input
+  `ssm.model`; `template.spec_of` maps them to `UnobservedComponents` or `SARIMAX`
+  keyword arguments. Serving re-runs the Kalman filter (`smooth(params)`) on the
+  request's history.
+
+Two more live inside neural designs:
+
+- `core/bayes`: stochastic layers mark themselves `stochastic`, KL layers expose
+  `kl_divergence()`. `probabilistic_context(graph)` switches on a `PROBABILISTIC`
+  section of the supervised PyTorch script (MC averaging, the MDN likelihood,
+  Laplace, ECE, temperature scaling, conformal) and a `serve()` used by `infer()`.
+- `core/flows`: every flow layer sets `self.logdet` in `forward` and has
+  `inverse`; the `flow` trainer adds the log-determinants to a standard-normal base
+  log-density and samples by running the layers backwards.
+
 ## Resource budgets
 
 `core/budget.py` estimates a neural design's cost from the IR alone (no

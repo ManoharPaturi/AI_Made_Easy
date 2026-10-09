@@ -208,6 +208,12 @@ Goal: about 750+ blocks, every family validated at design time, generating runna
   - evaluation blocks: temperature scaling, reliability diagram / ECE, conformal prediction (split / CQR)
   - prediction intervals carried into serving responses
 - **Kalman / state-space models:** statsmodels UnobservedComponents, Kalman filter blocks for time series.
+- **Status:** shipped as five families / sections: `pgm` (pgmpy + hmmlearn), `ppl` (PyMC), `gp` (GPyTorch / scikit-learn), Bayesian layers and calibration inside supervised PyTorch designs, normalizing flows (a `density_estimation` task with its own `flow` trainer) and `ssm` (statsmodels). Not in this phase (moved to a later release):
+  - MMHC structure learning (GES, Hill-Climb, PC and Chow-Liu trees ship)
+  - MvNormal and LKJ distribution blocks (vector-valued priors need plate shapes on the canvas)
+  - conformalized quantile regression (split conformal sets and normalised-residual intervals ship)
+  - deep ensembles (Phase 8 pipelines) and image-scale flows (Glow)
+  - time-varying regression coefficients in state-space models
 
 ## Phase 6 — Graph, tabular deep learning, recommenders, RL
 - **Graph (PyTorch Geometric, PyTorch only):**

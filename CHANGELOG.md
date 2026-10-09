@@ -3,6 +3,47 @@
 ## Unreleased (3.0 in progress — see docs/ROADMAP_3.0.md)
 
 ### Added
+- Probabilistic models, all behind the `probabilistic` extra except the
+  PyTorch parts.
+  - Graphical models (`core/pgm`, pgmpy): discrete and Gaussian variables wired by a
+    multi-input `parents` port; Bayesian and Markov networks, naive Bayes, dynamic
+    Bayesian networks and hidden Markov models (hmmlearn). CPD tables are edited in a
+    table editor (desktop and web) with a "Normalize the table" Quick Fix. Structure
+    learning (GES, Hill-Climb with BIC / BDeu / K2, PC, Chow-Liu trees), MLE /
+    Bayesian / EM parameter learning, variable elimination, belief propagation and
+    sampling, marginal and MAP queries. Deployed models answer evidence queries.
+  - Probabilistic programs (`core/ppl`, PyMC): 19 distribution blocks with a port per
+    parameter, deterministic expressions, observed columns and group-level
+    (hierarchical) effects, non-centred by default. NUTS (PyMC or NumPyro), ADVI,
+    SMC or MAP; split R-hat and bulk / tail ESS identical to ArviZ, divergences,
+    trace and posterior-predictive plots. Rules check supports, observed data types
+    and improper priors.
+  - Gaussian processes (`core/gp`): RBF, Matérn, periodic, linear, rational
+    quadratic, spectral-mixture, white and constant kernels combined with Sum /
+    Product blocks; exact or sparse variational GPs (GPyTorch) or scikit-learn;
+    Gaussian, Student-t, Bernoulli and Poisson likelihoods; interval coverage
+    against a constant baseline.
+  - Bayesian deep learning (`core/bayes`): MC Dropout, Bayes-by-Backprop linear and
+    convolution layers (KL added to the loss), a mixture density head and a
+    last-layer Laplace approximation, in any supervised PyTorch design.
+  - Calibration: ECE with a reliability diagram, temperature scaling and split
+    conformal prediction (class sets or intervals). Served predictions add entropy,
+    prediction sets, standard deviations and intervals.
+  - Normalizing flows (`core/flows`): RealNVP affine couplings, masked
+    autoregressive layers, neural spline couplings, ActNorm and permutations, a
+    `density_estimation` task with a maximum-likelihood trainer, 2-D density data
+    and CSV tables, a Gaussian baseline and live density pictures. Deployed flows
+    return log-densities and samples.
+  - State-space models (`core/ssm`, statsmodels): level / trend, seasonal, cycle,
+    autoregressive and regression components, or a SARIMAX specification, fitted
+    with the Kalman filter; held-out forecasts with intervals against seasonal
+    naive, smoothed components, and serving that filters new histories.
+  - Samples: student network, structure learning, market-regime HMM, hierarchical
+    linear and logistic regression, GP trend + seasonality and GP classification,
+    MC-dropout calibration, Bayes by Backprop, a mixture density network, spline and
+    RealNVP flows, a structural time series and a seasonal ARIMA.
+- Table parameters (`"table"` type, a JSON 2-D list) with grid editors, and
+  multi-input ports on the desktop and web canvases.
 - Generative models (`core/generative`), each with its own training loop.
   - VAEs built from layers around a Reparameterize bottleneck (β, KL warm-up; MSE
     or binary cross-entropy reconstruction); generation decodes prior samples.

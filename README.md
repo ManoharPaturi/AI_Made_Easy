@@ -13,7 +13,7 @@ boilerplate. It runs on the desktop or in the browser.
 
 ## Highlights
 
-- **370 blocks** across every major library: `torch.nn` layers, Keras 3
+- **480+ blocks** across every major library: `torch.nn` layers, Keras 3
   equivalents, torchvision / `keras.applications` / timm pretrained backbones,
   Hugging Face text and image encoders, scikit-learn, XGBoost, LightGBM and CatBoost,
   plus datasets, preprocessing, augmentation, losses, optimizers, schedulers
@@ -45,6 +45,13 @@ boilerplate. It runs on the desktop or in the browser.
   classifier-free guidance, EMA), GPT-style language models and encoder-decoder
   transformers trained from scratch, with live sample grids, FID / KID, perplexity,
   BLEU / chrF / ROUGE-L, and `/generate` endpoints in deploy packages.
+- **Probabilistic models.** Bayesian networks, Markov networks, HMMs and
+  structure learning (pgmpy) with CPD table editing; hierarchical models in PyMC
+  with R-hat / ESS diagnostics; Gaussian processes with kernel algebra (GPyTorch,
+  scikit-learn); MC dropout, Bayes-by-Backprop, mixture density networks and Laplace
+  for neural networks; ECE, temperature scaling and conformal prediction;
+  normalizing flows (RealNVP, MAF, neural splines); and structural time series /
+  SARIMAX with the Kalman filter (statsmodels).
 - **Resource budgets.** FLOPs, training memory and latency estimates for 11
   devices (laptop CPU to H100, iPhone, Jetson, Raspberry Pi), with warnings and
   Quick Fixes when a design will not fit.
@@ -88,6 +95,7 @@ Install only what you need with the optional extras:
 | `vision` | torchvision datasets, transforms and pretrained backbones |
 | `vision-tasks` | timm backbones, Hugging Face DETR / SegFormer / DINOv2, COCO RLE masks |
 | `audio` | Hugging Face speech encoders (wav2vec 2.0, HuBERT, WavLM, Whisper) |
+| `probabilistic` | pgmpy, hmmlearn, PyMC, GPyTorch and statsmodels (graphical models, probabilistic programs, Gaussian processes, state-space models) |
 | `data` | pandas-backed table files (CSV, TSV, Parquet, Excel, JSON) |
 | `classic` | scikit-learn, XGBoost, LightGBM, CatBoost |
 | `keras` | Keras 3 for running exported Keras code |
