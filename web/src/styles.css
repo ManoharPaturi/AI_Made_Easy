@@ -224,3 +224,19 @@ pre.code { margin: 0; font: 12px/1.5 "SF Mono", Menlo, Consolas, monospace; whit
 .modal h3 { margin-top: 0; }
 .modal .actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
 .empty { color: var(--text-muted); padding: 24px; text-align: center; }
+
+/* ---- summary: cost tiles + resource budget */
+.tiles { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; margin-bottom: 8px; }
+.tiles > div { border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; }
+.tiles strong { display: block; font-size: 15px; }
+.tiles span { color: var(--text-muted); font-size: 11px; }
+fieldset.budget { border: 1px solid var(--border); border-radius: 6px; margin: 0 0 8px; padding: 6px 8px;
+                  display: flex; flex-direction: column; gap: 4px; }
+fieldset.budget legend { font-size: 11px; color: var(--text-muted); padding: 0 4px; }
+fieldset.budget label { display: flex; justify-content: space-between; align-items: center; gap: 6px; }
+.budget-bar { position: relative; height: 18px; border-radius: 4px; background: var(--border-soft);
+              overflow: hidden; }
+.budget-bar span { position: absolute; inset: 0 auto 0 0; background: var(--accent); }
+.budget-bar.over span { background: var(--error); }
+.budget-bar em { position: relative; font-style: normal; font-size: 11px; padding-left: 6px; line-height: 18px; }
+.error-text { color: var(--error); margin: 2px 0; }

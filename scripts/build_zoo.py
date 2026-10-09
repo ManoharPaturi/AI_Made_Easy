@@ -63,7 +63,8 @@ def strip_head(name: str, model: nn.Module) -> nn.Module:
 
 
 def image_entry(name: str, keras: str | None, fixed: int | None) -> dict:
-    meta = torchvision.models.get_model_weights(name).DEFAULT.meta
+    weights = torchvision.models.get_model_weights(name).DEFAULT
+    meta = weights.meta
     model = strip_head(name, torchvision.models.get_model(name, weights=None)).eval()
     side = fixed or 224
     with torch.no_grad():
@@ -71,7 +72,8 @@ def image_entry(name: str, keras: str | None, fixed: int | None) -> dict:
     min_side = fixed or max(32, int(meta.get("min_size", (32, 32))[0]))
     acc = meta.get("_metrics", {}).get("ImageNet-1K", {}).get("acc@1")
     return {"name": name, "feature_dim": width, "params_m": round(meta["num_params"] / 1e6, 1),
-            "imagenet_top1": acc, "min_side": min_side, "fixed_side": fixed, "keras": keras,
+            "imagenet_top1": acc, "gmacs": meta.get("_ops"),
+            "gmacs_side": int(weights.transforms().crop_size[0]), "min_side": min_side, "fixed_side": fixed, "keras": keras,
             "license": "BSD-3-Clause (torchvision)", "source": "torchvision"}
 
 

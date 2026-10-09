@@ -28,6 +28,8 @@ interface Store {
   onEdgesChange: (changes: EdgeChange[]) => void;
   setEdges: (fn: (edges: Edge[]) => Edge[]) => void;
   project: () => Project;
+  meta: Record<string, unknown>;
+  setMeta: (fn: (meta: Record<string, unknown>) => Record<string, unknown>) => void;
   load: (project: Project, fit?: boolean) => void;
   loads: number;
   arrange: () => void;
@@ -179,7 +181,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   }, [load, notify]);
 
   // ---- live validation (debounced, structure only)
-  const key = structureKey(nodes, edges);
+  const key = structureKey(nodes, edges) + JSON.stringify(meta.budget ?? null);
   useEffect(() => {
     if (!nodes.length) {
       setValidation(null);
@@ -204,7 +206,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     const timer = window.setTimeout(
       () => localStorage.setItem(AUTOSAVE, JSON.stringify(latest.current())), 800);
     return () => window.clearTimeout(timer);
-  }, [nodes, edges, name]);
+  }, [nodes, edges, name, meta]);
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -227,7 +229,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   const store: Store = {
     blocks, blockMap, name, setName, nodes, edges, onNodesChange, onEdgesChange, setEdges,
-    project, load, loads, arrange, addBlock, setParam, commit, undo, redo, validation, dataIssues, selected,
+    project, meta, setMeta, load, loads, arrange, addBlock, setParam, commit, undo, redo, validation, dataIssues, selected,
     setSelected, selectNode, toast, notify, theme, toggleTheme, version,
   };
   return <Ctx.Provider value={store}>{children}</Ctx.Provider>;

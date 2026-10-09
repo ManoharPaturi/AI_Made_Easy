@@ -47,3 +47,13 @@ test("open an example from the Open dialog", async ({ page }) => {
   await expect(page.getByLabel("Project name").first()).toHaveValue("iris_mlp");
   await expect(page.getByTestId("status")).toHaveText("No problems");
 });
+
+test("summary shows costs and checks the resource budget", async ({ page }) => {
+  await page.getByRole("button", { name: "Summary" }).click();
+  await expect(page.getByTestId("cost-tiles")).toContainText("FLOPs");
+  await page.getByLabel("Target device").selectOption("raspberry_pi_5");
+  await expect(page.getByTestId("memory-bar")).toContainText("/ 6 GB");
+  await page.getByLabel("Max training memory").fill("0.001");
+  await expect(page.getByTestId("memory-bar")).toHaveClass(/over/);
+  await expect(page.getByTestId("problems")).toContainText("Training needs about");
+});

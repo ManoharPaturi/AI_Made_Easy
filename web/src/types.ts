@@ -90,7 +90,36 @@ export interface Validation {
 export interface Summary {
   total_params: number;
   total_params_display: string;
-  layers: { name: string; type: string; output_shape: number[]; params: number }[];
+  total_flops: number;
+  layers: { name: string; type: string; output_shape: number[]; params: number; flops: number }[];
+}
+
+export interface DeviceProfile {
+  id: string;
+  label: string;
+  kind: string;
+  memory_gb: number;
+  tflops_fp32: number;
+  tflops_fp16: number;
+  bandwidth_gbs: number;
+}
+
+export interface Budget {
+  device: string;
+  max_train_memory_gb: number;
+  max_latency_ms: number;
+  max_params_m: number;
+  max_model_mb: number;
+}
+
+export interface BudgetReport {
+  budget: Budget;
+  estimate: {
+    params: number; trainable_params: number; flops: number; batch_size: number;
+    mixed_precision: boolean; model_mb: number; train_memory_gb: number;
+    latency_ms: number | null; step_time_ms: number | null; device: DeviceProfile | null;
+  };
+  checks: { kind: string; used: number; limit: number; unit: string; over: boolean }[];
 }
 
 export interface RunRecord {
@@ -164,7 +193,7 @@ export interface SweepRecord {
   sweep_id: string;
   name: string;
   spec: { dimensions: SweepDimension[]; metric: string; direction: string; strategy: string;
-          max_trials: number };
+          max_trials: number; skip_over_budget?: boolean };
   project: string;
   state: string;
   created_at: number;

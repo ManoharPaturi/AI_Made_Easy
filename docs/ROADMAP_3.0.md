@@ -28,7 +28,7 @@ Goal: about 750+ blocks, every family validated at design time, generating runna
 
 ---
 
-## Phase 0 — Families, tasks and port roles (the foundation)
+## Phase 0 — Families, tasks and port roles (the foundation) ✅
 - **`core/families.py`:** a `Family` registry.
   - Each family declares:
     - id and label
@@ -61,7 +61,7 @@ Goal: about 750+ blocks, every family validated at design time, generating runna
 - **Model-zoo generator** (`scripts/build_zoo.py`): curated pretrained catalogs (timm, HF vision / audio / text) become JSON option lists with license, parameter count and input size. No network at runtime.
 - **Per-family test harness:** generalize `tests/test_codegen_runtime.py` so every family runs "every block generates, executes and gives the designed shape".
 
-## Phase 1 — Resource budgets (constraints)
+## Phase 1 — Resource budgets (constraints) ✅
 - **`core/budget.py`:**
   - Per-block FLOPs and activation-memory estimates. Formulas by layer kind (conv / linear / attention / norm / pool), extending `summary.py` (which already has param counts and `param_fn`).
   - Training memory = params + grads + optimizer states (Adam ×2) + activations × batch. Accounts for AMP, gradient checkpointing and accumulation.

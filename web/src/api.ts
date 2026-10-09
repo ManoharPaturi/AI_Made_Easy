@@ -1,7 +1,7 @@
 // Typed client for the AI Made Easy server. Every call goes to /api; errors carry the
 // server's user-facing message.
 import type {
-  BlockDef, DataProfile, FamilyInfo, TaskInfo, ModelVersion, Project, RunEvent, RunRecord, SplitPreview, Summary,
+  BlockDef, BudgetReport, DataProfile, DeviceProfile, FamilyInfo, TaskInfo, ModelVersion, Project, RunEvent, RunRecord, SplitPreview, Summary,
   SweepParam, SweepRecord, Validation,
 } from "./types";
 
@@ -60,6 +60,8 @@ export const api = {
   generate: (graph: Project, target: string) =>
     post<{ code: string }>("/generate", { graph, target }),
   summary: (graph: Project) => post<Summary>("/summary", { graph }),
+  devices: () => get<{ devices: DeviceProfile[] }>("/devices"),
+  budget: (graph: Project) => post<BudgetReport>("/budget", { graph }),
   expand: (graph: Project, nodeId: string) =>
     post<{ graph: Project }>("/expand", { graph, node_id: nodeId }),
 

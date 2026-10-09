@@ -90,6 +90,30 @@ Train ─► training script (core/training or core/classic) ─► worker subpr
   `scripts/build_zoo.py` (measured feature widths, parameters, accuracy,
   license).
 
+## Resource budgets
+
+`core/budget.py` estimates a neural design's cost from the IR alone (no
+torch import): `estimate(graph, device)` walks `model_nodes()` and gives each
+layer its parameters, forward FLOPs and the activation values it keeps for the
+backward pass. Linear and conv layers cost `2 × weights × output positions`,
+recurrent and attention layers add their sequence terms, pretrained backbones
+use the GMACs recorded in the model zoo. Views (flatten, reshape, ...) keep no
+memory, and an output consumed only by ReLU / sigmoid / tanh / softmax is freed
+because those activations save their own output.
+
+Training memory = weights (+ fp16 copy under AMP) + gradients + optimizer state
+(Adam 2, SGD-momentum 1, plain SGD 0 per weight) + activations × batch + the
+device's runtime overhead. Latency (batch 1) = FLOPs at 35% of the device's peak
++ memory traffic over its bandwidth + a per-layer launch cost. Device profiles
+are `core/devices.json` plus `~/.aime/devices.json`.
+
+The project's budget is `graph.meta["budget"]` (device and limits; 0 = none).
+`check()` compares the estimate with it; the `resource_budget` lint reports
+overruns and `fixes.py` offers mixed precision or a fitting batch size with
+gradient accumulation. The PyTorch training template prints a `resources:`
+line after the first epoch (peak memory, step time); the worker turns it into
+a `resources` event stored on the run record for calibration.
+
 ## Runs, sweeps and deployment
 
 ```

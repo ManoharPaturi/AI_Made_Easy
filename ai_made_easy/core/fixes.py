@@ -101,6 +101,12 @@ def fix_for_issue(graph: "Graph", issue: "ValidationIssue"):
             return ("Match input", "set the Input shape to the dataset's "
                     f"{m.group(1)} features", g)
 
+    # training memory over budget -> mixed precision, else a batch size that fits
+    if msg.startswith("Training needs about"):
+        fixed = _fit_training_memory(g)
+        if fixed is not None:
+            return fixed
+
     # disconnected input with an obvious nearest predecessor -> wire it
     if node is not None and "is not connected" in msg:
         candidates = [n for n in g.nodes.values()
@@ -130,3 +136,29 @@ def fix_for_issue(graph: "Graph", issue: "ValidationIssue"):
         return ("Delete block", "delete the disconnected block", g)
 
     return None
+
+
+def _fit_training_memory(g: "Graph"):
+    from ai_made_easy.core import budget
+
+    trainer = next((n for n in g.nodes.values() if n.type_id == "train.trainer"), None)
+    limits = [c for c in budget.check(g) if c.kind == "train_memory"]
+    if trainer is None or not limits:
+        return None
+    limit = limits[0].limit * budget.GB
+    est = budget.estimate(g)
+    if not est.mixed_precision and est.train_memory_bytes(mixed_precision=True) <= limit:
+        trainer.params["mixed_precision"] = True
+        return ("Use mixed precision", "turn on mixed precision: activations take half the "
+                "memory and the batch size stays the same", g)
+    batch = est.fitting_batch(limit)
+    if not batch or batch >= est.batch_size:
+        return None
+    steps = max(1, round(est.accumulation_steps * est.batch_size / batch))
+    trainer.params["batch_size"] = batch
+    trainer.params["accumulation_steps"] = steps
+    for loader in (n for n in g.nodes.values() if n.type_id == "prep.dataloader"):
+        if int(loader.resolved_params().get("batch_size") or 0):
+            loader.params["batch_size"] = batch
+    return ("Fit batch size", f"use batch {batch} with {steps} accumulation steps: same "
+            "effective batch, less memory", g)

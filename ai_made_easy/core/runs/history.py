@@ -43,6 +43,8 @@ class RunRecord:
     best_metrics: dict[str, float] = field(default_factory=dict)
     epochs_done: int = 0
     env: dict[str, Any] = field(default_factory=dict)
+    # measured on the first epoch: peak_memory_mb, step_ms, batch_size, device
+    resources: dict[str, Any] = field(default_factory=dict)
     data_fingerprint: str = ""
     tags: list[str] = field(default_factory=list)
     note: str = ""

@@ -8,6 +8,7 @@ GraphService.
 """
 from __future__ import annotations
 
+import copy
 from pathlib import Path
 
 from OdenGraphQt import NodeGraph
@@ -48,6 +49,7 @@ class CanvasController:
     def __init__(self) -> None:
         from ai_made_easy.ui.theme import DEFAULT_THEME, THEMES
 
+        self.meta: dict = {}  # project metadata (title, budget, ...) carried through to_ir
         self._graph = NodeGraph()
         self._graph.set_acyclic(True)
         self._graph.set_pipe_style(PipeLayoutEnum.CURVED.value)
@@ -179,7 +181,7 @@ class CanvasController:
 
     def to_ir(self, name: str = "untitled") -> Graph:
         reg = get_registry()
-        g = Graph(name=name)
+        g = Graph(name=name, meta=copy.deepcopy(self.meta))
         for node in self._graph.all_nodes():
             type_id = NODE_TYPE_TO_BLOCK.get(node.type_)
             if type_id is None:
@@ -199,11 +201,13 @@ class CanvasController:
         return g
 
     def clear(self) -> None:
+        self.meta = {}
         self._graph.clear_session()
         self._graph.clear_undo_stack()
 
     def load_ir(self, graph: Graph) -> None:
         self.clear()
+        self.meta = copy.deepcopy(graph.meta or {})
         canvas_nodes = {}
         for inst in graph.nodes.values():
             cls_type = node_type_for(inst.type_id)

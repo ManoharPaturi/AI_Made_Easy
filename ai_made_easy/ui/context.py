@@ -16,6 +16,7 @@ from PySide6 import QtCore, QtGui, QtWidgets
 from ai_made_easy import __version__
 from ai_made_easy.core.graph import Graph
 from ai_made_easy.core.registry import get_registry
+from ai_made_easy.core import budget
 from ai_made_easy.core.summary import summarize
 from ai_made_easy.ui.canvas import CanvasArea, CanvasController, block_mime_data
 from ai_made_easy.ui.dialogs import (
@@ -133,6 +134,7 @@ class AppContext(QtCore.QObject):
         self.properties.reset_requested.connect(self._reset_params)
         self.problems.locate_requested.connect(self._locate)
         self.problems.fix_requested.connect(self._apply_fix)
+        self.summary_page.budget_changed.connect(self._on_budget_changed)
         self.code_page.target_changed.connect(lambda _t: self._refresh_preview())
         self.code_page.export_requested.connect(self.act_export)
         self.assistant_page.apply_requested.connect(
@@ -312,9 +314,20 @@ class AppContext(QtCore.QObject):
             summary = summarize(ir) if kind == "Neural network" else None
         except Exception:  # noqa: BLE001 — summaries need a valid model
             summary = None
+        estimate, checks = None, []
+        if summary is not None:
+            try:
+                estimate = budget.estimate(ir)
+                checks = budget.check(ir, estimate)
+            except Exception:  # noqa: BLE001 — an estimate never blocks the summary
+                estimate = None
+        flops = ([c.flops for c in estimate.layers]
+                 if estimate and len(estimate.layers) == len(summary.layers) else None)
         self.summary_page.set_summary(
             summary, "" if summary else ("Classic ML pipelines have no layer summary."
-                                         if kind.startswith("Classic") else ""))
+                                         if kind.startswith("Classic") else ""), flops)
+        self.summary_page.set_budget(budget.budget_of(ir))
+        self.summary_page.set_estimate(estimate, checks)
         self.params_chip.set_state(f"{summary.total_params_display} parameters"
                                    if summary else "")
         self._refresh_preview(ir)
@@ -322,6 +335,11 @@ class AppContext(QtCore.QObject):
         self._refresh_properties()
         if not self.graph_service.settled_from_load:
             self.project_store.mark_dirty()
+
+    def _on_budget_changed(self, values: dict) -> None:
+        """The Summary's budget controls edited ``meta["budget"]``: re-check the design."""
+        self.graph_service.adapter.meta["budget"] = values
+        self.graph_service.schedule()
 
     def _republish_issues(self) -> None:
         """Data profiles landed in the background: refresh the problems only."""

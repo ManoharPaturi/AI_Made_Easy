@@ -108,6 +108,11 @@ def main(argv: list[str] | None = None) -> int:
     p_web.add_argument("--open", action="store_true", help="open the browser")
     p_sum = sub.add_parser("summary", help="print the analytic model summary as JSON")
     p_sum.add_argument("project", help="path to project .json")
+    p_bud = sub.add_parser("budget", help="estimate FLOPs / memory / latency on a device")
+    p_bud.add_argument("project", nargs="?", default="", help="path to project .json")
+    p_bud.add_argument("--device", default=None, help="device profile id (see --list)")
+    p_bud.add_argument("--list", action="store_true", help="list device profiles")
+    p_bud.add_argument("--json", action="store_true", help="print JSON")
     p_llm = sub.add_parser("llm", help="generate an LLM workflow script")
     p_llm.add_argument("project", help="path to project .json")
     p_llm.add_argument("-o", "--out", default="exports", help="output directory")
@@ -142,6 +147,9 @@ def main(argv: list[str] | None = None) -> int:
         serve_web(args.host, args.port, args.open)
         return 0
 
+    if args.command == "budget" and (args.list or not args.project):
+        return _budget_command(args, None)
+
     with open(args.project) as fh:
         graph = Graph.from_dict(json.load(fh))
 
@@ -169,6 +177,9 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "sweep":
         return _sweep_command(args, graph)
+
+    if args.command == "budget":
+        return _budget_command(args, graph)
 
     if args.command == "summary":
         from ai_made_easy.core.summary import summarize
@@ -282,6 +293,42 @@ def parse_space(text: str, points: int = 3) -> dict:
         return {"node": node, "param": param, "kind": "int", "low": int(parts[0]),
                 "high": int(parts[1]), "step": int(parts[2]) if len(parts) == 3 else 1}
     raise ValueError(f"cannot parse the search space {space!r}")
+
+
+def _budget_command(args, graph) -> int:  # noqa: ANN001
+    from ai_made_easy.core import api, budget
+
+    if graph is None:
+        if not args.list:
+            print("error: give a project, or --list to see device profiles", file=sys.stderr)
+            return 2
+        for d in api.list_devices()["devices"]:
+            print(f"{d['id']:<18} {d['label']:<40} {d['memory_gb']:>5g} GB  "
+                  f"{d['tflops_fp32']:>6g} TFLOPs fp32")
+        return 0
+    try:
+        report = api.estimate_budget(graph, args.device)
+    except Exception as exc:  # noqa: BLE001
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    if args.json:
+        print(json.dumps(report, indent=2))
+    else:
+        est = report["estimate"]
+        device = est["device"]["label"] if est["device"] else "no device (use --device)"
+        print(f"device            {device}")
+        print(f"parameters        {est['params']:,} ({est['trainable_params']:,} trainable)")
+        print(f"forward FLOPs     {budget.human_flops(est['flops'])} per sample")
+        print(f"model size        {est['model_mb']:.1f} MB")
+        print(f"training memory   {est['train_memory_gb']:.2f} GB at batch {est['batch_size']}"
+              + (" (mixed precision)" if est["mixed_precision"] else ""))
+        if est["latency_ms"] is not None:
+            print(f"latency           {est['latency_ms']:.2f} ms per sample")
+            print(f"training step     {est['step_time_ms']:.1f} ms")
+        for c in report["checks"]:
+            mark = "OVER" if c["over"] else "ok"
+            print(f"budget {c['kind']:<13}{c['used']:.2f} / {c['limit']:g} {c['unit']}  {mark}")
+    return 1 if any(c["over"] for c in report["checks"]) else 0
 
 
 def _sweep_command(args, graph) -> int:  # noqa: ANN001

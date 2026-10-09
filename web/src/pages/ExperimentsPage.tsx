@@ -167,6 +167,7 @@ function SweepModal({ onClose, onStarted }: { onClose: () => void; onStarted: ()
   const [metricName, setMetricName] = useState("val_loss");
   const [strategy, setStrategy] = useState("random");
   const [trials, setTrials] = useState(6);
+  const [skipBudget, setSkipBudget] = useState(true);
   useEffect(() => {
     api.sweepParams(project()).then((r) => setParams(r.params)).catch((e) => notify(String(e.message), true));
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -177,7 +178,7 @@ function SweepModal({ onClose, onStarted }: { onClose: () => void; onStarted: ()
       : { node: p.node, param: p.param, kind: p.kind, low: p.low, high: p.high, log: p.log }));
     try {
       await api.startSweep(project(), { dimensions, metric: metricName, strategy,
-                                        max_trials: trials }, name);
+                                        max_trials: trials, skip_over_budget: skipBudget }, name);
       notify("Sweep started");
       onStarted();
       onClose();
@@ -198,6 +199,9 @@ function SweepModal({ onClose, onStarted }: { onClose: () => void; onStarted: ()
           <option value="tpe">Bayesian (Optuna TPE)</option></select></label>
         <label>Trials <input type="number" min={1} max={200} value={trials}
                              onChange={(e) => setTrials(Number(e.target.value))} style={{ width: 70 }} /></label>
+        <label title="Trials that break the project's resource budget are recorded but not trained">
+          <input type="checkbox" checked={skipBudget} onChange={(e) => setSkipBudget(e.target.checked)} />
+          Skip over budget</label>
       </div>
       <table>
         <thead><tr><th /><th>Block · parameter</th><th>Range</th></tr></thead>
