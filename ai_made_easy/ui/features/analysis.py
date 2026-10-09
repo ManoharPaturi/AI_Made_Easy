@@ -105,6 +105,62 @@ class ErrorAnalysisDialog(QtWidgets.QDialog):
         return path if path.exists() else None
 
 
+class VisionAnalysisDialog(QtWidgets.QDialog):
+    """Detection / segmentation results: per-class scores and test-image overlays."""
+
+    def __init__(self, parent, workdir: Path):
+        super().__init__(parent)
+        self.setWindowTitle("Error Analysis")
+        self.resize(1040, 680)
+        workdir = Path(workdir)
+        metrics = read_artifact(workdir, "metrics.json", {}) or {}
+        classes = read_artifact(workdir, "classes.json", []) or []
+        layout = QtWidgets.QVBoxLayout(self)
+        shown = [f"{k} {v:.3f}" for k, v in metrics.items() if isinstance(v, (int, float))]
+        headline = QtWidgets.QLabel("Test set: " + (" · ".join(shown) or "no metrics"))
+        headline.setObjectName("blockMeta")
+        layout.addWidget(headline)
+        split = QtWidgets.QSplitter(QtCore.Qt.Orientation.Horizontal)
+        per_class = metrics.get("per_class_ap") or metrics.get("per_class_iou") or []
+        offset = 0 if "per_class_ap" in metrics or len(classes) == len(per_class) else 1
+        label = "AP" if "per_class_ap" in metrics else "IoU"
+        table = QtWidgets.QTableWidget(len(per_class), 2)
+        table.setHorizontalHeaderLabels(["Class", label])
+        table.verticalHeader().setVisible(False)
+        table.setEditTriggers(QtWidgets.QAbstractItemView.EditTrigger.NoEditTriggers)
+        table.horizontalHeader().setSectionResizeMode(0, QtWidgets.QHeaderView.ResizeMode.Stretch)
+        for row, value in enumerate(per_class):
+            name = classes[row - offset] if 0 <= row - offset < len(classes) else str(row)
+            if offset and row == 0:
+                name = "background"
+            table.setItem(row, 0, QtWidgets.QTableWidgetItem(str(name)))
+            table.setItem(row, 1, QtWidgets.QTableWidgetItem(
+                "—" if value is None else f"{value:.3f}"))
+        split.addWidget(table)
+        gallery = QtWidgets.QListWidget()
+        gallery.setViewMode(QtWidgets.QListView.ViewMode.IconMode)
+        gallery.setIconSize(QtCore.QSize(300, 220))
+        gallery.setResizeMode(QtWidgets.QListView.ResizeMode.Adjust)
+        gallery.setMovement(QtWidgets.QListView.Movement.Static)
+        for path in sorted((workdir / "eval_samples").glob("*.png")):
+            item = QtWidgets.QListWidgetItem(QtGui.QIcon(QtGui.QPixmap(str(path))), path.stem)
+            item.setToolTip("green: ground truth · red: prediction" if label == "AP"
+                            else "left: ground truth · right: prediction")
+            gallery.addItem(item)
+        split.addWidget(gallery)
+        split.setSizes([260, 780])
+        layout.addWidget(split, 1)
+        note = QtWidgets.QLabel("Boxes: green = ground truth, red = prediction (with score)."
+                                if label == "AP" else
+                                "Each sample shows the true mask (left) and the prediction "
+                                "(right).")
+        note.setObjectName("blockMeta")
+        layout.addWidget(note)
+        buttons = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.StandardButton.Close)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+
 class ModelCardDialog(QtWidgets.QDialog):
     """Generated model card with editable intended-use / limitations sections."""
 

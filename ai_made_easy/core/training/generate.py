@@ -344,18 +344,25 @@ def _validate(graph: Graph) -> None:
                            + "\n".join(f"  - {e}" for e in errors))
 
 
-# trainer kind -> renderer(graph, spec, framework); the training loop a task needs
-TrainerRenderer = Callable[[Graph, TrainingSpec, str], str]
+# trainer kind -> renderer(graph, spec, framework); the training loop a task needs.
+# Renderers registered with needs_spec=False get spec=None and read the graph
+# themselves (detection / segmentation pipelines have their own data formats).
+TrainerRenderer = Callable[[Graph, "TrainingSpec | None", str], str]
 TRAINERS: dict[str, TrainerRenderer] = {}
+_GRAPH_TRAINERS: set[str] = set()
 
 
-def register_trainer(kind: str, renderer: TrainerRenderer) -> None:
+def register_trainer(kind: str, renderer: TrainerRenderer, needs_spec: bool = True) -> None:
     """Add a training loop for a trainer kind (adversarial, diffusion, rl, ...)."""
     from ai_made_easy.core.tasks import TRAINER_KINDS
 
     if kind not in TRAINER_KINDS:
         raise ValueError(f"unknown trainer kind {kind!r}; one of {TRAINER_KINDS}")
     TRAINERS[kind] = renderer
+    if needs_spec:
+        _GRAPH_TRAINERS.discard(kind)
+    else:
+        _GRAPH_TRAINERS.add(kind)
 
 
 def generate_training(graph: Graph, framework: str) -> str:
@@ -367,6 +374,11 @@ def generate_training(graph: Graph, framework: str) -> str:
             raise CodegenError("scikit-learn export needs a classic ML estimator block")
         return generate_classic(graph)
     _validate(graph)
+    from ai_made_easy.core.tasks import task_of
+
+    task = task_of(graph)
+    if task is not None and task.trainer_kind in _GRAPH_TRAINERS:
+        return TRAINERS[task.trainer_kind](graph, None, framework)
     spec = collect_spec(graph)
     kind = get_task(spec.task).trainer_kind
     if kind not in TRAINERS:

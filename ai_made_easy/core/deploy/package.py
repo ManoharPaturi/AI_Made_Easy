@@ -92,6 +92,21 @@ def _describe(graph_dict: dict) -> dict:
     from ai_made_easy.core.graph import Graph
 
     graph = Graph.from_dict(graph_dict)
+    from ai_made_easy.core.tasks import task_of
+
+    task = None if is_classic(graph) else task_of(graph)
+    if task is not None and "image" in task.modalities and task.trainer_kind != "supervised":
+        from ai_made_easy.core.vision.tasks import dataset_of
+
+        data = dataset_of(graph)
+        out = {"task": task.id, "modality": "image",
+               "dataset": data.type_id if data else "data.synthetic_shapes",
+               "input_kind": "images", "input_help": _INPUT_HELP["images"],
+               "response": task.serving}
+        if task.trainer_kind == "detection":
+            out["export_note"] = ("detectors are served by the FastAPI package; ONNX / "
+                                  "TorchScript tracing of detection models is not supported")
+        return out
     if is_classic(graph):
         spec = collect_classic(graph)
         task, modality, block = spec.task, spec.modality, spec.dataset["block"]

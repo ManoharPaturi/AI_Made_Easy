@@ -237,6 +237,30 @@ def get_run(run_id: str) -> dict:
     return data
 
 
+def run_samples(run_id: str, limit: int = 12) -> dict:
+    """Test-image overlays of a vision run (PNG data URLs) and its per-class scores."""
+    import base64
+    import json as _json
+
+    folder = manager().history.path(run_id)
+    files = sorted((folder / "eval_samples").glob("*.png"))[:limit]
+    metrics, classes = {}, []
+    for name, default in (("metrics.json", {}), ("classes.json", [])):
+        try:
+            value = _json.loads((folder / name).read_text())
+        except (OSError, ValueError):
+            value = default
+        if name == "metrics.json":
+            metrics = value
+        else:
+            classes = value
+    per_class = metrics.get("per_class_ap") or metrics.get("per_class_iou") or []
+    return {"run_id": run_id, "classes": classes, "per_class": per_class,
+            "per_class_metric": "AP" if "per_class_ap" in metrics else "IoU",
+            "samples": [{"name": f.stem, "data_url": "data:image/png;base64,"
+                         + base64.b64encode(f.read_bytes()).decode()} for f in files]}
+
+
 def update_run(run_id: str, *, tags: list[str] | None = None, note: str | None = None) -> dict:
     fields: dict[str, Any] = {}
     if tags is not None:

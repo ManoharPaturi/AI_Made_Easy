@@ -261,3 +261,11 @@ export interface ModelVersion {
   description: string;
   created_at: number;
 }
+
+export interface RunSamples {
+  run_id: string;
+  classes: string[];
+  per_class: (number | null)[];
+  per_class_metric: string;
+  samples: { name: string; data_url: string }[];
+}

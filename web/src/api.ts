@@ -1,7 +1,7 @@
 // Typed client for the AI Made Easy server. Every call goes to /api; errors carry the
 // server's user-facing message.
 import type {
-  BlockDef, BudgetReport, DataProfile, DeviceProfile, FamilyInfo, TaskInfo, ModelVersion, Project, RunEvent, RunRecord, SplitPreview, Summary,
+  BlockDef, BudgetReport, RunSamples, DataProfile, DeviceProfile, FamilyInfo, TaskInfo, ModelVersion, Project, RunEvent, RunRecord, SplitPreview, Summary,
   SweepParam, SweepRecord, Validation,
 } from "./types";
 
@@ -77,6 +77,7 @@ export const api = {
   runs: (project?: string) =>
     get<{ runs: RunRecord[] }>(`/runs${project ? `?project=${encodeURIComponent(project)}` : ""}`),
   run: (id: string) => get<RunRecord>(`/runs/${id}`),
+  runSamples: (id: string) => get<RunSamples>(`/runs/${id}/samples`),
   metrics: (id: string) => get<{ epochs: { epoch: number; metrics: Record<string, number> }[] }>(
     `/runs/${id}/metrics`),
   stopRun: (id: string) => post<Record<string, unknown>>(`/runs/${id}/stop`),

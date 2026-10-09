@@ -57,3 +57,14 @@ test("summary shows costs and checks the resource budget", async ({ page }) => {
   await expect(page.getByTestId("memory-bar")).toHaveClass(/over/);
   await expect(page.getByTestId("problems")).toContainText("Training needs about");
 });
+
+test("vision sample: detection design with box-aware pipeline", async ({ page }) => {
+  await page.getByRole("button", { name: "Open" }).click();
+  await page.getByTestId("sample-shapes_detection.json").click();
+  await expect(page.getByTestId("design-kind")).toHaveText("Neural network · Object detection");
+  await expect(page.getByTestId("status")).toHaveText("No problems");
+  await page.getByRole("button", { name: "Summary" }).click();
+  await expect(page.getByTestId("cost-tiles")).toContainText("19.40M");
+  await page.getByPlaceholder(/Search/).fill("detector");
+  await expect(page.getByTestId("lib-vision.detector")).toBeVisible();
+});

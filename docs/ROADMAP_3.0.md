@@ -78,7 +78,7 @@ Goal: about 750+ blocks, every family validated at design time, generating runna
   - The web Summary gets the same.
   - The sweep dialog can skip trials that exceed the budget.
 
-## Phase 2 — Vision tasks
+## Phase 2 — Vision tasks ✅
 - **Tasks:**
   - object detection
   - semantic segmentation
@@ -108,6 +108,10 @@ Goal: about 750+ blocks, every family validated at design time, generating runna
   - `/predict` returns boxes / labels / scores and RLE masks; the deploy templates are extended
   - ONNX export notes for detectors
 - **Samples:** a detection sample (tiny synthetic shapes dataset) and a segmentation sample.
+- **Status:** shipped. Not in this phase (moved to a later release):
+  - a standalone FPN neck block and a YOLO-style detector composed from blocks, with GIoU / DIoU box losses
+  - Mask2Former
+  - torchmetrics (mAP is computed in-house and matches pycocotools exactly)
 
 ## Phase 3 — Sequences, time series and audio
 - **Forecasting:**

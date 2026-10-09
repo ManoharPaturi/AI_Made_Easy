@@ -1,0 +1,161 @@
+[
+ {
+  "name": "fasterrcnn_resnet50_fpn",
+  "task": "detection",
+  "params_m": 41.8,
+  "metrics": {
+   "box_map": 37.0
+  },
+  "gmacs": 134.38,
+  "gmacs_side": 800,
+  "pretrained_classes": 91,
+  "license": "BSD-3-Clause (torchvision)",
+  "source": "torchvision"
+ },
+ {
+  "name": "fasterrcnn_resnet50_fpn_v2",
+  "task": "detection",
+  "params_m": 43.7,
+  "metrics": {
+   "box_map": 46.7
+  },
+  "gmacs": 280.371,
+  "gmacs_side": 800,
+  "pretrained_classes": 91,
+  "license": "BSD-3-Clause (torchvision)",
+  "source": "torchvision"
+ },
+ {
+  "name": "fasterrcnn_mobilenet_v3_large_fpn",
+  "task": "detection",
+  "params_m": 19.4,
+  "metrics": {
+   "box_map": 32.8
+  },
+  "gmacs": 4.494,
+  "gmacs_side": 800,
+  "pretrained_classes": 91,
+  "license": "BSD-3-Clause (torchvision)",
+  "source": "torchvision"
+ },
+ {
+  "name": "fasterrcnn_mobilenet_v3_large_320_fpn",
+  "task": "detection",
+  "params_m": 19.4,
+  "metrics": {
+   "box_map": 22.8
+  },
+  "gmacs": 0.719,
+  "gmacs_side": 320,
+  "pretrained_classes": 91,
+  "license": "BSD-3-Clause (torchvision)",
+  "source": "torchvision"
+ },
+ {
+  "name": "retinanet_resnet50_fpn",
+  "task": "detection",
+  "params_m": 34.0,
+  "metrics": {
+   "box_map": 36.4
+  },
+  "gmacs": 151.54,
+  "gmacs_side": 800,
+  "pretrained_classes": 91,
+  "license": "BSD-3-Clause (torchvision)",
+  "source": "torchvision"
+ },
+ {
+  "name": "retinanet_resnet50_fpn_v2",
+  "task": "detection",
+  "params_m": 38.2,
+  "metrics": {
+   "box_map": 41.5
+  },
+  "gmacs": 152.238,
+  "gmacs_side": 800,
+  "pretrained_classes": 91,
+  "license": "BSD-3-Clause (torchvision)",
+  "source": "torchvision"
+ },
+ {
+  "name": "fcos_resnet50_fpn",
+  "task": "detection",
+  "params_m": 32.3,
+  "metrics": {
+   "box_map": 39.2
+  },
+  "gmacs": 128.207,
+  "gmacs_side": 800,
+  "pretrained_classes": 91,
+  "license": "BSD-3-Clause (torchvision)",
+  "source": "torchvision"
+ },
+ {
+  "name": "ssd300_vgg16",
+  "task": "detection",
+  "params_m": 35.6,
+  "metrics": {
+   "box_map": 25.1
+  },
+  "gmacs": 34.858,
+  "gmacs_side": 300,
+  "pretrained_classes": 91,
+  "license": "BSD-3-Clause (torchvision)",
+  "source": "torchvision"
+ },
+ {
+  "name": "ssdlite320_mobilenet_v3_large",
+  "task": "detection",
+  "params_m": 3.4,
+  "metrics": {
+   "box_map": 21.3
+  },
+  "gmacs": 0.583,
+  "gmacs_side": 320,
+  "pretrained_classes": 91,
+  "license": "BSD-3-Clause (torchvision)",
+  "source": "torchvision"
+ },
+ {
+  "name": "maskrcnn_resnet50_fpn",
+  "task": "instance_segmentation",
+  "params_m": 44.4,
+  "metrics": {
+   "box_map": 37.9,
+   "mask_map": 34.6
+  },
+  "gmacs": 134.38,
+  "gmacs_side": 800,
+  "pretrained_classes": 91,
+  "license": "BSD-3-Clause (torchvision)",
+  "source": "torchvision"
+ },
+ {
+  "name": "maskrcnn_resnet50_fpn_v2",
+  "task": "instance_segmentation",
+  "params_m": 46.4,
+  "metrics": {
+   "box_map": 47.4,
+   "mask_map": 41.8
+  },
+  "gmacs": 333.577,
+  "gmacs_side": 800,
+  "pretrained_classes": 91,
+  "license": "BSD-3-Clause (torchvision)",
+  "source": "torchvision"
+ },
+ {
+  "name": "keypointrcnn_resnet50_fpn",
+  "task": "keypoints",
+  "params_m": 59.1,
+  "metrics": {
+   "box_map": 54.6,
+   "kp_map": 65.0
+  },
+  "gmacs": 137.42,
+  "gmacs_side": 800,
+  "pretrained_classes": 2,
+  "license": "BSD-3-Clause (torchvision)",
+  "source": "torchvision"
+ }
+]

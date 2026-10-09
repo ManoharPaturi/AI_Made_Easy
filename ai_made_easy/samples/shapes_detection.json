@@ -1,0 +1,133 @@
+{
+ "schema_version": 1,
+ "name": "shapes_detection",
+ "meta": {
+  "title": "Shapes \u2014 Object Detection (Faster R-CNN)",
+  "description": "Faster R-CNN with an ImageNet MobileNetV3 backbone finds squares, circles and triangles in generated images. No dataset download needed: swap Synthetic Shapes for a COCO, YOLO or VOC dataset to detect your own objects."
+ },
+ "nodes": [
+  {
+   "id": "input",
+   "type": "core.input",
+   "params": {
+    "shape": "3, 256, 256",
+    "dtype": "float32"
+   },
+   "position": [
+    0,
+    0
+   ]
+  },
+  {
+   "id": "detector",
+   "type": "vision.detector",
+   "params": {
+    "arch": "fasterrcnn_mobilenet_v3_large_fpn",
+    "num_classes": 3,
+    "weights": "imagenet",
+    "min_size": 0,
+    "max_size": 0,
+    "max_detections": 50,
+    "score_threshold": 0.05,
+    "trainable_layers": 3
+   },
+   "position": [
+    0,
+    0
+   ]
+  },
+  {
+   "id": "output",
+   "type": "core.output",
+   "params": {},
+   "position": [
+    0,
+    0
+   ]
+  },
+  {
+   "id": "shapes",
+   "type": "data.synthetic_shapes",
+   "params": {
+    "n_images": 400,
+    "image_size": 256,
+    "max_objects": 4,
+    "seed": 0
+   },
+   "position": [
+    0,
+    0
+   ]
+  },
+  {
+   "id": "flip",
+   "type": "prep.random_flip",
+   "params": {},
+   "position": [
+    0,
+    0
+   ]
+  },
+  {
+   "id": "jitter",
+   "type": "prep.color_jitter",
+   "params": {},
+   "position": [
+    0,
+    0
+   ]
+  },
+  {
+   "id": "optimizer",
+   "type": "train.adamw",
+   "params": {
+    "lr": 0.0003
+   },
+   "position": [
+    0,
+    0
+   ]
+  },
+  {
+   "id": "trainer",
+   "type": "train.trainer",
+   "params": {
+    "epochs": 15,
+    "batch_size": 8,
+    "early_stopping_patience": 5
+   },
+   "position": [
+    0,
+    0
+   ]
+  },
+  {
+   "id": "map",
+   "type": "eval.map",
+   "params": {},
+   "position": [
+    0,
+    0
+   ]
+  },
+  {
+   "id": "map50",
+   "type": "eval.map50",
+   "params": {},
+   "position": [
+    0,
+    0
+   ]
+  }
+ ],
+ "edges": [
+  {
+   "from": "input/out",
+   "to": "detector/in"
+  },
+  {
+   "from": "detector/out",
+   "to": "output/in"
+  }
+ ]
+}

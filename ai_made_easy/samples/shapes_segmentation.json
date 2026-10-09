@@ -1,0 +1,140 @@
+{
+ "schema_version": 1,
+ "name": "shapes_segmentation",
+ "meta": {
+  "title": "Shapes \u2014 Semantic Segmentation (U-Net)",
+  "description": "A U-Net trained from scratch labels every pixel as background, square, circle or triangle, with Dice + cross-entropy loss. Swap Synthetic Shapes for a mask folder or VOC dataset to segment your own images."
+ },
+ "nodes": [
+  {
+   "id": "input",
+   "type": "core.input",
+   "params": {
+    "shape": "3, 128, 128",
+    "dtype": "float32"
+   },
+   "position": [
+    0,
+    0
+   ]
+  },
+  {
+   "id": "unet",
+   "type": "vision.unet",
+   "params": {
+    "variant": "unet",
+    "num_classes": 4,
+    "depth": 4,
+    "base_channels": 16,
+    "norm": "batch",
+    "upsample": "transpose"
+   },
+   "position": [
+    0,
+    0
+   ]
+  },
+  {
+   "id": "output",
+   "type": "core.output",
+   "params": {},
+   "position": [
+    0,
+    0
+   ]
+  },
+  {
+   "id": "shapes",
+   "type": "data.synthetic_shapes",
+   "params": {
+    "n_images": 320,
+    "image_size": 128,
+    "max_objects": 4,
+    "seed": 0
+   },
+   "position": [
+    0,
+    0
+   ]
+  },
+  {
+   "id": "flip",
+   "type": "prep.random_flip",
+   "params": {},
+   "position": [
+    0,
+    0
+   ]
+  },
+  {
+   "id": "ce",
+   "type": "train.loss_cross_entropy",
+   "params": {},
+   "position": [
+    0,
+    0
+   ]
+  },
+  {
+   "id": "dice",
+   "type": "vision.loss_dice",
+   "params": {},
+   "position": [
+    0,
+    0
+   ]
+  },
+  {
+   "id": "optimizer",
+   "type": "train.adamw",
+   "params": {
+    "lr": 0.001
+   },
+   "position": [
+    0,
+    0
+   ]
+  },
+  {
+   "id": "trainer",
+   "type": "train.trainer",
+   "params": {
+    "epochs": 20,
+    "batch_size": 16,
+    "early_stopping_patience": 6
+   },
+   "position": [
+    0,
+    0
+   ]
+  },
+  {
+   "id": "miou",
+   "type": "eval.miou",
+   "params": {},
+   "position": [
+    0,
+    0
+   ]
+  },
+  {
+   "id": "dice_score",
+   "type": "eval.dice",
+   "params": {},
+   "position": [
+    0,
+    0
+   ]
+  }
+ ],
+ "edges": [
+  {
+   "from": "input/out",
+   "to": "unet/in"
+  },
+  {
+   "from": "unet/out",
+   "to": "output/in"
+  }
+ ]
+}

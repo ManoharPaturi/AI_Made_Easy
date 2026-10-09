@@ -173,7 +173,8 @@ class TrainingPage(QtWidgets.QWidget):
         wd = Path(workdir) if workdir else None
         has_predictions = bool(wd and (wd / "predictions.json").exists())
         has_checkpoint = bool(wd and any(wd.glob("*_best.pt")))
-        self.errors_btn.setEnabled(has_predictions)
+        has_overlays = bool(wd and any((wd / "eval_samples").glob("*.png")))
+        self.errors_btn.setEnabled(has_predictions or has_overlays)
         self.saliency_btn.setEnabled(has_predictions and has_checkpoint)
         self.card_btn.setEnabled(bool(wd and (wd / "metrics.json").exists()) or has_predictions)
         self.folder_btn.setEnabled(bool(wd and wd.exists()))

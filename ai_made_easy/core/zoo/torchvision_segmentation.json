@@ -1,0 +1,86 @@
+[
+ {
+  "name": "deeplabv3_resnet50",
+  "task": "semantic_segmentation",
+  "params_m": 42.0,
+  "metrics": {
+   "miou": 66.4,
+   "pixel_acc": 92.4
+  },
+  "gmacs": 178.722,
+  "gmacs_side": 520,
+  "pretrained_classes": 21,
+  "license": "BSD-3-Clause (torchvision)",
+  "source": "torchvision"
+ },
+ {
+  "name": "deeplabv3_resnet101",
+  "task": "semantic_segmentation",
+  "params_m": 61.0,
+  "metrics": {
+   "miou": 67.4,
+   "pixel_acc": 92.4
+  },
+  "gmacs": 258.743,
+  "gmacs_side": 520,
+  "pretrained_classes": 21,
+  "license": "BSD-3-Clause (torchvision)",
+  "source": "torchvision"
+ },
+ {
+  "name": "deeplabv3_mobilenet_v3_large",
+  "task": "semantic_segmentation",
+  "params_m": 11.0,
+  "metrics": {
+   "miou": 60.3,
+   "pixel_acc": 91.2
+  },
+  "gmacs": 10.452,
+  "gmacs_side": 520,
+  "pretrained_classes": 21,
+  "license": "BSD-3-Clause (torchvision)",
+  "source": "torchvision"
+ },
+ {
+  "name": "fcn_resnet50",
+  "task": "semantic_segmentation",
+  "params_m": 35.3,
+  "metrics": {
+   "miou": 60.5,
+   "pixel_acc": 91.4
+  },
+  "gmacs": 152.717,
+  "gmacs_side": 520,
+  "pretrained_classes": 21,
+  "license": "BSD-3-Clause (torchvision)",
+  "source": "torchvision"
+ },
+ {
+  "name": "fcn_resnet101",
+  "task": "semantic_segmentation",
+  "params_m": 54.3,
+  "metrics": {
+   "miou": 63.7,
+   "pixel_acc": 91.9
+  },
+  "gmacs": 232.738,
+  "gmacs_side": 520,
+  "pretrained_classes": 21,
+  "license": "BSD-3-Clause (torchvision)",
+  "source": "torchvision"
+ },
+ {
+  "name": "lraspp_mobilenet_v3_large",
+  "task": "semantic_segmentation",
+  "params_m": 3.2,
+  "metrics": {
+   "miou": 57.9,
+   "pixel_acc": 91.2
+  },
+  "gmacs": 2.086,
+  "gmacs_side": 520,
+  "pretrained_classes": 21,
+  "license": "BSD-3-Clause (torchvision)",
+  "source": "torchvision"
+ }
+]

@@ -54,6 +54,29 @@ jobs:
       - name: Test
         run: pytest -q -p no:cacheprovider
 
+  test-vision:
+    # the vision-tasks extra (timm, transformers, pycocotools): every vision block and
+    # training loop runs offline with random weights
+    needs: lint
+    runs-on: ubuntu-latest
+    env:
+      QT_QPA_PLATFORM: offscreen
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+          pip install -e ".[dev,vision-tasks,serve]"
+      - name: Test
+        run: >-
+          pytest -q -p no:cacheprovider tests/test_vision.py
+          tests/test_codegen_runtime.py -k "vision or exercised or Vision"
+
   web:
     needs: lint
     runs-on: ubuntu-latest

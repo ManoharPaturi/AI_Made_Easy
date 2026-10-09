@@ -4,7 +4,7 @@ import { api } from "../api";
 import { LineChart, type Series } from "../components/LineChart";
 import { duration, metric, Modal, StatusChip } from "../components/Modal";
 import { useStore } from "../state";
-import type { RunRecord, SweepParam, SweepRecord } from "../types";
+import type { RunRecord, RunSamples, SweepParam, SweepRecord } from "../types";
 
 function DeployModal({ run, onClose }: { run: RunRecord; onClose: () => void }) {
   const { notify } = useStore();
@@ -132,8 +132,37 @@ function Runs({ scope }: { scope: string }) {
       {!runs.length && <div className="empty">No runs yet — train a design to record one.</div>}
       {curves.length > 0 && <><h3>Loss curves</h3><LineChart series={curves} /></>}
       {compare && <CompareTable data={compare} />}
+      {ids.length === 1 && <RunSamplesView runId={ids[0]} />}
       {deploying && <DeployModal run={deploying} onClose={() => setDeploying(null)} />}
     </>
+  );
+}
+
+function RunSamplesView({ runId }: { runId: string }) {
+  const [data, setData] = useState<RunSamples | null>(null);
+  useEffect(() => {
+    setData(null);
+    api.runSamples(runId).then(setData).catch(() => setData(null));
+  }, [runId]);
+  if (!data || !data.samples.length) return null;
+  const offset = data.per_class.length === data.classes.length + 1 ? 1 : 0;
+  return (
+    <div data-testid="run-samples">
+      <h3>Test predictions</h3>
+      <p className="muted">{data.per_class_metric === "AP"
+        ? "Green: ground truth · red: prediction with its score."
+        : "Each sample: true mask (left) and prediction (right)."}</p>
+      {data.per_class.length > 0 && (
+        <table style={{ maxWidth: 420 }}>
+          <thead><tr><th>Class</th><th className="num">{data.per_class_metric}</th></tr></thead>
+          <tbody>{data.per_class.map((v, i) => (
+            <tr key={i}><td>{i < offset ? "background" : data.classes[i - offset] ?? i}</td>
+              <td className="num">{v == null ? "—" : v.toFixed(3)}</td></tr>))}</tbody>
+        </table>)}
+      <div className="sample-grid">
+        {data.samples.map((s) => <img key={s.name} src={s.data_url} alt={s.name} title={s.name} />)}
+      </div>
+    </div>
   );
 }
 

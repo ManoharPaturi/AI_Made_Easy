@@ -21,14 +21,18 @@ from ai_made_easy.core.data.profile import (
 )
 from ai_made_easy.core.graph import Graph, ValidationIssue
 
-LOCAL_BLOCKS = (*FOLDER_SUFFIXES, "data.csv", "data.text_csv", "data.timeseries_csv",
-                "data.numpy", "data.json")
+# dataset blocks whose data is on disk and gets profiled (task families add theirs)
+LOCAL_BLOCKS: set[str] = {*FOLDER_SUFFIXES, "data.csv", "data.text_csv", "data.timeseries_csv",
+                          "data.numpy", "data.json"}
+# parameters naming the file / folder whose changes invalidate a cached profile
+PATH_KEYS = ("root", "path", "annotations", "labels_dir", "masks_dir", "images_dir")
 
 
 def _signature(type_id: str, params: dict, base) -> tuple:
     """Changes whenever the data (or the params that shape the profile) change."""
     key = tuple(sorted((k, str(v)) for k, v in params.items()))
-    raw = params.get("root") if type_id in FOLDER_SUFFIXES else params.get("path")
+    raw = (params.get("root") if type_id in FOLDER_SUFFIXES else
+           next((params[k] for k in PATH_KEYS if params.get(k)), None))
     if raw is None:
         return (type_id, key)
     path = resolve_path(str(raw), base)

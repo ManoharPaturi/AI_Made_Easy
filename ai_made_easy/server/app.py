@@ -243,6 +243,10 @@ def create_app(*, token: str | None = None, projects_dir: str | Path | None = No
     def run(run_id: str) -> dict:
         return api.get_run(run_id)
 
+    @app.get("/api/runs/{run_id}/samples", dependencies=guard)
+    def run_samples(run_id: str) -> dict:
+        return api.run_samples(run_id)
+
     @app.get("/api/runs/{run_id}/metrics", dependencies=guard)
     def metrics(run_id: str) -> dict:
         return {"run_id": run_id, "epochs": api.manager().history.epochs(run_id)}

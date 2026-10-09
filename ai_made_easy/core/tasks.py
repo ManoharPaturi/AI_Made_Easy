@@ -12,10 +12,11 @@ Pure Python, Qt-free.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Callable
 
 # how a model is trained; the training template is chosen by this
-TRAINER_KINDS = ("supervised", "adversarial", "diffusion", "vae", "self_supervised", "rl",
-                 "bayesian")
+TRAINER_KINDS = ("supervised", "detection", "segmentation", "adversarial", "diffusion", "vae",
+                 "self_supervised", "rl", "bayesian")
 
 
 @dataclass(frozen=True)
@@ -36,6 +37,8 @@ class Task:
     # ------------------------------------------------------------ catalogs
     def losses(self) -> list[str]:
         """Loss block ids that train this task."""
+        if "losses" in self.meta:
+            return list(self.meta["losses"])
         from ai_made_easy.core.training import catalog as cat
 
         return [i for i in cat.LOSS_IDS
@@ -43,6 +46,8 @@ class Task:
 
     def metrics(self) -> list[str]:
         """Metric block ids that evaluate this task."""
+        if "metrics" in self.meta:
+            return list(self.meta["metrics"])
         from ai_made_easy.core.training import catalog as cat
 
         return [i for i in cat.METRIC_IDS if self.id in cat.COMPONENTS[i].meta.get("tasks", ())]
@@ -95,10 +100,25 @@ def resolve_task(loss_task: str, num_outputs: int = 1) -> Task:
     raise KeyError(f"no task trains with loss task {loss_task!r}")
 
 
+# resolvers that recognise a task from the design's blocks before the loss-based rule
+# (e.g. a detector head means object detection); each returns a task id or None
+TaskResolver = Callable[[object], "str | None"]
+_RESOLVERS: list[TaskResolver] = []
+
+
+def register_task_resolver(resolver: TaskResolver) -> None:
+    if resolver not in _RESOLVERS:
+        _RESOLVERS.append(resolver)
+
+
 def task_of(graph) -> Task | None:  # noqa: ANN001 — core.graph.Graph
-    """The task of a neural design (from its loss block), or None without one."""
+    """The task of a neural design (task blocks first, then its loss block), or None."""
     from ai_made_easy.core.training import catalog as cat
 
+    for resolver in _RESOLVERS:
+        found = resolver(graph)
+        if found:
+            return _TASKS[found]
     loss = next((n for n in graph.nodes.values() if n.type_id in cat.LOSS_IDS), None)
     if loss is None:
         return None

@@ -13,6 +13,7 @@ import json
 import math
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
+from typing import Callable
 
 from ai_made_easy.core.data.health import (
     AUDIO_SUFFIXES,
@@ -665,8 +666,23 @@ def _profile_json(params: dict, base) -> DataProfile:
 
 # ===================================================================== dispatch
 
+# type_id -> profiler(params, base) for dataset blocks added by task families
+PROFILERS: dict[str, Callable[[dict, "str | Path | None"], DataProfile]] = {}
+
+
+def register_profiler(type_id: str, profiler: Callable) -> None:
+    PROFILERS[type_id] = profiler
+
+
 def profile_dataset(type_id: str, params: dict, base: str | Path | None = None) -> DataProfile:
     """Profile the data behind a dataset block (``params`` are its resolved params)."""
+    if not PROFILERS:
+        import ai_made_easy.core.blocks  # noqa: F401 — task families register profilers
+    if type_id in PROFILERS:
+        try:
+            return PROFILERS[type_id](params, base)
+        except Exception as exc:  # noqa: BLE001 — unreadable data is reported, not raised
+            return DataProfile(type_id, "annotations", error=f"could not read the dataset: {exc}")
     if type_id in TABLE_BLOCKS:
         return _profile_table(type_id, params, base)
     if type_id in FOLDER_SUFFIXES:
