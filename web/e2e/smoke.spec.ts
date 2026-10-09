@@ -139,7 +139,9 @@ test("graph, tabular, recommender and reinforcement-learning samples", async ({ 
     await page.getByRole("button", { name: "Open" }).click();
     await page.getByTestId(`sample-${sample}`).click();
     await expect(page.getByTestId("design-kind")).toHaveText(kind);
-    await expect(page.getByTestId("status")).toHaveText("No problems");
+    // the graph and rl extras may be missing (CI's web job): "needs … not installed" warnings
+    await expect(page.getByTestId("status")).toHaveText(
+      /^(graph|rl)_/.test(sample) ? /^(No problems|\d+ warning\(s\))$/ : "No problems");
   }
   await page.getByPlaceholder(/Search/).fill("transformer");
   await expect(page.getByTestId("lib-tab.ft_transformer")).toBeVisible();
