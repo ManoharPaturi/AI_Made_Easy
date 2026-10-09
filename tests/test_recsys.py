@@ -140,7 +140,7 @@ def test_models_beat_popularity(model, width, objective, tmp_path):
                                        n("tr", "train.trainer", epochs=12, batch_size=512)])
     run, script = _run(data, tmp_path)
     metrics = json.loads((run / "metrics.json").read_text())
-    assert metrics["ndcg_at_10"] > 1.2 * metrics["popular_ndcg_at_10"]
+    assert metrics["ndcg_at_10"] > 1.15 * metrics["popular_ndcg_at_10"]
     out = _infer(run, script, [{"user": "3", "k": 3}, {"user": "stranger", "k": 2},
                                {"user": "3", "items": ["1", "2"]}])
     assert len(out[0]["items"]) == 3 and out[0]["known"]

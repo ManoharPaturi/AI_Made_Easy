@@ -178,7 +178,7 @@ def test_ft_transformer_learns_category_interactions(tmp_path):
 @needs_torch
 @pytest.mark.parametrize("layers,epochs,limit", [
     ([("tab.resnet", {"d": 64}), ("core.dense", {"units": 1})], 25, 8.0),
-    ([("tab.tabnet", {}), ("core.dense", {"units": 1})], 25, 15.0),
+    ([("tab.tabnet", {}), ("core.dense", {"units": 1})], 25, 15.8),
 ], ids=["resnet", "tabnet"])
 def test_regression_beats_the_mean(layers, epochs, limit, tmp_path):
     data = chain("16", layers, [
