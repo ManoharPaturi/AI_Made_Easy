@@ -47,7 +47,7 @@ def _blocks() -> list[BlockDefinition]:
     lr = lambda v: P("learning_rate", "float", v, lo=1e-7, hi=1.0)  # noqa: E731
     return [
         BlockDefinition(
-            type_id="rl.env", display_name="Gym Environment", category=CATEGORY,
+            type_id="rl.env", display_name="Gym Environment", category="Data",
             color=family_color("data"), library="Gymnasium", requires=REQUIRES, extra=EXTRA,
             params=(P("env_id", "enum", "CartPole-v1", options=(*ENVS, "custom")),
                     P("custom_id", "str", "", help="Any registered Gymnasium id (env_id = "

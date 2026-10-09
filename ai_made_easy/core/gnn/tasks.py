@@ -5,7 +5,8 @@ from __future__ import annotations
 from ai_made_easy.core.gnn.blocks import GLOBAL_POOLS, GRAPH_BLOCKS, GRAPH_DATA
 from ai_made_easy.core.tasks import Task, register_task, register_task_resolver
 
-_COMMON = {"loss_tasks": (), "losses": ["train.loss_cross_entropy"], "metrics": [],
+_COMMON = {"loss_tasks": (), "losses": ["train.loss_cross_entropy"],
+           "metrics": ["eval.accuracy", "eval.f1"],
            "default_loss": None, "default_optimizer": "Adam (lr = 1e-2, weight decay 5e-4)"}
 
 register_task(Task(
@@ -22,7 +23,8 @@ register_task(Task(
     "link_prediction", "Link prediction",
     "Embed the nodes and score node pairs: which missing edges exist?",
     target="edges", output_role="latent", modalities=("graph",), trainer_kind="graph",
-    serving="link_scores", meta={**_COMMON, "losses": []}))
+    serving="link_scores", meta={**_COMMON, "losses": [],
+                                 "metrics": ["eval.roc_auc", "eval.average_precision"]}))
 
 
 def _types(graph) -> set[str]:  # noqa: ANN001
