@@ -111,3 +111,31 @@ jobs:
           test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8765/api/blocks)" = 401
           curl -sf -H "Authorization: Bearer ci-token" http://127.0.0.1:8765/api/blocks > /dev/null
           docker logs aime | tail -20
+
+  package:
+    needs: lint
+    runs-on: macos-latest
+    env:
+      QT_QPA_PLATFORM: offscreen
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install
+        run: pip install -e ".[dev]" pillow
+      - name: Build the desktop bundle
+        run: bash scripts/build_app.sh
+      - name: Bundle ships the package sources used by subprocesses
+        run: |
+          test -f "dist/AI Made Easy/_internal/ai_made_easy/core/importers/onnx_import.py"
+          test -f "dist/AI Made Easy/_internal/ai_made_easy/worker/train_worker.py"
+      - name: The bundled app starts
+        run: |
+          export AIME_HOME="$(mktemp -d)"
+          "dist/AI Made Easy/AI Made Easy" > app.log 2>&1 &
+          PID=$!
+          sleep 15
+          kill -0 "$PID" || { cat app.log; exit 1; }
+          kill "$PID"

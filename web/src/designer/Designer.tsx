@@ -88,7 +88,7 @@ function Canvas() {
         <Panel position="top-right">
           <button onClick={arrange} title="Lay blocks out left to right by data flow">Arrange</button>
         </Panel>
-        <MiniMap pannable zoomable nodeColor={() => "var(--accent)"} maskColor="rgba(0,0,0,.25)" />
+        <MiniMap pannable zoomable nodeColor={() => "var(--accent)"} maskColor="rgba(127,127,127,.18)" />
       </ReactFlow>
     </div>
   );

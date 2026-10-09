@@ -1,9 +1,13 @@
 # AI Made Easy
 
+[![CI](https://github.com/ManoharPaturi/AI_Made_Easy/actions/workflows/ci.yml/badge.svg)](https://github.com/ManoharPaturi/AI_Made_Easy/actions/workflows/ci.yml)
+
 **Visual model builder for practitioners.** Design neural networks and classic
-machine-learning pipelines by connecting blocks, get design-time validation as
-you build, train in the app, and export clean, runnable **PyTorch**, **Keras 3**
-and **scikit-learn** code — no hand-written boilerplate.
+machine-learning pipelines by connecting blocks, with validation as you build.
+Inspect your data, train, compare experiments and tune hyperparameters, then
+deploy the result as a web service. The app exports clean, runnable
+**PyTorch**, **Keras 3** and **scikit-learn** code, so you never write
+boilerplate. It runs on the desktop or in the browser.
 
 ![Workbench](docs/images/workbench_dark_full.png)
 
@@ -28,9 +32,24 @@ and **scikit-learn** code — no hand-written boilerplate.
   precision, gradient clipping and accumulation, early stopping, k-fold CV.
 - **Analysis.** Live training curves, error analysis, Grad-CAM saliency maps
   and generated model cards.
+- **Experiments and tuning.** Every run is recorded with its design, parameters,
+  metrics, environment and data fingerprint. Compare runs side by side,
+  restore any of them, and sweep hyperparameters with grid, random or
+  Bayesian (Optuna) search.
+- **Data workspace.** Profile a dataset before training. Missing values,
+  identifier and constant columns, target leakage, duplicates and class
+  imbalance are flagged in the Problems panel. Preview the exact
+  train / validation / test split and the augmentation pipeline.
+- **Deploy.** Turn a trained run into a serving package: a FastAPI service
+  with the fitted preprocessing, a Dockerfile, and ONNX / TorchScript / Core ML
+  exports. Promote versions through a model registry.
+- **Import.** Open existing PyTorch modules, ONNX files and Keras models as
+  editable designs, verified numerically against the original.
 - **Exports.** PyTorch and Keras model files and training scripts,
   scikit-learn pipelines, ONNX, TorchScript, a single-file web demo, LLM
   workflow scripts and portable `.aime` project archives.
+
+![Data workspace](docs/images/data_workspace_full.png)
 
 ## Installation
 
@@ -54,6 +73,9 @@ Install only what you need with the optional extras:
 | `keras` | Keras 3 for running exported Keras code |
 | `llm` | Hugging Face generation, LoRA fine-tuning and RAG scripts |
 | `mcp-server` | Model Context Protocol server for AI agents |
+| `web` / `serve` | Browser UI (`aime web`) and serving packages (FastAPI, uvicorn) |
+| `export` | ONNX / onnxruntime / skl2onnx exports and verification |
+| `tuning` | Bayesian hyperparameter search (Optuna) |
 | `dev` | Test and lint tooling |
 
 ## Quick start
@@ -69,6 +91,20 @@ ai-made-easy            # or: python -m ai_made_easy
 4. Export from the **Export** menu, or browse **File ▸ Open Example** for
    complete projects (CNNs, transfer learning, tabular networks, gradient
    boosting with grid search, clustering, LLM workflows).
+
+## In the browser
+
+```bash
+pip install -e ".[web,torch,vision,data,classic]"
+aime web --open                 # http://127.0.0.1:8765
+docker build -t ai-made-easy . && docker run -p 8765:8765 ai-made-easy
+```
+
+The web version shares the engine, run history and model registry with the
+desktop app. Hosting, authentication and the REST API are covered in
+[docs/WEB.md](docs/WEB.md).
+
+![Web designer](docs/images/web_designer.png)
 
 ## Block library
 
@@ -87,18 +123,27 @@ Save any selection of blocks as a reusable custom block (**Model ▸ Save Select
 ## Command line
 
 ```bash
-aime validate project.json                     # exit code 1 on errors
+aime validate project.json                     # design + data checks; exit 1 on errors
 aime gen project.json -f pytorch -o exports    # model file (pytorch | keras)
 aime train project.json -f keras -o exports    # training script (pytorch | keras | sklearn)
-aime onnx project.json --run                   # export and validate ONNX
 aime run project.json                          # train headlessly, stream JSON events
+aime runs list | show ID | compare A B         # run history
+aime sweep project.json -p opt.lr=log:1e-4:1e-1 -p d1.units=choice:32,64 -n 12
+aime data profile data.csv --target label      # dataset profile and findings
+aime data split project.json                   # samples per class in each split
+aime deploy RUN_ID -o serving --formats onnx   # serving package from a run
+aime serve serving                             # run it with uvicorn
+aime models list | register RUN NAME | stage NAME VERSION production
+aime import onnx model.onnx -o project.json    # also: pytorch (--attr, --shape), keras
+aime web                                       # browser UI + REST API
 aime blocks                                    # every block as a JSON schema
 ```
 
 ## Agents and assistants
 
 The same engine is available to AI agents through an MCP server (`aime-mcp`),
-with tools to list blocks, validate graphs, generate code and run training.
+with tools to list blocks, validate graphs, generate code, train, run sweeps,
+deploy, import models and profile data.
 The in-app **Assistant** panel connects to any OpenAI-compatible endpoint,
 including local servers such as Ollama or LM Studio
 (`AIME_ASSISTANT_BASE_URL`, `AIME_ASSISTANT_API_KEY`, `AIME_ASSISTANT_MODEL`).
@@ -118,13 +163,15 @@ environment with the frameworks installed (`$AIME_PYTHON`, or `python3` on the
 ```bash
 pip install -e ".[all,dev]"
 ruff check ai_made_easy scripts tests
-pytest                                  # ~760 tests, includes real training runs
+pytest                                  # ~850 tests, includes real training runs
+cd web && npm ci && npm run build && npx playwright test   # web UI
 UPDATE_GOLDEN=1 pytest tests/test_golden.py
 python scripts/build_examples.py        # regenerate example projects
 python scripts/verify_codegen.py --keras
 ```
 
 Architecture and design rules: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+Web version: [docs/WEB.md](docs/WEB.md). Roadmap: [docs/ROADMAP_2.0.md](docs/ROADMAP_2.0.md).
 Release notes: [CHANGELOG.md](CHANGELOG.md).
 
 ## License

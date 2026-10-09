@@ -90,7 +90,12 @@ def _fill(table: QtWidgets.QTableWidget, rows: list[list]) -> None:
                 item.setTextAlignment(QtCore.Qt.AlignmentFlag.AlignRight
                                       | QtCore.Qt.AlignmentFlag.AlignVCenter)
             table.setItem(r, c, item)
-    table.resizeColumnsToContents()
+    header = table.horizontalHeader()
+    modes = {header.sectionResizeMode(c) for c in range(table.columnCount())}
+    if QtWidgets.QHeaderView.ResizeMode.Stretch in modes:
+        header.resizeSections()  # keep per-column modes (resizeColumnsToContents overrides them)
+    else:
+        table.resizeColumnsToContents()
 
 
 def _bar(value: int, total: int) -> QtWidgets.QProgressBar:
@@ -150,6 +155,9 @@ class DataPage(QtWidgets.QWidget):
         self.findings.setWordWrap(True)
         self.findings.setAlternatingRowColors(True)
         self.classes = _table(["Class", "Samples", "Share"])
+        header = self.classes.horizontalHeader()
+        for col, mode in ((0, "ResizeToContents"), (1, "ResizeToContents"), (2, "Stretch")):
+            header.setSectionResizeMode(col, getattr(QtWidgets.QHeaderView.ResizeMode, mode))
         left = QtWidgets.QWidget()
         lv = QtWidgets.QVBoxLayout(left)
         lv.setContentsMargins(0, 0, 0, 0)

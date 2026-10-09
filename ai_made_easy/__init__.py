@@ -4,4 +4,4 @@ Design rules that keep this scalable to agents/MCP:
   * ``ai_made_easy.core`` is pure Python (no Qt) and JSON-native.
   * ``ai_made_easy.ui`` is one frontend over core; the CLI is another.
 """
-__version__ = "1.0.0"
+__version__ = "2.0.0"

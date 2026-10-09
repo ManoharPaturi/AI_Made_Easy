@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ai-made-easy"
-version = "1.0.0"
+version = "2.0.0"
 description = "Visual model builder: design neural networks and classic ML pipelines, train them, and export clean PyTorch, Keras and scikit-learn code"
 readme = "README.md"
 requires-python = ">=3.10"
