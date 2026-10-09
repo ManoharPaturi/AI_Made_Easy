@@ -56,7 +56,7 @@ def _variables() -> list[BlockDefinition]:
         type_id="pgm.gaussian", display_name="Gaussian Variable", category=CATEGORY,
         color=color, inputs=(PARENTS,), outputs=(OUT,), library="pgmpy",
         params=(P("name", "str", "Y"),
-                P("intercept", "float", 0.0, help="Mean when the parents are 0"),
+                P("intercept", "float", 0.0, lo=-1e9, hi=1e9, help="Mean when the parents are 0"),
                 P("coefficients", "str", "",
                   help="One weight per parent, comma-separated (empty: learned)"),
                 P("variance", "float", 1.0, lo=1e-9)),
@@ -67,7 +67,7 @@ def _variables() -> list[BlockDefinition]:
 
 
 def _config() -> list[BlockDefinition]:
-    color = family_color("training")
+    color = family_color("model")
 
     def block(type_id: str, name: str, params: tuple, desc: str, checks=None):
         return BlockDefinition(type_id=type_id, display_name=name, category=CATEGORY,

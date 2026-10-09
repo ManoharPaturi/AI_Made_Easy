@@ -91,13 +91,13 @@ def _layers() -> list[BlockDefinition]:
                  torch_helpers=(*base, "SplineCoupling"),
                  desc="Monotonic rational-quadratic splines for half of the dimensions: far "
                       "more flexible than affine couplings (neural spline flows)."),
-        nn_block("flow.actnorm", "ActNorm", CATEGORY, family="normalization",
+        nn_block("flow.actnorm", "ActNorm", CATEGORY, family="model",
                  shape=_vector, param_fn=lambda s, p: 2 * s[0][0],
                  torch=lambda c: f"ActNorm({c['input_shape'][0]})",
                  torch_helpers=(*base, "ActNorm"),
                  desc="Learned per-dimension scale and shift, initialised from the first "
                       "batch (Glow)."),
-        nn_block("flow.permute", "Flow Permutation", CATEGORY, family="tensor",
+        nn_block("flow.permute", "Flow Permutation", CATEGORY, family="model",
                  params=(P("kind", "enum", "reverse", options=("reverse", "random")),
                          P("seed", "int", 0, lo=0)),
                  shape=_vector, param_fn=lambda s, p: 0,

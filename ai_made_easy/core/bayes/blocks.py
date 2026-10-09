@@ -62,7 +62,7 @@ def _mdn_params(in_shapes, p):
 
 def _layers() -> list[BlockDefinition]:
     mc = nn_block(
-        "bayes.mc_dropout", "MC Dropout", CATEGORY, family="regularization",
+        "bayes.mc_dropout", "MC Dropout", CATEGORY, family="model",
         params=(P("p", "float", 0.1, lo=0.0, hi=0.95), SAMPLES), shape=_same,
         torch=lambda c: f"MCDropout({float(c['p'])}, {int(c['samples'])})",
         torch_helpers=("MCDropout",),
@@ -80,7 +80,7 @@ def _layers() -> list[BlockDefinition]:
         desc="Bayes-by-Backprop: every weight is a Gaussian (mean and spread are learned); "
              "the KL to the prior is added to the loss.")
     conv = nn_block(
-        "bayes.conv2d", "Bayes Conv2D", CATEGORY, family="conv",
+        "bayes.conv2d", "Bayes Conv2D", CATEGORY, family="model",
         params=(P("out_channels", "int", 16, lo=1), P("kernel_size", "int", 3, lo=1),
                 P("stride", "int", 1, lo=1), P("padding", "int", 1, lo=0),
                 P("prior_sigma", "float", 1.0, lo=1e-6), SAMPLES),
@@ -113,7 +113,7 @@ def _config() -> list[BlockDefinition]:
 
     def block(type_id, name, params, desc, category="Metrics"):
         return BlockDefinition(type_id=type_id, display_name=name, category=category,
-                               color=color, params=params, description=desc,
+                               color=family_color("model") if category == CATEGORY else color, params=params, description=desc,
                                library="PyTorch", meta={"kind": "calibration", "bayes": True})
 
     return [

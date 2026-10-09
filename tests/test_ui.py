@@ -10,6 +10,7 @@ pytest.importorskip("PySide6")
 
 from PySide6 import QtCore, QtWidgets  # noqa: E402
 
+from ai_made_easy.core.families import all_families  # noqa: E402
 from ai_made_easy.core.graph import ValidationIssue  # noqa: E402
 from ai_made_easy.core.registry import get_registry  # noqa: E402
 
@@ -185,7 +186,7 @@ def test_every_example_opens_valid_without_overlaps(ctx, app):
         errors = [str(i) for i in ctx.validation_store.errors]
         assert not errors, (name, errors)
         assert not ctx.canvas.has_overlaps(), name
-        assert kind in ("Neural network", "Classic ML pipeline", "LLM workflow")
+        assert kind in {f.label for f in all_families()}
         assert not ctx.project_store.dirty, name
 
 

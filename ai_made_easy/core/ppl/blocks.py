@@ -96,8 +96,8 @@ def _distribution(dist: Dist) -> BlockDefinition:
     ports = tuple(PortSpec(name, dtype="config", role="variable")
                   for name, _d, _s in dist.params)
     numeric = tuple(P(name, "float", default,
-                      lo=1e-12 if support == "positive" else (0.0 if support == "unit" else None),
-                      hi=1.0 if support == "unit" else None,
+                      lo=1e-12 if support == "positive" else (0.0 if support in ("unit", "count") else -1e9),
+                      hi=1.0 if support == "unit" else 1e9,
                       help="Used when nothing is wired into this port")
                     for name, default, support in dist.params if support != "vector")
     common = (P("name", "str", dist.label.split("-")[0].lower().replace(" ", "_"),
@@ -154,7 +154,7 @@ def _sampler() -> BlockDefinition:
 
     return BlockDefinition(
         type_id="ppl.sampler", display_name="Sampler", category=CATEGORY,
-        color=family_color("training"), library="PyMC", checks_fn=checks,
+        color=family_color("model"), library="PyMC", checks_fn=checks,
         params=(P("method", "enum", "nuts", options=SAMPLER_METHODS,
                   help="nuts: Hamiltonian Monte Carlo (exact, the default); advi: "
                        "variational approximation (fast); smc: sequential Monte Carlo "
@@ -182,9 +182,9 @@ def _datasets() -> list[BlockDefinition]:
         params=(P("n_groups", "int", 8, lo=1, hi=1000),
                 P("rows_per_group", "int", 25, lo=2, hi=100000,
                   help="Average rows per group (groups vary in size)"),
-                P("intercept", "float", 1.0, help="Population mean intercept"),
+                P("intercept", "float", 1.0, lo=-1e9, hi=1e9, help="Population mean intercept"),
                 P("group_sd", "float", 0.8, lo=0.0, help="Spread of group intercepts"),
-                P("slope", "float", 2.0), P("noise", "float", 0.5, lo=1e-6),
+                P("slope", "float", 2.0, lo=-1e9, hi=1e9), P("noise", "float", 0.5, lo=1e-6),
                 P("outcome", "enum", "gaussian", options=("gaussian", "binary", "count")),
                 P("seed", "int", 0, lo=0)),
         description="Generated grouped data (columns group, x, y) with known true "

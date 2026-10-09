@@ -60,7 +60,7 @@ def _kernel(type_id: str) -> BlockDefinition:
 
 def _combiner(type_id: str, label: str, desc: str) -> BlockDefinition:
     return BlockDefinition(
-        type_id=type_id, display_name=label, category=CATEGORY, color=family_color("merge"),
+        type_id=type_id, display_name=label, category=CATEGORY, color=family_color("model"),
         inputs=(PortSpec("kernels", dtype="config", multi=True, role="kernel"),),
         outputs=(KERNEL_OUT,), library="GPyTorch · scikit-learn", description=desc,
         meta={"gp": "combiner"})
