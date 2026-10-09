@@ -301,7 +301,12 @@ class AppContext(QtCore.QObject):
         self._publish_issues(ir)
         self._refresh_datasets(ir)
         kind = project_kind(ir.to_dict())
-        self.kind_chip.set_state(kind)
+        task = None
+        if kind == "Neural network":
+            from ai_made_easy.core.tasks import task_of
+
+            task = task_of(ir)
+        self.kind_chip.set_state(f"{kind} · {task.label}" if task else kind)
         self.summary_page.set_kind(kind.split()[0] if kind != "Neural network" else "Neural net")
         try:
             summary = summarize(ir) if kind == "Neural network" else None

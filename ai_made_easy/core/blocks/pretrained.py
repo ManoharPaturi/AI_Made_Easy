@@ -6,28 +6,14 @@ from ai_made_easy.core.blocks._dsl import P, nn_block
 from ai_made_easy.core.codegen import KerasUnsupported
 from ai_made_easy.core.registry import get_registry
 from ai_made_easy.core.spec import ShapeError
+from ai_made_easy.core.zoo import catalog
 
 reg = get_registry()
 
-# name: (feature width, keras.applications class or None, min side, fixed side or None)
-BACKBONES = {
-    "resnet18": (512, None, 32, None),
-    "resnet34": (512, None, 32, None),
-    "resnet50": (2048, "ResNet50", 32, None),
-    "resnet101": (2048, "ResNet101", 32, None),
-    "mobilenet_v2": (1280, "MobileNetV2", 32, None),
-    "mobilenet_v3_small": (576, "MobileNetV3Small", 32, None),
-    "mobilenet_v3_large": (960, "MobileNetV3Large", 32, None),
-    "efficientnet_b0": (1280, "EfficientNetB0", 32, None),
-    "efficientnet_b1": (1280, "EfficientNetB1", 32, None),
-    "efficientnet_b2": (1408, "EfficientNetB2", 32, None),
-    "efficientnet_b3": (1536, "EfficientNetB3", 32, None),
-    "convnext_tiny": (768, "ConvNeXtTiny", 32, None),
-    "densenet121": (1024, "DenseNet121", 32, None),
-    "vgg16": (512, "VGG16", 32, None),
-    "regnet_y_400mf": (440, "RegNetY004", 32, None),
-    "vit_b_16": (768, None, 224, 224),
-}
+# name: (feature width, keras.applications class or None, min side, fixed side or None),
+# from the measured torchvision catalog (scripts/build_zoo.py)
+BACKBONES = {row["name"]: (row["feature_dim"], row["keras"], row["min_side"], row["fixed_side"])
+             for row in catalog("torchvision_image")}
 
 # model id: hidden size
 TEXT_ENCODERS = {

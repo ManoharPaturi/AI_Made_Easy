@@ -110,6 +110,18 @@ def create_app(*, token: str | None = None, projects_dir: str | Path | None = No
     def blocks(category: str | None = None) -> dict:
         return api.list_blocks(category)
 
+    @app.get("/api/families", dependencies=guard)
+    def families() -> dict:
+        return api.list_families()
+
+    @app.get("/api/tasks", dependencies=guard)
+    def tasks(family: str | None = None) -> dict:
+        return api.list_tasks(family)
+
+    @app.post("/api/describe", dependencies=guard)
+    def describe(payload: dict = Body(...)) -> dict:  # noqa: B008
+        return api.describe_design(_graph_body(payload))
+
     @app.get("/api/samples", dependencies=guard)
     def samples() -> dict:
         return api.list_samples()

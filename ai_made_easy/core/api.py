@@ -45,11 +45,39 @@ def _graph(graph: dict | Graph) -> Graph:
 
 def list_blocks(category: str | None = None) -> dict:
     from ai_made_easy.core.registry import get_registry
+    from ai_made_easy.core.spec import missing_requirements
 
-    blocks = get_registry().list_blocks()
+    blocks = []
+    for defn in get_registry().all():
+        row = defn.to_dict()
+        row["missing"] = missing_requirements(defn)  # in this (server) environment
+        blocks.append(row)
     if category:
         blocks = [b for b in blocks if b["category"].lower() == category.lower()]
     return {"count": len(blocks), "blocks": blocks}
+
+
+def list_families() -> dict:
+    from ai_made_easy.core.families import all_families
+
+    return {"families": [f.to_dict() for f in all_families()]}
+
+
+def list_tasks(family: str | None = None) -> dict:
+    from ai_made_easy.core.tasks import all_tasks
+
+    return {"tasks": [t.to_dict() for t in all_tasks(family)]}
+
+
+def describe_design(graph: dict | Graph) -> dict:
+    """Family, task and trainable frameworks of a design."""
+    from ai_made_easy.core.families import family_of
+    from ai_made_easy.core.tasks import task_of
+
+    g = _graph(graph)
+    family = family_of(g)
+    task = task_of(g) if family.id == "neural" else None
+    return {"family": family.to_dict(), "task": task.to_dict() if task else None}
 
 
 def list_samples() -> dict:

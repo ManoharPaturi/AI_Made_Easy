@@ -13,12 +13,10 @@ DEMO_SEED = SAMPLES_DIR / "demo_seed.json"
 
 
 def project_kind(data: dict) -> str:
-    types = [n.get("type", "") for n in data.get("nodes", [])]
-    if any(t.startswith("ml.") for t in types):
-        return "Classic ML pipeline"
-    if any(t.startswith("llm.") for t in types):
-        return "LLM workflow"
-    return "Neural network"
+    """Display label of the design's family ("Neural network", "Classic ML pipeline", ...)."""
+    from ai_made_easy.core.families import family_of
+
+    return family_of(data).label
 
 
 class ProjectService:

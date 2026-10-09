@@ -38,18 +38,11 @@ def python_executable() -> str:
 
 
 def resolve_framework(graph: Graph, framework: str = "auto") -> str:
-    from ai_made_easy.core.classic.generate import is_classic
+    from ai_made_easy.core.families import resolve_framework as _resolve
 
     if framework not in FRAMEWORKS:
         raise ValueError(f"unknown framework {framework!r}; one of {FRAMEWORKS}")
-    classic = is_classic(graph)
-    if framework == "auto":
-        return "sklearn" if classic else "pytorch"
-    if classic and framework != "sklearn":
-        raise ValueError("classic-ML projects train with the sklearn framework")
-    if not classic and framework == "sklearn":
-        raise ValueError("neural-network projects train with pytorch or keras")
-    return framework
+    return _resolve(graph, framework)
 
 
 class TrainingRun:

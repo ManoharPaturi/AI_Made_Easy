@@ -14,6 +14,7 @@ from typing import Any
 
 from ai_made_easy.core.codegen import CodegenError, class_name_for, sanitize_identifier
 from ai_made_easy.core.graph import Graph
+from ai_made_easy.core.tasks import get_task, resolve_task
 from ai_made_easy.core.training import catalog as cat
 from ai_made_easy.core.training import data_catalog as dcat
 
@@ -45,7 +46,7 @@ class TrainingSpec:
     # ---------------------------------------------------------- derived
     @property
     def is_classification(self) -> bool:
-        return self.task in ("multiclass", "binary", "multilabel")
+        return get_task(self.task).classification
 
     @property
     def is_regression(self) -> bool:
@@ -115,9 +116,7 @@ def collect_spec(graph: Graph) -> TrainingSpec:
                  if loss else {"kind": "train.loss_cross_entropy",
                                **cat.resolved("train.loss_cross_entropy", {})})
     meta = cat.COMPONENTS[spec.loss["kind"]].meta
-    spec.task = meta["task"]
-    if spec.task == "binary" and spec.num_outputs > 1:
-        spec.task = "multilabel"
+    spec.task = resolve_task(meta["task"], spec.num_outputs).id
     if ds is None:
         spec.dataset = _default_dataset(spec)
         spec.warnings.append("no dataset block: training on synthetic data shaped like "
@@ -195,9 +194,7 @@ def collect_spec(graph: Graph) -> TrainingSpec:
                                      "and is skipped")
     spec.metrics.sort(key=lambda m: cat.METRIC_IDS.index(m[0]))
     if not spec.metrics:
-        default = {"multiclass": ["eval.accuracy"], "binary": ["eval.accuracy", "eval.roc_auc"],
-                   "multilabel": ["eval.accuracy"], "regression": ["eval.mae", "eval.r2"],
-                   "distribution": []}[spec.task]
+        default = get_task(spec.task).default_metrics
         spec.metrics = [(m, cat.resolved(m, {})) for m in default]
     return spec
 

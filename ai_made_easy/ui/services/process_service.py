@@ -101,16 +101,19 @@ class ProcessService(QtCore.QObject):
     def run_training(self, graph: Graph, project: str = "") -> None:
         import importlib.util
 
-        from ai_made_easy.core.classic.generate import is_classic
+        from ai_made_easy.core.families import resolve_framework
 
-        classic = is_classic(graph)
-        needed = "sklearn" if classic else "torch"
+        try:
+            framework = resolve_framework(graph)
+        except ValueError as exc:
+            self.log.error(str(exc))
+            return
+        needed, package = {"sklearn": ("sklearn", "scikit-learn"),
+                           "keras": ("keras", "keras")}.get(framework, ("torch", "torch"))
         if importlib.util.find_spec(needed) is None:
-            package = "scikit-learn" if classic else "torch"
             self.log.error(f"{package} is not installed in this environment "
                            f"(pip install {package})")
             return
-        framework = "sklearn" if classic else "pytorch"
         record = self.history.create(graph.to_dict(), framework=framework, project=project)
         workdir = self.history.path(record.run_id)
         try:

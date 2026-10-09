@@ -116,6 +116,14 @@ export function App() {
   const { name, setName, project, notify, toast, theme, toggleTheme, version, validation, nodes,
           dataIssues } = useStore();
   const [page, setPage] = useState<Page>("design");
+  const [design, setDesign] = useState("");
+  useEffect(() => {
+    if (!nodes.length) return setDesign("");
+    api.describe(project())
+      .then((d) => setDesign(d.task ? `${d.family.label} · ${d.task.label}` : d.family.label))
+      .catch(() => setDesign(""));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [validation]);
   const [dialog, setDialog] = useState<"" | "open" | "import">("");
 
   const save = async () => {
@@ -176,6 +184,7 @@ export function App() {
           {!nodes.length ? "Empty design" : errors ? `${errors} error(s)` : warnings
             ? `${warnings} warning(s)` : "No problems"}</span>
         <span>{nodes.length} blocks</span>
+        {design && <span data-testid="design-kind">{design}</span>}
         <span className="spacer" />
         <span>AI Made Easy {version}</span>
       </footer>

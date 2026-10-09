@@ -1,0 +1,129 @@
+"""Model families: the kinds of project the designer understands.
+
+A :class:`Family` declares how a design is recognised (its block prefixes /
+marker blocks), how it is validated after the generic graph checks, which
+frameworks train it, which codegen targets apply and which pip extras it
+needs. ``family_of(graph)`` replaces scattered prefix checks: the UI, runner,
+validation, CLI, MCP and web server all ask the registry.
+
+Built-in: ``neural`` (PyTorch / Keras networks), ``classic`` (scikit-learn and
+boosting pipelines) and ``llm`` (Hugging Face workflows). New families
+(probabilistic models, graph networks, reinforcement learning, pipelines, ...)
+call :func:`register_family`.
+
+Pure Python, Qt-free.
+"""
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from typing import Any, Callable
+
+Validator = Callable[[Any], list]  # Graph -> list[ValidationIssue]
+
+
+@dataclass(frozen=True)
+class Family:
+    id: str
+    label: str
+    description: str = ""
+    # a design belongs to the family when detect(block type ids) is true
+    detect: Callable[[set[str]], bool] = field(default=lambda types: False)
+    priority: int = 0              # the highest-priority matching family wins
+    frameworks: tuple[str, ...] = ()   # trainable frameworks, default first
+    targets: tuple[str, ...] = ()      # codegen targets (core.targets)
+    extras: tuple[str, ...] = ()       # pip extras the family needs
+    validate: Validator | None = None  # family-specific issues after generic checks
+    trainable: bool = True
+
+    @property
+    def default_framework(self) -> str | None:
+        return self.frameworks[0] if self.frameworks else None
+
+    def to_dict(self) -> dict:
+        return {"id": self.id, "label": self.label, "description": self.description,
+                "frameworks": list(self.frameworks), "targets": list(self.targets),
+                "extras": list(self.extras), "trainable": self.trainable}
+
+
+_FAMILIES: dict[str, Family] = {}
+
+
+def register_family(family: Family) -> Family:
+    _FAMILIES[family.id] = family
+    return family
+
+
+def get_family(family_id: str) -> Family:
+    try:
+        return _FAMILIES[family_id]
+    except KeyError:
+        raise KeyError(f"unknown family {family_id!r}; one of {sorted(_FAMILIES)}") from None
+
+
+def all_families() -> list[Family]:
+    return sorted(_FAMILIES.values(), key=lambda f: -f.priority)
+
+
+def _types(graph) -> set[str]:  # noqa: ANN001 — Graph or project dict
+    if isinstance(graph, dict):
+        return {str(n.get("type", "")) for n in graph.get("nodes", [])}
+    return {n.type_id for n in graph.nodes.values()}
+
+
+def family_of(graph) -> Family:  # noqa: ANN001 — Graph or project dict
+    """The family of a design (``neural`` when nothing more specific matches)."""
+    types = _types(graph)
+    for family in all_families():
+        if family.id != "neural" and family.detect(types):
+            return family
+    return _FAMILIES["neural"]
+
+
+def resolve_framework(graph, framework: str = "auto") -> str:  # noqa: ANN001
+    """The framework that trains ``graph``; validates an explicit choice."""
+    family = family_of(graph)
+    if not family.trainable or not family.frameworks:
+        raise ValueError(f"{family.label} projects are not trained in the app; "
+                         "export their script instead")
+    if framework == "auto":
+        return family.frameworks[0]
+    if framework not in family.frameworks:
+        raise ValueError(f"{family.label} projects train with "
+                         f"{' or '.join(family.frameworks)}, not {framework}")
+    return framework
+
+
+# ------------------------------------------------------------- built-in families
+
+def _neural_issues(graph) -> list:  # noqa: ANN001
+    return graph.neural_issues()
+
+
+def _classic_detect(types: set[str]) -> bool:
+    from ai_made_easy.core.classic import catalog as ml
+
+    return any(t in ml.ESTIMATOR_IDS for t in types)
+
+
+def _classic_issues(graph) -> list:  # noqa: ANN001
+    from ai_made_easy.core.classic.generate import classic_issues
+
+    return classic_issues(graph)
+
+
+register_family(Family(
+    "neural", "Neural network",
+    "Layer graphs trained with PyTorch or Keras.",
+    priority=0, frameworks=("pytorch", "keras"),
+    targets=("pytorch_model", "keras_model", "pytorch_train", "keras_train"),
+    extras=("torch",), validate=_neural_issues))
+register_family(Family(
+    "classic", "Classic ML pipeline",
+    "scikit-learn, XGBoost, LightGBM and CatBoost pipelines.",
+    detect=_classic_detect, priority=20, frameworks=("sklearn",),
+    targets=("sklearn_train",), extras=("classic",), validate=_classic_issues))
+register_family(Family(
+    "llm", "LLM workflow",
+    "Hugging Face generation, fine-tuning and retrieval workflows (exported as scripts).",
+    detect=lambda types: any(t.startswith("llm.") for t in types), priority=10,
+    targets=("llm",), extras=("llm",), validate=_neural_issues, trainable=False))

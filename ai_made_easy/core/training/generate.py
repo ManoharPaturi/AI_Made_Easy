@@ -1,6 +1,8 @@
 """Render complete, runnable training scripts from a TrainingSpec."""
 from __future__ import annotations
 
+from typing import Callable
+
 from jinja2 import Environment, StrictUndefined, Undefined
 
 from ai_made_easy.core.codegen import (
@@ -36,9 +38,6 @@ _env.filters["repr"] = repr
 _strict = Environment(trim_blocks=True, lstrip_blocks=True, keep_trailing_newline=True,
                       undefined=StrictUndefined)
 
-_TASK_LABELS = {"multiclass": "multi-class classification", "binary": "binary classification",
-                "multilabel": "multi-label classification", "regression": "regression",
-                "distribution": "distribution matching"}
 
 
 def _csv_list(value) -> list[str]:
@@ -46,7 +45,9 @@ def _csv_list(value) -> list[str]:
 
 
 def _task_label(spec: TrainingSpec) -> str:
-    label = _TASK_LABELS[spec.task]
+    from ai_made_easy.core.tasks import get_task
+
+    label = get_task(spec.task).label.lower()
     if spec.task in ("multiclass", "multilabel"):
         return f"{label} ({spec.num_outputs} classes)"
     if spec.task == "regression":
@@ -343,8 +344,23 @@ def _validate(graph: Graph) -> None:
                            + "\n".join(f"  - {e}" for e in errors))
 
 
+# trainer kind -> renderer(graph, spec, framework); the training loop a task needs
+TrainerRenderer = Callable[[Graph, TrainingSpec, str], str]
+TRAINERS: dict[str, TrainerRenderer] = {}
+
+
+def register_trainer(kind: str, renderer: TrainerRenderer) -> None:
+    """Add a training loop for a trainer kind (adversarial, diffusion, rl, ...)."""
+    from ai_made_easy.core.tasks import TRAINER_KINDS
+
+    if kind not in TRAINER_KINDS:
+        raise ValueError(f"unknown trainer kind {kind!r}; one of {TRAINER_KINDS}")
+    TRAINERS[kind] = renderer
+
+
 def generate_training(graph: Graph, framework: str) -> str:
     from ai_made_easy.core.classic.generate import generate_classic, is_classic
+    from ai_made_easy.core.tasks import get_task
 
     if is_classic(graph) or framework == "sklearn":
         if not is_classic(graph):
@@ -352,12 +368,23 @@ def generate_training(graph: Graph, framework: str) -> str:
         return generate_classic(graph)
     _validate(graph)
     spec = collect_spec(graph)
+    kind = get_task(spec.task).trainer_kind
+    if kind not in TRAINERS:
+        raise CodegenError(f"{get_task(spec.task).label} needs the {kind} trainer, "
+                           "which is not available")
+    return TRAINERS[kind](graph, spec, framework)
+
+
+def _supervised(graph: Graph, spec: TrainingSpec, framework: str) -> str:
     if framework == "pytorch":
         return _render_torch(graph, spec, {**_torch_ctx(graph, spec), "inspect": False},
                              TORCH_MAIN)
     if framework == "keras":
         return _render_keras(_keras_ctx(graph, spec))
     raise ValueError(f"unknown framework {framework!r}")
+
+
+register_trainer("supervised", _supervised)
 
 
 INSPECT_MAIN = r'''

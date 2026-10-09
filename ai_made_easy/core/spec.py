@@ -37,6 +37,41 @@ class PortSpec:
     name: str
     dtype: str = "tensor"  # tensor | config (config ports carry no shapes)
     multi: bool = False  # accepts more than one incoming wire (input ports)
+    # semantic role of the data on the wire (see ROLES); "tensor" matches anything
+    role: str = "tensor"
+
+    def __post_init__(self) -> None:
+        if self.role not in ROLES:
+            raise ValueError(f"port {self.name}: unknown role {self.role!r}; one of {ROLES}")
+
+
+# What a wire carries, beyond its shape. "tensor" is the generic role and is
+# compatible with every other; two specific roles must match.
+ROLES = ("tensor", "logits", "probs", "boxes", "masks", "keypoints", "tokens", "graph",
+         "distribution", "variable", "latent", "kernel", "artifact")
+
+
+def roles_compatible(source: str, target: str) -> bool:
+    return source == target or "tensor" in (source, target)
+
+
+_FOUND: dict[str, bool] = {}
+
+
+def missing_requirements(defn: "BlockDefinition") -> list[str]:
+    """Modules a block needs that cannot be imported here (cached)."""
+    import importlib.util
+
+    out = []
+    for module in defn.requires:
+        if module not in _FOUND:
+            try:
+                _FOUND[module] = importlib.util.find_spec(module) is not None
+            except (ImportError, ValueError):
+                _FOUND[module] = False
+        if not _FOUND[module]:
+            out.append(module)
+    return out
 
 
 @dataclass(frozen=True)
@@ -121,6 +156,10 @@ class BlockDefinition:
     input_dtype: str = "float"
     # Free-form metadata for config blocks (modality, task, step mode, ...)
     meta: Any = None
+    # Optional importable modules the generated code needs (e.g. ("timm",)) and the
+    # ai-made-easy extra that installs them; missing ones are reported as warnings.
+    requires: tuple[str, ...] = ()
+    extra: str = ""
 
     def supports(self, framework: str) -> bool:
         """True when the block can be emitted for ``framework``."""
@@ -158,9 +197,13 @@ class BlockDefinition:
             "frameworks": [f for f in ("pytorch", "keras") if self.supports(f)],
             "params": [p.to_dict() for p in self.params],
             "inputs": [
-                {"name": p.name, "dtype": p.dtype, "multi": p.multi} for p in self.inputs
+                {"name": p.name, "dtype": p.dtype, "multi": p.multi, "role": p.role}
+                for p in self.inputs
             ],
-            "outputs": [{"name": p.name, "dtype": p.dtype} for p in self.outputs],
+            "outputs": [{"name": p.name, "dtype": p.dtype, "role": p.role}
+                        for p in self.outputs],
+            "requires": list(self.requires),
+            "extra": self.extra,
         }
         return out
 

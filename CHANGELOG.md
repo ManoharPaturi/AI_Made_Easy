@@ -1,5 +1,25 @@
 # Changelog
 
+## Unreleased (3.0 in progress — see docs/ROADMAP_3.0.md)
+
+### Added
+- Model families and a task registry: designs are recognised, validated and
+  trained through `core/families.py` / `core/tasks.py`; `/api/tasks`,
+  `/api/families`, `/api/describe`, MCP `list_tasks`. The status bar shows the
+  design's family and task.
+- Semantic port roles (logits, boxes, masks, tokens, graph, variable, ...)
+  checked on every wire; blocks can declare optional package requirements,
+  reported with the pip extra that installs them.
+- Trainer-kind registry for non-supervised training loops.
+- Pretrained image backbones: 39 torchvision architectures (was 16) from a
+  generated, measured catalog — adds ResNet-152, ResNeXt, Wide ResNet,
+  EfficientNet-B4 / V2, ConvNeXt S/B, DenseNet-169/201, VGG-19, RegNet-Y
+  800MF–3.2GF, ShuffleNetV2, MNASNet, ViT-B/32, ViT-L/16, Swin(V2), MaxViT.
+
+### Fixed
+- RegNet backbones were mapped to Keras classes that Keras 3 does not provide;
+  they are now reported as PyTorch-only.
+
 ## 2.0.0
 
 The designer becomes a complete model workflow: track and tune experiments,

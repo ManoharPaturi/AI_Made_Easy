@@ -58,18 +58,18 @@ class PretrainedBackbone(nn.Module):
 
         weights = "DEFAULT" if pretrained else None
         model = getattr(torchvision.models, name)(weights=weights)
-        if name.startswith(("resnet", "regnet")):
-            model.fc = nn.Identity()
-        elif name.startswith("vit"):
-            model.heads = nn.Identity()
-        elif name.startswith("vgg"):
+        if name.startswith("vgg"):
             model.avgpool = nn.AdaptiveAvgPool2d(1)
             model.classifier = nn.Flatten()
-        elif name.startswith("densenet"):
-            model.classifier = nn.Identity()
-        elif name.startswith("convnext"):
+        elif hasattr(model, "fc"):  # resnet / resnext / wide_resnet / regnet / shufflenet
+            model.fc = nn.Identity()
+        elif hasattr(model, "heads"):  # vit
+            model.heads = nn.Identity()
+        elif hasattr(model, "head"):  # swin
+            model.head = nn.Identity()
+        elif name.startswith(("convnext", "maxvit")):  # pooling lives in the classifier
             model.classifier[-1] = nn.Identity()
-        else:  # mobilenet / efficientnet
+        else:  # mobilenet / efficientnet / densenet / mnasnet
             model.classifier = nn.Identity()
         self.model = model
         if freeze:
