@@ -4,7 +4,7 @@ import { api } from "../api";
 import { CodeView } from "../components/CodeView";
 import { formatValue, shapeLabel } from "../project";
 import { useStore } from "../state";
-import type { ParamSpec, Summary } from "../types";
+import type { Budget, BudgetReport, DeviceProfile, ParamSpec, Summary } from "../types";
 
 function ParamField({ spec, value, onChange }: {
   spec: ParamSpec; value: unknown; onChange: (v: unknown) => void;
@@ -88,30 +88,94 @@ function Properties() {
   );
 }
 
+const LIMITS: { key: keyof Budget; label: string; unit: string }[] = [
+  { key: "max_train_memory_gb", label: "Max training memory", unit: "GB" },
+  { key: "max_latency_ms", label: "Max latency", unit: "ms" },
+  { key: "max_params_m", label: "Max parameters", unit: "M" },
+  { key: "max_model_mb", label: "Max model size", unit: "MB" },
+];
+
+function flops(n: number): string {
+  for (const [unit, size] of [["T", 1e12], ["G", 1e9], ["M", 1e6], ["K", 1e3]] as const) {
+    if (n >= size) return `${(n / size).toFixed(2)} ${unit}FLOPs`;
+  }
+  return n ? `${n} FLOPs` : "—";
+}
+
+function BudgetPanel({ report }: { report: BudgetReport | null }) {
+  const { meta, setMeta } = useStore();
+  const [devices, setDevices] = useState<DeviceProfile[]>([]);
+  useEffect(() => { api.devices().then((r) => setDevices(r.devices)).catch(() => undefined); }, []);
+  const budget = { device: "", max_train_memory_gb: 0, max_latency_ms: 0, max_params_m: 0,
+                   max_model_mb: 0, ...((meta.budget as Partial<Budget>) ?? {}) };
+  const set = (patch: Partial<Budget>) => setMeta((m) => ({ ...m, budget: { ...budget, ...patch } }));
+  const memory = report?.checks.find((c) => c.kind === "train_memory");
+  return (
+    <fieldset className="budget" data-testid="budget-panel">
+      <legend>Budget</legend>
+      <label>Device <select value={budget.device} aria-label="Target device"
+                            onChange={(e) => set({ device: e.target.value })}>
+        <option value="">No target device</option>
+        {devices.map((d) => <option key={d.id} value={d.id}>{d.label}</option>)}
+      </select></label>
+      {LIMITS.map((l) => (
+        <label key={l.key}>{l.label} <input type="number" min={0} step="any" style={{ width: 80 }}
+          value={Number(budget[l.key]) || ""} placeholder="no limit" aria-label={l.label}
+          onChange={(e) => set({ [l.key]: Number(e.target.value) || 0 })} /> {l.unit}</label>
+      ))}
+      {memory && (
+        <div className={`budget-bar${memory.over ? " over" : ""}`} data-testid="memory-bar"
+             title={`${memory.used.toFixed(2)} of ${memory.limit} GB`}>
+          <span style={{ width: `${Math.min(100, (100 * memory.used) / memory.limit)}%` }} />
+          <em>{memory.used.toFixed(2)} / {memory.limit} GB training memory</em>
+        </div>
+      )}
+      {report?.checks.filter((c) => c.over && c.kind !== "train_memory").map((c) => (
+        <p key={c.kind} className="error-text">{c.kind.replace("_", " ")} {c.used.toFixed(2)} {c.unit} is
+          over the {c.limit} {c.unit} budget</p>
+      ))}
+    </fieldset>
+  );
+}
+
 function SummaryTab() {
   const { project, validation } = useStore();
   const [summary, setSummary] = useState<Summary | null>(null);
+  const [report, setReport] = useState<BudgetReport | null>(null);
   const [error, setError] = useState("");
   useEffect(() => {
     if (!validation?.valid) {
       setSummary(null);
+      setReport(null);
       setError("Fix the errors to see the model summary.");
       return;
     }
     api.summary(project()).then((s) => { setSummary(s); setError(""); })
       .catch((e) => { setSummary(null); setError(String(e.message ?? e)); });
+    api.budget(project()).then(setReport).catch(() => setReport(null));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [validation]);
   if (!summary) return <p className="muted">{error}</p>;
+  const est = report?.estimate;
   return (
     <>
-      <p><strong>{summary.total_params_display}</strong> parameters</p>
+      <div className="tiles" data-testid="cost-tiles">
+        <div><strong>{summary.total_params_display}</strong><span>parameters</span></div>
+        <div><strong>{flops(summary.total_flops)}</strong><span>forward / sample</span></div>
+        <div><strong>{est ? `${est.train_memory_gb.toFixed(2)} GB` : "—"}</strong>
+          <span>training memory{est ? ` · batch ${est.batch_size}` : ""}</span></div>
+        <div><strong>{est?.latency_ms != null ? `${est.latency_ms.toFixed(2)} ms` : "—"}</strong>
+          <span>latency{est?.device ? "" : " (pick a device)"}</span></div>
+      </div>
+      <BudgetPanel report={report} />
       <table>
-        <thead><tr><th>Layer</th><th>Output</th><th className="num">Params</th></tr></thead>
+        <thead><tr><th>Layer</th><th>Output</th><th className="num">Params</th>
+          <th className="num">FLOPs</th></tr></thead>
         <tbody>
           {summary.layers.map((l, i) => (
             <tr key={i}><td>{l.name}</td><td>{shapeLabel(l.output_shape)}</td>
-              <td className="num">{l.params.toLocaleString()}</td></tr>
+              <td className="num">{l.params.toLocaleString()}</td>
+              <td className="num">{flops(l.flops)}</td></tr>
           ))}
         </tbody>
       </table>

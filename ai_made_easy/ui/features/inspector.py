@@ -24,7 +24,9 @@ _SYNTAX = {
 # ------------------------------------------------------------------ summary
 
 class SummaryPage(QtWidgets.QWidget):
-    """Per-layer output shapes and parameter counts for the model."""
+    """Per-layer shapes, parameters and FLOPs, plus the project's resource budget."""
+
+    budget_changed = QtCore.Signal(dict)  # the new graph.meta["budget"]
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -39,22 +41,88 @@ class SummaryPage(QtWidgets.QWidget):
         for tile in (self.params_tile, self.layers_tile, self.kind_tile):
             tiles.addWidget(tile[0])
         layout.addLayout(tiles)
-        self.table = QtWidgets.QTableWidget(0, 3)
-        self.table.setHorizontalHeaderLabels(["Layer", "Output shape", "Parameters"])
+        cost = QtWidgets.QHBoxLayout()
+        self.flops_tile = self._tile("Forward FLOPs / sample")
+        self.memory_tile = self._tile("Training memory")
+        self.latency_tile = self._tile("Latency / sample")
+        for tile in (self.flops_tile, self.memory_tile, self.latency_tile):
+            cost.addWidget(tile[0])
+        layout.addLayout(cost)
+        layout.addWidget(self._budget_box())
+        self.table = QtWidgets.QTableWidget(0, 4)
+        self.table.setHorizontalHeaderLabels(["Layer", "Output shape", "Parameters", "FLOPs"])
         self.table.verticalHeader().setVisible(False)
         self.table.setShowGrid(False)
         self.table.setEditTriggers(QtWidgets.QAbstractItemView.EditTrigger.NoEditTriggers)
         self.table.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectionBehavior.SelectRows)
         header = self.table.horizontalHeader()
         header.setSectionResizeMode(0, QtWidgets.QHeaderView.ResizeMode.Stretch)
-        header.setSectionResizeMode(1, QtWidgets.QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(2, QtWidgets.QHeaderView.ResizeMode.ResizeToContents)
+        for col in (1, 2, 3):
+            header.setSectionResizeMode(col, QtWidgets.QHeaderView.ResizeMode.ResizeToContents)
         layout.addWidget(self.table, 1)
         self.note = QtWidgets.QLabel()
         self.note.setObjectName("blockMeta")
         self.note.setWordWrap(True)
         layout.addWidget(self.note)
 
+    # ------------------------------------------------------------ budget
+    def _budget_box(self) -> QtWidgets.QWidget:
+        from ai_made_easy.core import budget
+
+        box = QtWidgets.QGroupBox("Budget")
+        form = QtWidgets.QFormLayout(box)
+        form.setContentsMargins(8, 6, 8, 6)
+        self.device_combo = QtWidgets.QComboBox()
+        self.device_combo.addItem("No target device", "")
+        for device in budget.devices().values():
+            self.device_combo.addItem(device.label, device.id)
+        self.device_combo.setToolTip("Estimates memory and latency on this device")
+        form.addRow("Device", self.device_combo)
+        self.limit_spins: dict[str, QtWidgets.QDoubleSpinBox] = {}
+        for key, label, suffix, top in (
+                ("max_train_memory_gb", "Max training memory", " GB", 1024.0),
+                ("max_latency_ms", "Max latency", " ms", 1e6),
+                ("max_params_m", "Max parameters", " M", 1e5),
+                ("max_model_mb", "Max model size", " MB", 1e6)):
+            spin = QtWidgets.QDoubleSpinBox()
+            spin.setRange(0.0, top)
+            spin.setDecimals(1)
+            spin.setSuffix(suffix)
+            spin.setSpecialValueText("no limit")
+            spin.setKeyboardTracking(False)
+            self.limit_spins[key] = spin
+            form.addRow(label, spin)
+        self.memory_bar = QtWidgets.QProgressBar()
+        self.memory_bar.setRange(0, 100)
+        self.memory_bar.setTextVisible(True)
+        self.memory_bar.setVisible(False)
+        form.addRow("Memory use", self.memory_bar)
+        self._quiet = False
+        self.device_combo.currentIndexChanged.connect(self._emit_budget)
+        for spin in self.limit_spins.values():
+            spin.valueChanged.connect(self._emit_budget)
+        return box
+
+    def set_budget(self, values: dict) -> None:
+        """Show the project's budget without echoing a change."""
+        self._quiet = True
+        try:
+            index = self.device_combo.findData(values.get("device") or "")
+            self.device_combo.setCurrentIndex(max(index, 0))
+            for key, spin in self.limit_spins.items():
+                spin.setValue(float(values.get(key) or 0))
+        finally:
+            self._quiet = False
+
+    def budget(self) -> dict:
+        return {"device": self.device_combo.currentData() or "",
+                **{k: spin.value() for k, spin in self.limit_spins.items()}}
+
+    def _emit_budget(self, *_args) -> None:
+        if not self._quiet:
+            self.budget_changed.emit(self.budget())
+
+    # ------------------------------------------------------------ tiles
     @staticmethod
     def _tile(name: str):
         frame = QtWidgets.QFrame()
@@ -73,19 +141,52 @@ class SummaryPage(QtWidgets.QWidget):
     def set_kind(self, kind: str) -> None:
         self.kind_tile[1].setText(kind)
 
-    def set_summary(self, summary, note: str = "") -> None:
+    def set_estimate(self, est, checks=()) -> None:  # noqa: ANN001 — core.budget.Estimate
+        from ai_made_easy.core.budget import GB, human_bytes, human_flops
+
+        for tile in (self.flops_tile, self.memory_tile, self.latency_tile):
+            tile[1].setText("—")
+            tile[1].setToolTip("")
+        self.memory_bar.setVisible(False)
+        if est is None:
+            return
+        self.flops_tile[1].setText(human_flops(est.flops))
+        memory = est.train_memory_bytes()
+        self.memory_tile[1].setText(human_bytes(memory))
+        self.memory_tile[1].setToolTip(
+            f"batch {est.batch_size}" + (", mixed precision" if est.mixed_precision else "")
+            + f"; model {human_bytes(est.model_bytes())}")
+        latency = est.latency_ms()
+        self.latency_tile[1].setText("—" if latency is None else f"{latency:.2f} ms")
+        if est.device is not None:
+            self.latency_tile[1].setToolTip(f"batch 1 on {est.device.label}")
+        for c in checks:
+            if c.kind == "train_memory":
+                share = int(min(100.0, 100.0 * c.used / c.limit))
+                self.memory_bar.setValue(share)
+                self.memory_bar.setFormat(f"{memory / GB:.2f} of {c.limit:g} GB")
+                self.memory_bar.setProperty("over", c.over)
+                self.memory_bar.setStyleSheet(
+                    "QProgressBar::chunk { background: #cf222e; }" if c.over else "")
+                self.memory_bar.setVisible(True)
+
+    def set_summary(self, summary, note: str = "", flops: list[int] | None = None) -> None:
         if summary is None:
             self.params_tile[1].setText("—")
             self.layers_tile[1].setText("—")
             self.table.setRowCount(0)
+            self.set_estimate(None)
             self.note.setText(note or "The model summary appears once the model is valid.")
             return
+        from ai_made_easy.core.budget import human_flops
+
         self.note.setText(note)
         self.table.setRowCount(len(summary.layers))
         for row, layer in enumerate(summary.layers):
             shape = "[" + ", ".join(str(d) for d in layer.output_shape) + "]"
             params = f"{layer.params:,}" if layer.params else "—"
-            for col, text in enumerate((layer.name, shape, params)):
+            cost = human_flops(flops[row]) if flops and row < len(flops) and flops[row] else "—"
+            for col, text in enumerate((layer.name, shape, params, cost)):
                 item = QtWidgets.QTableWidgetItem(text)
                 if col:
                     item.setTextAlignment(QtCore.Qt.AlignmentFlag.AlignRight

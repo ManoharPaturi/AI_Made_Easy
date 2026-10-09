@@ -3,6 +3,20 @@
 ## Unreleased (3.0 in progress — see docs/ROADMAP_3.0.md)
 
 ### Added
+- Resource budgets (`core/budget.py`): per-layer FLOPs, training memory
+  (weights, gradients, optimizer state, saved activations, mixed precision) and
+  latency estimates against 11 device profiles (laptop CPU, Apple MPS, RTX
+  3060/4090, T4, A100, H100, iPhone ANE, Jetson Orin Nano, Raspberry Pi 5) plus
+  your own (`~/.aime/devices.json`). FLOPs match PyTorch's counter within 7%
+  and training memory matches measured MPS peaks within 7% on the samples.
+- Budget settings (device, max training memory / latency / parameters / model
+  size) in the Summary tab (desktop and web) and `meta.budget`; designs over
+  budget get warnings with Quick Fixes (mixed precision, or a smaller batch with
+  gradient accumulation that keeps the effective batch).
+- Sweeps skip trials that break the budget; training runs record measured peak
+  memory and step time (`resources` in the run record) to compare with the
+  estimate. `aime budget`, `GET /api/devices`, `POST /api/budget`, MCP
+  `estimate_budget`; the Summary shows FLOPs per layer.
 - Model families and a task registry: designs are recognised, validated and
   trained through `core/families.py` / `core/tasks.py`; `/api/tasks`,
   `/api/families`, `/api/describe`, MCP `list_tasks`. The status bar shows the

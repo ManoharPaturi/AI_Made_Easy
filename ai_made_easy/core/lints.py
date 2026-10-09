@@ -463,6 +463,51 @@ def pretrained_needs_imagenet_norm(ctx: LintContext):
     return out
 
 
+def resource_budget(ctx: LintContext):
+    """Designs that will not fit the project's device / latency / size budget."""
+    from ai_made_easy.core import budget
+
+    checks = budget.check(ctx.graph)
+    if not checks:
+        return []
+    est = budget.estimate(ctx.graph)
+    where = f" on {est.device.label}" if est.device else ""
+    trainer = next(iter(ctx.nodes_of("train.trainer")), None)
+    heaviest = max(est.layers, key=lambda layer: layer.flops, default=None)
+    biggest = max(est.layers, key=lambda layer: layer.params, default=None)
+    out = []
+    for c in checks:
+        if not c.over:
+            continue
+        if c.kind == "train_memory":
+            out.append(_issue(
+                "warning",
+                f"Training needs about {c.used:.1f} GB at batch {est.batch_size} but the budget "
+                f"is {c.limit:g} GB{where}: lower the batch size (gradient accumulation keeps "
+                "the effective batch) or turn on mixed precision",
+                trainer.instance_id if trainer else None))
+        elif c.kind == "latency":
+            out.append(_issue(
+                "warning",
+                f"Inference takes about {c.used:.1f} ms per sample{where}, over the "
+                f"{c.limit:g} ms budget: use a smaller backbone, fewer or narrower layers, "
+                "or a lower input resolution",
+                heaviest.node_id if heaviest else None))
+        elif c.kind == "params":
+            out.append(_issue(
+                "warning",
+                f"The model has {c.used:.2f}M parameters, over the {c.limit:g}M budget: "
+                "shrink the widest layers or pool before the dense head",
+                biggest.node_id if biggest else None))
+        elif c.kind == "model_size":
+            out.append(_issue(
+                "warning",
+                f"The saved model is about {c.used:.1f} MB, over the {c.limit:g} MB budget: "
+                "reduce parameters or quantize it when exporting",
+                biggest.node_id if biggest else None))
+    return out
+
+
 def _registry():
     from ai_made_easy.core.registry import get_registry
 
@@ -486,6 +531,7 @@ RULES: list[Callable[[LintContext], list]] = [
     loss_output_pairing,
     training_setup,
     pretrained_needs_imagenet_norm,
+    resource_budget,
 ]
 
 

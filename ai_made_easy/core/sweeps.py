@@ -109,6 +109,7 @@ class SweepSpec:
     max_trials: int = 10
     seed: int = 0
     framework: str = "auto"
+    skip_over_budget: bool = True  # trials that break the project's resource budget
 
     @property
     def minimize(self) -> bool:
@@ -207,7 +208,8 @@ class TrialRow:
     number: int
     values: dict[str, Any]
     run_id: str = ""
-    state: str = "pending"  # pending | running | finished | failed | invalid | stopped
+    # pending | running | finished | failed | invalid | over_budget | stopped
+    state: str = "pending"
     score: float | None = None
     message: str = ""
 
@@ -387,6 +389,17 @@ class SweepRunner:
             self.record.best = {k: best[k] for k in ("number", "run_id", "score", "values")}
         self.store.save(self.record)
 
+    @staticmethod
+    def _over_budget(graph: Graph) -> str:
+        from ai_made_easy.core import budget
+
+        try:
+            over = [c for c in budget.check(graph) if c.over]
+        except Exception:  # noqa: BLE001 — no estimate, no skip
+            return ""
+        return "; ".join(f"{c.kind.replace('_', ' ')} {c.used:.2f} {c.unit} > {c.limit:g} {c.unit}"
+                         for c in over)
+
     def _run(self) -> None:
         self.record.state = "running"
         self.store.save(self.record)
@@ -400,6 +413,14 @@ class SweepRunner:
                 errors = [i for i in trial_graph.validate() if i.severity == "error"]
                 if errors:
                     row.state, row.message = "invalid", errors[0].message
+                    self._save_trial(row)
+                    if tell:
+                        tell(None)
+                    self._emit({"type": "trial", **asdict(row)})
+                    continue
+                over = self._over_budget(trial_graph) if self.spec.skip_over_budget else ""
+                if over:
+                    row.state, row.message = "over_budget", over
                     self._save_trial(row)
                     if tell:
                         tell(None)

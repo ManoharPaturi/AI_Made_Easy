@@ -25,6 +25,7 @@ import sys
 import traceback
 
 _EPOCH_RE = re.compile(r"^epoch (\d+)/(\d+)\s+(.*)$")
+_RESOURCES_RE = re.compile(r"^resources:\s+(.*)$")
 _KV_RE = re.compile(r"([A-Za-z_]\w*)=(-?[\d.]+(?:[eE][+-]?\d+)?)")
 
 
@@ -68,6 +69,15 @@ class LineTap(io.TextIOBase):
                 },
                 self._sink,
             )
+        elif _RESOURCES_RE.match(line):
+            fields = dict(re.findall(r"(\w+)=(\S+)", _RESOURCES_RE.match(line).group(1)))
+            event = {"type": "resources"}
+            for key, value in fields.items():
+                try:
+                    event[key] = float(value)
+                except ValueError:
+                    event[key] = value
+            _emit(event, self._sink)
         else:
             _emit({"type": "log", "line": line}, self._sink)
 

@@ -85,6 +85,9 @@ class TrainingRun:
             elif kind == "env":
                 self.history.update(self.run_id, env={k: v for k, v in event.items()
                                                       if k != "type"})
+            elif kind == "resources":
+                self.history.update(self.run_id, resources={k: v for k, v in event.items()
+                                                            if k != "type"})
             if finished:
                 self.history.finalize(self.run_id, self.state, self.returncode,
                                       self.error or "")

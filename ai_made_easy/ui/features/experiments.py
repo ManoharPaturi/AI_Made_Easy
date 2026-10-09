@@ -598,6 +598,11 @@ class SweepDialog(QtWidgets.QDialog):
         form.addRow("Max trials", self.trials)
         form.addRow("Grid points", self.points)
         form.addRow("Sampler seed", self.seed)
+        self.skip_budget = QtWidgets.QCheckBox("Skip trials over the project budget")
+        self.skip_budget.setChecked(True)
+        self.skip_budget.setToolTip("Trials whose estimated memory, latency or size break the "
+                                    "budget set in the Summary are recorded but not trained")
+        form.addRow("", self.skip_budget)
         layout.addLayout(form)
         self.error = QtWidgets.QLabel("")
         self.error.setObjectName("errorText")
@@ -661,7 +666,8 @@ class SweepDialog(QtWidgets.QDialog):
         direction = {"Minimize": "min", "Maximize": "max"}.get(self.direction.currentText(), "")
         return {"dimensions": dims, "metric": self.metric.currentText().strip(),
                 "direction": direction, "strategy": self.strategy.currentData(),
-                "max_trials": self.trials.value(), "seed": self.seed.value()}
+                "max_trials": self.trials.value(), "seed": self.seed.value(),
+                "skip_over_budget": self.skip_budget.isChecked()}
 
     def _accept(self) -> None:
         try:

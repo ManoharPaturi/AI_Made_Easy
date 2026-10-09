@@ -118,6 +118,20 @@ def create_app(*, token: str | None = None, projects_dir: str | Path | None = No
     def tasks(family: str | None = None) -> dict:
         return api.list_tasks(family)
 
+    @app.get("/api/devices", dependencies=guard)
+    def devices() -> dict:
+        return api.list_devices()
+
+    @app.post("/api/budget", dependencies=guard)
+    def budget(payload: dict = Body(...)) -> dict:  # noqa: B008
+        try:
+            return api.estimate_budget(_graph_body(payload), payload.get("device"),
+                                       payload.get("limits") or None)
+        except api.ApiError:
+            raise
+        except Exception as exc:  # noqa: BLE001 — incomplete designs are user-facing
+            raise HTTPException(400, str(exc)) from exc
+
     @app.post("/api/describe", dependencies=guard)
     def describe(payload: dict = Body(...)) -> dict:  # noqa: B008
         return api.describe_design(_graph_body(payload))

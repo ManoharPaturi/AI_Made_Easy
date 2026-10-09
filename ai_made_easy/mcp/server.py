@@ -249,6 +249,23 @@ def list_tasks(family: str = "") -> str:
 
 
 @mcp.tool()
+def estimate_budget(graph: dict, device: str = "", max_train_memory_gb: float = 0,
+                    max_latency_ms: float = 0, max_params_m: float = 0) -> str:
+    """Estimate FLOPs, training memory, model size and inference latency of a neural
+    design on a target device (see ``devices``: rtx_3060, t4, a100_40, apple_m_series,
+    iphone_ane, raspberry_pi_5, ...) and check it against the given limits (0 = none)."""
+    limits = {k: v for k, v in {"max_train_memory_gb": max_train_memory_gb,
+                                "max_latency_ms": max_latency_ms,
+                                "max_params_m": max_params_m}.items() if v}
+    try:
+        report = api.estimate_budget(graph, device or None, limits)
+    except Exception as exc:  # noqa: BLE001
+        return json.dumps({"error": str(exc)})
+    report["devices"] = [d["id"] for d in api.list_devices()["devices"]]
+    return json.dumps(report)
+
+
+@mcp.tool()
 def profile_data(graph: dict | None = None, path: str = "", target: str = "") -> str:
     """Profile a dataset: the dataset block of ``graph``, or any table / class-folder
     ``path``. Returns rows, column statistics, class counts and findings (missing

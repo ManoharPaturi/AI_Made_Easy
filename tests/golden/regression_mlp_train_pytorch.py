@@ -245,6 +245,22 @@ def evaluate(model: nn.Module, loss_fn, loader: DataLoader, device: torch.device
     return loss, compute_metrics(outputs, targets)
 
 
+def reset_peak_memory(device: torch.device) -> None:
+    if device.type == "cuda":
+        torch.cuda.reset_peak_memory_stats(device)
+
+
+def report_resources(device: torch.device, step_seconds: float) -> None:
+    """Measured first-epoch cost; calibrates the designer's budget estimates."""
+    peak = 0.0
+    if device.type == "cuda":
+        peak = torch.cuda.max_memory_allocated(device) / 2**20
+    elif device.type == "mps":
+        peak = torch.mps.driver_allocated_memory() / 2**20
+    print(f"resources: peak_memory_mb={peak:.1f} step_ms={step_seconds * 1e3:.2f} "
+          f"batch_size={BATCH_SIZE} device={device.type}", flush=True)
+
+
 def fit(model: nn.Module, train_loader, val_loader, device, log: bool = True):
     """Train with early stopping on validation loss; returns the best state."""
     loss_fn = make_loss()
@@ -256,10 +272,12 @@ def fit(model: nn.Module, train_loader, val_loader, device, log: bool = True):
     amp_dtype = torch.float16 if device.type == "cuda" else torch.bfloat16
     scaler = torch.amp.GradScaler("cuda", enabled=use_amp and device.type == "cuda")
     best_loss, best_state, bad_epochs = float("inf"), None, 0
+    reset_peak_memory(device)
     for epoch in range(1, EPOCHS + 1):
         model.train()
         started, running, seen = time.time(), 0.0, 0
         optimizer.zero_grad(set_to_none=True)
+        step = 0
         for step, (xb, yb) in enumerate(train_loader, start=1):
             xb, yb = xb.to(device), yb.to(device)
             with torch.autocast(device_type=device.type, dtype=amp_dtype, enabled=use_amp):
@@ -275,6 +293,8 @@ def fit(model: nn.Module, train_loader, val_loader, device, log: bool = True):
                 optimizer.zero_grad(set_to_none=True)
             running += loss.item() * len(xb)
             seen += len(xb)
+        if epoch == 1 and log:
+            report_resources(device, (time.time() - started) / max(step, 1))
         train_loss = running / max(seen, 1)
         val_loss, val_metrics = evaluate(model, loss_fn, val_loader, device)
         monitored = val_loss if not math.isnan(val_loss) else train_loss

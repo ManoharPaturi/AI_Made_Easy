@@ -56,7 +56,7 @@ aime-mcp = "ai_made_easy.mcp.server:main"
 include = ["ai_made_easy*"]
 
 [tool.setuptools.package-data]
-ai_made_easy = ["samples/*.json", "assets/*", "core/zoo/*.json", "server/static/*", "server/static/**/*"]
+ai_made_easy = ["samples/*.json", "assets/*", "core/zoo/*.json", "core/devices.json", "server/static/*", "server/static/**/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
