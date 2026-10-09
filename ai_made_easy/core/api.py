@@ -76,8 +76,21 @@ def describe_design(graph: dict | Graph) -> dict:
 
     g = _graph(graph)
     family = family_of(g)
-    task = task_of(g) if family.id == "neural" else None
+    try:
+        task = task_of(g)
+    except Exception:  # noqa: BLE001 — incomplete designs have no task yet
+        task = None
     return {"family": family.to_dict(), "task": task.to_dict() if task else None}
+
+
+def table_layout(graph: dict | Graph, node_id: str) -> dict:
+    """Rows, columns and values for a table parameter's grid editor (probability tables)."""
+    from ai_made_easy.core.pgm.network import layout
+
+    g = _graph(graph)
+    if node_id not in g.nodes:
+        raise ApiError(f"no block {node_id!r} in the design")
+    return layout(g, node_id)
 
 
 def list_samples() -> dict:

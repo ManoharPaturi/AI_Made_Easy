@@ -1,0 +1,150 @@
+{
+  "schema_version": 1,
+  "name": "bayes_by_backprop",
+  "meta": {
+    "title": "Uncertainty \u2014 Bayes by Backprop",
+    "description": "Every weight is a Gaussian whose mean and spread are learned; the KL divergence to the prior is added to the loss. Predictions average 30 sampled networks, so confidence drops away from the data."
+  },
+  "nodes": [
+    {
+      "id": "input",
+      "type": "core.input",
+      "params": {
+        "shape": "2"
+      },
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "bayes_0",
+      "type": "bayes.linear",
+      "params": {
+        "units": 64,
+        "prior_sigma": 1.0,
+        "samples": 30
+      },
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "relu_1",
+      "type": "core.relu",
+      "params": {},
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "bayes_2",
+      "type": "bayes.linear",
+      "params": {
+        "units": 2,
+        "prior_sigma": 1.0,
+        "samples": 30
+      },
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "output",
+      "type": "core.output",
+      "params": {},
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "data",
+      "type": "data.synthetic",
+      "params": {
+        "kind": "moons",
+        "n_samples": 2000,
+        "n_features": 2,
+        "noise": 0.2,
+        "seed": 42
+      },
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "loss",
+      "type": "train.loss_cross_entropy",
+      "params": {},
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "opt",
+      "type": "train.adam",
+      "params": {
+        "lr": 0.01
+      },
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "trainer",
+      "type": "train.trainer",
+      "params": {
+        "epochs": 60,
+        "batch_size": 64
+      },
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "acc",
+      "type": "eval.accuracy",
+      "params": {},
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "ece",
+      "type": "eval.ece",
+      "params": {
+        "bins": 15
+      },
+      "position": [
+        0,
+        0
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "from": "input/out",
+      "to": "bayes_0/in"
+    },
+    {
+      "from": "bayes_0/out",
+      "to": "relu_1/in"
+    },
+    {
+      "from": "relu_1/out",
+      "to": "bayes_2/in"
+    },
+    {
+      "from": "bayes_2/out",
+      "to": "output/in"
+    }
+  ]
+}

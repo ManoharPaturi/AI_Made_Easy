@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from typing import Any, Callable
 
 # Param types supported by the property-panel generator and codegen.
-PARAM_TYPES = ("int", "float", "bool", "enum", "str")
+PARAM_TYPES = ("int", "float", "bool", "enum", "str", "table")  # table: JSON 2-D list
 
 # A shape function receives the ordered shapes of the block's input ports
 # (already resolved, batch dim excluded) plus the block's resolved params,
@@ -48,7 +48,7 @@ class PortSpec:
 # What a wire carries, beyond its shape. "tensor" is the generic role and is
 # compatible with every other; two specific roles must match.
 ROLES = ("tensor", "logits", "probs", "boxes", "masks", "keypoints", "tokens", "graph",
-         "distribution", "variable", "latent", "kernel", "artifact")
+         "distribution", "variable", "latent", "kernel", "component", "artifact")
 
 
 def roles_compatible(source: str, target: str) -> bool:

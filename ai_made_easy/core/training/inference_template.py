@@ -125,7 +125,11 @@ def infer(raw: list) -> list[dict]:
         raise RuntimeError("call load_predictor(folder) first")
     device = next(_PREDICTOR.parameters()).device
     x = torch.from_numpy(np.ascontiguousarray(prepare_inputs(raw))).to(device)
+{% if prob %}
+    return serve(_PREDICTOR, x)
+{% else %}
     return describe(_PREDICTOR(x).float().cpu().numpy())
+{% endif %}
 '''
 
 INFERENCE_KERAS = r'''

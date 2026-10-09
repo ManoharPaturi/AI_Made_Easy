@@ -132,6 +132,7 @@ class AppContext(QtCore.QObject):
         self.library.place_requested.connect(self.place_block)
         self.properties.param_changed.connect(self.canvas.set_param)
         self.properties.reset_requested.connect(self._reset_params)
+        self.properties.table_edit_requested.connect(self._edit_table)
         self.problems.locate_requested.connect(self._locate)
         self.problems.fix_requested.connect(self._apply_fix)
         self.summary_page.budget_changed.connect(self._on_budget_changed)
@@ -409,6 +410,24 @@ class AppContext(QtCore.QObject):
             self.properties.clear()
             return
         self.properties.update_status(*self._node_facts(node_id))
+
+    def _edit_table(self, node_id: str, param: str) -> None:
+        """Open the grid editor for a table parameter (a variable's probability table)."""
+        from ai_made_easy.core.pgm.network import layout
+        from ai_made_easy.ui.features.table_editor import TableEditorDialog
+
+        graph = self.canvas.to_ir()
+        info = layout(graph, node_id)
+        if "error" in info:
+            self.status_message.emit(info["error"])
+            QtWidgets.QMessageBox.information(self.window, "Probability table", info["error"])
+            return
+        dialog = TableEditorDialog(self.window, info)
+        if dialog.exec() and dialog.result_text is not None:
+            self.canvas.set_param(node_id, param, dialog.result_text)
+            self.properties.show_node(node_id, graph.nodes[node_id].definition(),
+                                      self.canvas.params_of(node_id),
+                                      *self._node_facts(node_id))
 
     def _node_facts(self, node_id: str):
         issues = [i for i in self.validation_store.issues if i.node_id == node_id]

@@ -1,0 +1,193 @@
+{
+  "schema_version": 1,
+  "name": "flow_moons_realnvp",
+  "meta": {
+    "title": "Normalizing Flow \u2014 RealNVP",
+    "description": "Affine coupling layers alternate which coordinate they transform, turning two moons into a standard Gaussian and back. Compare the test log-likelihood with the Gaussian baseline."
+  },
+  "nodes": [
+    {
+      "id": "input",
+      "type": "core.input",
+      "params": {
+        "shape": "2"
+      },
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "actnorm_0",
+      "type": "flow.actnorm",
+      "params": {},
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "coupling_0",
+      "type": "flow.affine_coupling",
+      "params": {
+        "hidden": 64,
+        "layers": 2,
+        "parity": "even"
+      },
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "actnorm_1",
+      "type": "flow.actnorm",
+      "params": {},
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "coupling_1",
+      "type": "flow.affine_coupling",
+      "params": {
+        "hidden": 64,
+        "layers": 2,
+        "parity": "odd"
+      },
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "actnorm_2",
+      "type": "flow.actnorm",
+      "params": {},
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "coupling_2",
+      "type": "flow.affine_coupling",
+      "params": {
+        "hidden": 64,
+        "layers": 2,
+        "parity": "even"
+      },
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "actnorm_3",
+      "type": "flow.actnorm",
+      "params": {},
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "coupling_3",
+      "type": "flow.affine_coupling",
+      "params": {
+        "hidden": 64,
+        "layers": 2,
+        "parity": "odd"
+      },
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "output",
+      "type": "core.output",
+      "params": {},
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "data",
+      "type": "data.density_2d",
+      "params": {
+        "kind": "moons",
+        "n_samples": 6000,
+        "noise": 0.05,
+        "seed": 0
+      },
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "opt",
+      "type": "train.adam",
+      "params": {
+        "lr": 0.003
+      },
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "trainer",
+      "type": "train.trainer",
+      "params": {
+        "epochs": 40,
+        "batch_size": 256
+      },
+      "position": [
+        0,
+        0
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "from": "input/out",
+      "to": "actnorm_0/in"
+    },
+    {
+      "from": "actnorm_0/out",
+      "to": "coupling_0/in"
+    },
+    {
+      "from": "coupling_0/out",
+      "to": "actnorm_1/in"
+    },
+    {
+      "from": "actnorm_1/out",
+      "to": "coupling_1/in"
+    },
+    {
+      "from": "coupling_1/out",
+      "to": "actnorm_2/in"
+    },
+    {
+      "from": "actnorm_2/out",
+      "to": "coupling_2/in"
+    },
+    {
+      "from": "coupling_2/out",
+      "to": "actnorm_3/in"
+    },
+    {
+      "from": "actnorm_3/out",
+      "to": "coupling_3/in"
+    },
+    {
+      "from": "coupling_3/out",
+      "to": "output/in"
+    }
+  ]
+}

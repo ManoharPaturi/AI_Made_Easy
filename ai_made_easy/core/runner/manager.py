@@ -19,7 +19,7 @@ from ai_made_easy.core.runner.protocol import parse_event, worker_script_path
 from ai_made_easy.core.runs.history import FINAL_STATES, RunHistory
 
 Listener = Callable[[str, dict], None]
-FRAMEWORKS = ("auto", "pytorch", "keras", "sklearn")
+FRAMEWORKS = ("auto", "pytorch", "keras", "sklearn")  # built-ins; see families.FRAMEWORK_PACKAGES
 
 
 def python_executable() -> str:
@@ -40,8 +40,11 @@ def python_executable() -> str:
 def resolve_framework(graph: Graph, framework: str = "auto") -> str:
     from ai_made_easy.core.families import resolve_framework as _resolve
 
-    if framework not in FRAMEWORKS:
-        raise ValueError(f"unknown framework {framework!r}; one of {FRAMEWORKS}")
+    from ai_made_easy.core.families import FRAMEWORK_PACKAGES
+
+    if framework != "auto" and framework not in FRAMEWORK_PACKAGES:
+        raise ValueError(f"unknown framework {framework!r}; one of "
+                         f"{('auto', *FRAMEWORK_PACKAGES)}")
     return _resolve(graph, framework)
 
 

@@ -41,6 +41,7 @@ class PropertyInspector(QtWidgets.QWidget):
     param_changed = QtCore.Signal(str, str, object)   # node_id, name, value
     reset_requested = QtCore.Signal(str)               # node_id
     locate_requested = QtCore.Signal(str)              # node_id
+    table_edit_requested = QtCore.Signal(str, str)     # node_id, param name
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -200,6 +201,8 @@ class PropertyInspector(QtWidgets.QWidget):
             edit = _FloatEdit(value if value is not None else 0.0, spec.minimum, spec.maximum)
             edit.committed.connect(lambda v, n=spec.name: self._emit(n, v))
             return edit
+        if spec.type == "table":
+            return self._table_editor(spec, value)
         if spec.name in _MULTILINE:
             text = QtWidgets.QPlainTextEdit(str(value))
             text.setObjectName("paramText")
@@ -211,6 +214,28 @@ class PropertyInspector(QtWidgets.QWidget):
         line = QtWidgets.QLineEdit(str(value))
         line.editingFinished.connect(lambda n=spec.name, w=line: self._emit(n, w.text()))
         return line
+
+    def _table_editor(self, spec, value) -> QtWidgets.QWidget:
+        """A summary of the table and a button that opens the grid editor."""
+        import json
+
+        host = QtWidgets.QWidget()
+        row = QtWidgets.QHBoxLayout(host)
+        row.setContentsMargins(0, 0, 0, 0)
+        try:
+            rows = json.loads(value) if str(value or "").strip() else None
+            summary = (f"{len(rows)} × {len(rows[0]) if rows and isinstance(rows[0], list) else 1}"
+                       " table" if rows else "learned from data")
+        except (ValueError, TypeError, IndexError):
+            summary = "invalid table"
+        label = QtWidgets.QLabel(summary)
+        label.setObjectName("blockMeta")
+        button = QtWidgets.QPushButton("Edit table…")
+        button.clicked.connect(lambda: self.table_edit_requested.emit(self._node_id or "",
+                                                                      spec.name))
+        row.addWidget(label, 1)
+        row.addWidget(button)
+        return host
 
     def _issue_banner(self, issue) -> QtWidgets.QWidget:
         from ai_made_easy.ui import icons

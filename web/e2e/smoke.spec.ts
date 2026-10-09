@@ -97,3 +97,32 @@ test("generative samples", async ({ page }) => {
   await page.getByPlaceholder(/Search/).fill("discriminator");
   await expect(page.getByTestId("lib-gen.discriminator")).toBeVisible();
 });
+
+test("probabilistic samples and the CPD table editor", async ({ page }) => {
+  await page.getByRole("button", { name: "Open" }).click();
+  await page.getByTestId("sample-student_network.json").click();
+  await expect(page.getByTestId("design-kind")).toHaveText(
+    "Graphical model · Probabilistic inference");
+  await expect(page.getByTestId("status")).toHaveText("No problems");
+  await page.locator(".block-node", { hasText: "A, B, C" }).first().click();
+  await page.getByTestId("edit-table").click();
+  await expect(page.getByTestId("table-editor")).toContainText("P(G | D, I)");
+  await expect(page.getByTestId("table-editor")).toContainText("every column sums to 1");
+  await page.getByTestId("table-editor").locator("input").first().fill("0.9");
+  await expect(page.getByTestId("table-editor")).toContainText("do not sum to 1");
+  await page.getByRole("button", { name: "Cancel" }).click();
+  for (const [sample, kind] of [
+    ["hierarchical_regression.json", "Probabilistic program · Bayesian modeling"],
+    ["gp_trend_seasonality.json",
+     "Gaussian process · Gaussian-process regression / classification"],
+    ["flow_checkerboard_spline.json", "Neural network · Density estimation (normalizing flow)"],
+    ["structural_time_series.json", "State-space model · State-space forecasting"],
+  ]) {
+    await page.getByRole("button", { name: "Open" }).click();
+    await page.getByTestId(`sample-${sample}`).click();
+    await expect(page.getByTestId("design-kind")).toHaveText(kind);
+    await expect(page.getByTestId("status")).toHaveText("No problems");
+  }
+  await page.getByPlaceholder(/Search/).fill("conformal");
+  await expect(page.getByTestId("lib-eval.conformal")).toBeVisible();
+});

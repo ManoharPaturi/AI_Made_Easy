@@ -270,3 +270,14 @@ export interface RunSamples {
   samples: { name: string; data_url: string }[];
   texts?: { name: string; text: string }[];
 }
+
+export interface TableLayout {
+  error?: string;
+  variable?: string;
+  rows?: string[];
+  columns?: string[];
+  parents?: string[];
+  values?: number[][];
+  fits?: boolean;
+  learned?: boolean;
+}

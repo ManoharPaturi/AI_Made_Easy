@@ -18,7 +18,7 @@ const nodeTypes = { block: BlockNode };
 
 function Canvas() {
   const { nodes, edges, onNodesChange, onEdgesChange, setEdges, addBlock, setSelected, commit,
-          validation, undo, redo, loads, arrange } = useStore();
+          validation, undo, redo, loads, arrange, blockMap } = useStore();
   const flow = useReactFlow();
 
   // fit the view whenever a project is opened or re-arranged
@@ -34,13 +34,17 @@ function Canvas() {
     commit();
     const sourceHandle = c.sourceHandle ?? "out";
     const targetHandle = c.targetHandle ?? "in";
-    // one wire per input port: a new connection replaces the old one
+    // one wire per input port (a new connection replaces the old one), except ports that
+    // accept many wires (e.g. a random variable's parents)
+    const type = nodes.find((n) => n.id === c.target)?.data.typeId;
+    const multi = !!blockMap.get(type ?? "")?.inputs.find((p) => p.name === targetHandle)?.multi;
+    const id = edgeId(c.source, sourceHandle, c.target, targetHandle);
     setEdges((es) => [
-      ...es.filter((e) => !(e.target === c.target && (e.targetHandle ?? "in") === targetHandle)),
-      { id: edgeId(c.source, sourceHandle, c.target, targetHandle), source: c.source,
-        sourceHandle, target: c.target, targetHandle },
+      ...es.filter((e) => e.id !== id && (multi || !(e.target === c.target
+                                                    && (e.targetHandle ?? "in") === targetHandle))),
+      { id, source: c.source, sourceHandle, target: c.target, targetHandle },
     ]);
-  }, [commit, setEdges]);
+  }, [commit, setEdges, nodes, blockMap]);
 
   const onDrop = useCallback((e: DragEvent) => {
     const typeId = e.dataTransfer.getData(DRAG_TYPE);

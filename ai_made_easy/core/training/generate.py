@@ -191,7 +191,10 @@ def _torch_ctx(graph: Graph, spec: TrainingSpec) -> dict:
     if spec.scheduler:
         sched_expr = cat.render(spec.scheduler["kind"], spec.scheduler, "pytorch")
         sched_step = cat.COMPONENTS[spec.scheduler["kind"]].meta["step"]
+    from ai_made_easy.core.bayes.codegen import probabilistic_context
+
     ctx.update(
+        prob=probabilistic_context(graph),
         loss_expr=loss_expr,
         optimizer_expr=cat.render(spec.optimizer["kind"], spec.optimizer, "pytorch"),
         scheduler_expr=sched_expr, scheduler_step=sched_step,
@@ -239,6 +242,10 @@ def _render_torch(graph: Graph, spec: TrainingSpec, ctx: dict, main: str,
         parts.append(_env.from_string(DATA_TEMPLATE).render(**ctx))
         parts.append(_env.from_string(TORCH_ARRAY_LOADERS).render(**ctx))
     parts.append(_env.from_string(TORCH_TRAINING).render(**ctx))
+    if ctx.get("prob"):
+        from ai_made_easy.core.bayes.template import PROBABILISTIC
+
+        parts.append(_env.from_string(PROBABILISTIC).render(**ctx))
     if inference:
         parts.append(_env.from_string(INFERENCE_COMMON).render(**ctx))
         if ctx["torchvision_pipeline"]:
@@ -380,6 +387,11 @@ def generate_training(graph: Graph, framework: str) -> str:
     from ai_made_easy.core.classic.generate import generate_classic, is_classic
     from ai_made_easy.core.tasks import get_task
 
+    from ai_made_easy.core.families import generator_for
+
+    own = generator_for(graph, framework)
+    if own is not None:
+        return own(graph)
     if is_classic(graph) or framework == "sklearn":
         if not is_classic(graph):
             raise CodegenError("scikit-learn export needs a classic ML estimator block")

@@ -50,10 +50,16 @@ _INPUT_HELP = {
                   "\"name\", \"steps\": 50, \"guidance\": 2.0}; returns base64 PNG images",
     "prompt": "a list of prompts (language model: text or {\"prompt\", \"max_new_tokens\", "
               "\"temperature\", \"top_k\", \"seed\"}) or source texts (seq2seq)",
+    "evidence": "a list of evidence dicts {\"Variable\": \"state\"}, or {\"evidence\": {...}, "
+                "\"variables\": [...], \"kind\": \"marginal\" | \"map\"}; returns posteriors",
+    "sequences": "a list of observation sequences ([[value, ...], ...] per step); returns the "
+                 "hidden state of every step",
     "series": "a list of series: {\"history\": [values], \"past_covariates\": [[...]], "
               "\"future_covariates\": [[...]] (history + horizon rows)} or a plain list of "
               "values",
     "arrays": "a list of samples shaped like the model input",
+    "density": "a list of points ([values] or {\"column\": value}) -> log-density, or "
+               "{\"sample\": n, \"seed\": 0} -> points drawn from the model",
 }
 
 
@@ -78,7 +84,10 @@ def _artifacts(run_dir: Path, framework: str) -> tuple[Path, list[Path]]:
     script = next(iter(sorted(run_dir.glob(f"*_train_{framework}.py"))), None)
     if script is None:
         raise DeployError(f"no {framework} training script in {run_dir}")
-    patterns = {"pytorch": ("*_best.pt", "inference_state.pkl"),
+    patterns = {"pgmpy": ("*_model.pkl",), "statsmodels": ("*_ssm.pkl",),
+                "pymc": ("*_draws.npz", "*_state.json"),
+                "gpytorch": ("*_gp.pt", "inference_state.json"),
+                "pytorch": ("*_best.pt", "inference_state.pkl"),
                 "keras": ("*_best.keras", "inference_state.pkl"),
                 "sklearn": ("*_model.joblib", "inference.json")}[framework]
     files = []
@@ -104,6 +113,25 @@ def _describe(graph_dict: dict) -> dict:
     from ai_made_easy.core.tasks import task_of
 
     task = None if is_classic(graph) else task_of(graph)
+    if task is not None and task.family == "gp":
+        return {"task": task.id, "modality": "tabular", "dataset": "", "input_kind": "records",
+                "input_help": "a list of rows {\"feature\": value}; returns the predictive "
+                "mean, std and a 95% interval (or a class probability)", "response": task.serving}
+    if task is not None and task.family == "ppl":
+        from ai_made_easy.core.ppl.tasks import dataset_of as ppl_data
+
+        data = ppl_data(graph)
+        return {"task": task.id, "modality": "tabular", "dataset": data.type_id if data else "",
+                "input_kind": "records", "input_help": "a list of rows {\"column\": value} "
+                "(predictor and group columns); returns the posterior predictive with a 94% "
+                "interval", "response": task.serving}
+    if task is not None and task.family == "pgm":
+        from ai_made_easy.core.pgm.tasks import dataset_of as pgm_data
+
+        data = pgm_data(graph)
+        kind = "sequences" if task.id == "regime_detection" else "evidence"
+        return {"task": task.id, "modality": "tabular", "dataset": data.type_id if data else "",
+                "input_kind": kind, "input_help": _INPUT_HELP[kind], "response": task.serving}
     if task is not None and "image" in task.modalities and task.trainer_kind != "supervised":
         from ai_made_easy.core.vision.tasks import dataset_of
 
@@ -116,6 +144,14 @@ def _describe(graph_dict: dict) -> dict:
             out["export_note"] = ("detectors are served by the FastAPI package; ONNX / "
                                   "TorchScript tracing of detection models is not supported")
         return out
+    if task is not None and task.family == "ssm":
+        from ai_made_easy.core.ssm.template import dataset_of as ssm_data
+
+        data = ssm_data(graph)
+        return {"task": task.id, "modality": "timeseries",
+                "dataset": data.type_id if data else "data.structural_series",
+                "input_kind": "series", "input_help": _INPUT_HELP["series"],
+                "response": task.serving}
     if task is not None and task.trainer_kind == "forecasting":
         from ai_made_easy.core.forecast.tasks import dataset_of as forecast_data
 
@@ -136,6 +172,14 @@ def _describe(graph_dict: dict) -> dict:
         return {"task": task.id, "modality": "image" if kind == "generation" else "text",
                 "dataset": data.type_id if data else "",
                 "input_kind": kind, "input_help": _INPUT_HELP[kind], "response": task.serving}
+    if task is not None and task.trainer_kind == "flow":
+        from ai_made_easy.core.flows.tasks import dataset_of as flow_data
+
+        data = flow_data(graph)
+        return {"task": task.id, "modality": "tabular",
+                "dataset": data.type_id if data else "data.density_2d",
+                "input_kind": "density", "input_help": _INPUT_HELP["density"],
+                "response": task.serving}
     if task is not None and task.trainer_kind == "speech":
         from ai_made_easy.core.speech.tasks import dataset_of as speech_data
 
@@ -202,10 +246,17 @@ def _example(meta: dict, signature: dict) -> str:
         return json.dumps({"inputs": ["an example text"]})
     if kind == "images":
         return '{"inputs": ["<base64 image>"]}'
+    if kind == "evidence":
+        return json.dumps({"inputs": [{"evidence": {}, "kind": "marginal"}]})
+    if kind == "sequences":
+        return json.dumps({"inputs": [[0.1, 2.0, 2.2]]})
     if kind == "generation":
         return json.dumps({"inputs": [{"n": 4, "seed": 0}]})
     if kind == "prompt":
         return json.dumps({"inputs": ["the cat"]})
+    if kind == "density":
+        shape = signature.get("input_shape") or [2]
+        return json.dumps({"inputs": [[0.0] * int(shape[0]), {"sample": 3, "seed": 0}]})
     if kind == "speech":
         return '{"inputs": ["<base64 WAV file>"]}'
     if kind == "series":
@@ -268,7 +319,8 @@ def build_package(run_dir: Path | str, out_dir: Path | str, *, formats: tuple[st
     (out_dir / "app.py").write_text(templates.APP.format(
         name=name, image=image,
         image_route=(templates.IMAGE_ROUTE if meta["input_kind"] == "images" else
-                     templates.GENERATE_ROUTE if meta["input_kind"] in ("generation", "prompt")
+                     templates.GENERATE_ROUTE if meta["input_kind"] in ("generation", "prompt",
+                                                                       "density")
                      else "")))
     (out_dir / "Dockerfile").write_text(templates.DOCKERFILE.format(
         name=name, python=py_minor, env=keras_env))

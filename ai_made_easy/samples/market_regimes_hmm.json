@@ -1,0 +1,45 @@
+{
+ "schema_version": 1,
+ "name": "market_regimes_hmm",
+ "meta": {
+  "title": "Hidden Markov Model \u2014 Market Regimes",
+  "description": "A Gaussian HMM finds three hidden regimes (calm, neutral, volatile) in a generated series and decodes when it switches between them. Decoded states match the true regimes about 99% of the time. Use a table with your own series (one row per step) to find regimes in real data."
+ },
+ "nodes": [
+  {
+   "id": "hmm",
+   "type": "pgm.hmm",
+   "params": {
+    "observations": "value",
+    "sequence_column": "",
+    "emission": "gaussian",
+    "n_states": 3,
+    "mixtures": 2,
+    "covariance": "diag",
+    "iterations": 100,
+    "restarts": 5,
+    "test_fraction": 0.2,
+    "seed": 0
+   },
+   "position": [
+    200,
+    0
+   ]
+  },
+  {
+   "id": "series",
+   "type": "data.regime_series",
+   "params": {
+    "n_steps": 1500,
+    "n_regimes": 3,
+    "stickiness": 0.97,
+    "seed": 0
+   },
+   "position": [
+    0,
+    0
+   ]
+  }
+ ],
+ "edges": []
+}

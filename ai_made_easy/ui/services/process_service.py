@@ -109,8 +109,9 @@ class ProcessService(QtCore.QObject):
         except ValueError as exc:
             self.log.error(str(exc))
             return
-        needed, package = {"sklearn": ("sklearn", "scikit-learn"),
-                           "keras": ("keras", "keras")}.get(framework, ("torch", "torch"))
+        from ai_made_easy.core.families import FRAMEWORK_PACKAGES
+
+        needed, package = FRAMEWORK_PACKAGES.get(framework, ("torch", "torch"))
         if importlib.util.find_spec(needed) is None:
             self.log.error(f"{package} is not installed in this environment "
                            f"(pip install {package})")

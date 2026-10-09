@@ -1,0 +1,96 @@
+{
+ "schema_version": 1,
+ "name": "gp_trend_seasonality",
+ "meta": {
+  "title": "Gaussian Process \u2014 Trend + Seasonality",
+  "description": "A Linear kernel (the trend) plus a Periodic kernel (the season), learned from noisy data. The plot shows the predictive mean and its 95% band: the fit extrapolates the pattern beyond the data and the band widens where there is no data. Swap the Sum for a single RBF kernel to see why the kernel matters."
+ },
+ "nodes": [
+  {
+   "id": "trend",
+   "type": "gp.linear",
+   "params": {
+    "scale": true,
+    "columns": "",
+    "ard": false
+   },
+   "position": [
+    0,
+    0
+   ]
+  },
+  {
+   "id": "season",
+   "type": "gp.periodic",
+   "params": {
+    "period": 0.7,
+    "lengthscale": 1.0,
+    "scale": true,
+    "columns": "",
+    "ard": false
+   },
+   "position": [
+    0,
+    160
+   ]
+  },
+  {
+   "id": "sum",
+   "type": "gp.sum",
+   "params": {},
+   "position": [
+    220,
+    80
+   ]
+  },
+  {
+   "id": "gp",
+   "type": "gp.model",
+   "params": {
+    "target_column": "y",
+    "feature_columns": "",
+    "library": "gpytorch",
+    "kind": "exact",
+    "likelihood": "gaussian",
+    "inducing_points": 64,
+    "iterations": 200,
+    "lr": 0.05,
+    "restarts": 2,
+    "test_fraction": 0.2,
+    "seed": 0
+   },
+   "position": [
+    440,
+    80
+   ]
+  },
+  {
+   "id": "data",
+   "type": "data.synthetic_function",
+   "params": {
+    "kind": "trend_periodic",
+    "n_points": 200,
+    "noise": 0.2,
+    "seed": 0
+   },
+   "position": [
+    220,
+    280
+   ]
+  }
+ ],
+ "edges": [
+  {
+   "from": "trend/out",
+   "to": "sum/kernels"
+  },
+  {
+   "from": "season/out",
+   "to": "sum/kernels"
+  },
+  {
+   "from": "sum/out",
+   "to": "gp/kernel"
+  }
+ ]
+}

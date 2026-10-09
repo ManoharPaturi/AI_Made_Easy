@@ -1,0 +1,158 @@
+{
+ "schema_version": 1,
+ "name": "hierarchical_logistic",
+ "meta": {
+  "title": "Bayesian \u2014 Hierarchical Logistic Regression",
+  "description": "Yes / no outcomes with a logistic link and group-level intercepts: invlogit(a[group] + b * x). Predictions come with probabilities, and held-out accuracy is checked against the posterior predictive."
+ },
+ "nodes": [
+  {
+   "id": "mu_a",
+   "type": "ppl.normal",
+   "params": {
+    "name": "mu_a",
+    "mu": 0.0,
+    "sigma": 5.0,
+    "observed": "",
+    "group": "",
+    "non_centered": true
+   },
+   "position": [
+    0,
+    0
+   ]
+  },
+  {
+   "id": "sigma_a",
+   "type": "ppl.half_normal",
+   "params": {
+    "name": "sigma_a",
+    "sigma": 1.0,
+    "observed": "",
+    "group": ""
+   },
+   "position": [
+    0,
+    160
+   ]
+  },
+  {
+   "id": "a",
+   "type": "ppl.normal",
+   "params": {
+    "name": "a",
+    "mu": 0.0,
+    "sigma": 1.0,
+    "observed": "",
+    "group": "group",
+    "non_centered": true
+   },
+   "position": [
+    220,
+    80
+   ]
+  },
+  {
+   "id": "b",
+   "type": "ppl.normal",
+   "params": {
+    "name": "b",
+    "mu": 0.0,
+    "sigma": 5.0,
+    "observed": "",
+    "group": "",
+    "non_centered": true
+   },
+   "position": [
+    220,
+    240
+   ]
+  },
+  {
+   "id": "mu",
+   "type": "ppl.deterministic",
+   "params": {
+    "name": "mu",
+    "expression": "invlogit(a + b * x)",
+    "group": ""
+   },
+   "position": [
+    440,
+    160
+   ]
+  },
+  {
+   "id": "y",
+   "type": "ppl.bernoulli",
+   "params": {
+    "name": "y",
+    "p": 0.5,
+    "observed": "y",
+    "group": ""
+   },
+   "position": [
+    640,
+    160
+   ]
+  },
+  {
+   "id": "data",
+   "type": "data.synthetic_groups",
+   "params": {
+    "n_groups": 8,
+    "rows_per_group": 25,
+    "intercept": 1.0,
+    "group_sd": 0.8,
+    "slope": 2.0,
+    "noise": 0.5,
+    "outcome": "binary",
+    "seed": 0
+   },
+   "position": [
+    0,
+    360
+   ]
+  },
+  {
+   "id": "sampler",
+   "type": "ppl.sampler",
+   "params": {
+    "method": "nuts",
+    "draws": 1000,
+    "tune": 1000,
+    "chains": 4,
+    "target_accept": 0.9,
+    "advi_iterations": 20000,
+    "backend": "pymc",
+    "test_fraction": 0.2,
+    "seed": 0
+   },
+   "position": [
+    440,
+    360
+   ]
+  }
+ ],
+ "edges": [
+  {
+   "from": "mu_a/out",
+   "to": "a/mu"
+  },
+  {
+   "from": "sigma_a/out",
+   "to": "a/sigma"
+  },
+  {
+   "from": "a/out",
+   "to": "mu/inputs"
+  },
+  {
+   "from": "b/out",
+   "to": "mu/inputs"
+  },
+  {
+   "from": "mu/out",
+   "to": "y/p"
+  }
+ ]
+}

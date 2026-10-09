@@ -1,0 +1,65 @@
+{
+ "schema_version": 1,
+ "name": "gp_classification",
+ "meta": {
+  "title": "Gaussian Process \u2014 Classification (sparse variational)",
+  "description": "A sparse variational GP with a Bernoulli likelihood separates two classes with a curved boundary, using 64 inducing points. Probabilities near the boundary stay uncertain instead of over-confident."
+ },
+ "nodes": [
+  {
+   "id": "rbf",
+   "type": "gp.rbf",
+   "params": {
+    "lengthscale": 1.0,
+    "scale": true,
+    "columns": "",
+    "ard": true
+   },
+   "position": [
+    0,
+    0
+   ]
+  },
+  {
+   "id": "gp",
+   "type": "gp.model",
+   "params": {
+    "target_column": "y",
+    "feature_columns": "",
+    "library": "gpytorch",
+    "kind": "svgp",
+    "likelihood": "bernoulli",
+    "inducing_points": 64,
+    "iterations": 300,
+    "lr": 0.05,
+    "restarts": 2,
+    "test_fraction": 0.2,
+    "seed": 0
+   },
+   "position": [
+    220,
+    0
+   ]
+  },
+  {
+   "id": "data",
+   "type": "data.synthetic_function",
+   "params": {
+    "kind": "classes_2d",
+    "n_points": 400,
+    "noise": 0.2,
+    "seed": 0
+   },
+   "position": [
+    0,
+    200
+   ]
+  }
+ ],
+ "edges": [
+  {
+   "from": "rbf/out",
+   "to": "gp/kernel"
+  }
+ ]
+}

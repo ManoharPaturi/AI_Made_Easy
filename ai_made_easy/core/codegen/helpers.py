@@ -292,10 +292,10 @@ class LearnedPositionalEmbedding(layers.Layer):
 
 def render_helpers(names: list[str], table: dict[str, str]) -> list[str]:
     """Helper sources for ``names`` in first-seen order, deduplicated."""
-    seen: list[str] = []
+    sources: list[str] = []
     for name in names:
-        if name not in seen:
-            if name not in table:
-                raise KeyError(f"unknown codegen helper {name!r}")
-            seen.append(name)
-    return [table[n] for n in seen]
+        if name not in table:
+            raise KeyError(f"unknown codegen helper {name!r}")
+        if table[name] not in sources:   # several names may share one source
+            sources.append(table[name])
+    return sources
