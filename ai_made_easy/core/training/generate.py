@@ -101,6 +101,21 @@ def _image_channel_fix(spec: TrainingSpec) -> str | None:
     return None
 
 
+def _synthetic_table_code() -> str:
+    from ai_made_easy.core.tabular.synthetic import SYNTHETIC_TABLE_CODE
+
+    return SYNTHETIC_TABLE_CODE
+
+
+def _raw_columns(graph: Graph) -> list[int]:
+    """Input positions holding categorical codes (tabular models embed them, so scaling
+    must leave them as integers)."""
+    from ai_made_easy.core.tabular.blocks import CATEGORICAL_BLOCKS, ints
+
+    return sorted({i for n in graph.nodes.values() if n.type_id in CATEGORICAL_BLOCKS
+                   for i in ints(n.resolved_params()["categorical"])})
+
+
 def _data_ctx(spec: TrainingSpec, graph: Graph, framework: str) -> dict:
     d = dict(spec.dataset)
     steps = dict(spec.steps)
@@ -123,7 +138,9 @@ def _data_ctx(spec: TrainingSpec, graph: Graph, framework: str) -> dict:
         "one_hot_columns": _csv_list((steps.get("prep.one_hot") or {}).get("columns")),
         "ordinal_columns": _csv_list((steps.get("prep.ordinal_encode") or {}).get("columns")),
         "max_categories": int((steps.get("prep.one_hot") or {}).get("max_categories", 50)),
-        "table_steps": d["block"] == "data.csv",
+        "table_steps": d["block"] in ("data.csv", "data.synthetic_table"),
+        "synthetic_table_code": _synthetic_table_code(),
+        "raw_columns": _raw_columns(graph),
         "text": text, "tok": tok,
         "audio": spec.modality == "audio", "feat": feat,
         "needs_wav": spec.modality == "audio",
@@ -195,6 +212,8 @@ def _torch_ctx(graph: Graph, spec: TrainingSpec) -> dict:
 
     ctx.update(
         prob=probabilistic_context(graph),
+        aux_loss=any((n.definition().meta or {}).get("aux_loss")
+                     for n in graph.nodes.values()),
         loss_expr=loss_expr,
         optimizer_expr=cat.render(spec.optimizer["kind"], spec.optimizer, "pytorch"),
         scheduler_expr=sched_expr, scheduler_step=sched_step,

@@ -155,7 +155,7 @@ def _layers() -> list[BlockDefinition]:
             f"graph.{kind}_pool", label, CATEGORY, family="model",
             params=(P("ratio", "float", 0.5, lo=0.01, hi=1.0, help="Fraction of nodes kept"),),
             shape=_nodes,
-            param_fn=lambda s, p, k=kind: s[0][0] + (1 if k == "sag" else 0) * (s[0][0] + 1),
+            param_fn=lambda s, p, k=kind: 2 * s[0][0] + 2 if k == "sag" else s[0][0],
             torch=lambda c, k=kind: (f"GraphPool({k!r}, {c['input_shape'][0]}, "
                                      f"{float(c['ratio'])})"),
             torch_expr=lambda c: f"self.{c['self_var']}({c['i0']}, g)",

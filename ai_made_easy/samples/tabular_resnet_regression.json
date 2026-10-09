@@ -1,0 +1,135 @@
+{
+  "schema_version": 1,
+  "name": "tabular_resnet_regression",
+  "meta": {
+    "title": "Tabular \u2014 ResNet Regression",
+    "description": "A residual MLP with batch normalisation predicts monthly spend from numbers and one-hot categories \u2014 the strong, simple baseline every tabular model should be compared with."
+  },
+  "nodes": [
+    {
+      "id": "input",
+      "type": "core.input",
+      "params": {
+        "shape": "16"
+      },
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "resnet_0",
+      "type": "tab.resnet",
+      "params": {
+        "d": 64,
+        "blocks": 3,
+        "hidden_factor": 2.0,
+        "dropout": 0.1
+      },
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "dense_1",
+      "type": "core.dense",
+      "params": {
+        "units": 1
+      },
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "output",
+      "type": "core.output",
+      "params": {},
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "data",
+      "type": "data.synthetic_table",
+      "params": {
+        "task": "regression",
+        "n_samples": 3000,
+        "noise": 0.5,
+        "seed": 0
+      },
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "normalize",
+      "type": "prep.normalize",
+      "params": {
+        "mode": "fit"
+      },
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "loss",
+      "type": "train.loss_mse",
+      "params": {},
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "opt",
+      "type": "train.adam",
+      "params": {
+        "lr": 0.003
+      },
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "trainer",
+      "type": "train.trainer",
+      "params": {
+        "epochs": 40,
+        "batch_size": 128
+      },
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "mae",
+      "type": "eval.mae",
+      "params": {},
+      "position": [
+        0,
+        0
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "from": "input/out",
+      "to": "resnet_0/in"
+    },
+    {
+      "from": "resnet_0/out",
+      "to": "dense_1/in"
+    },
+    {
+      "from": "dense_1/out",
+      "to": "output/in"
+    }
+  ]
+}

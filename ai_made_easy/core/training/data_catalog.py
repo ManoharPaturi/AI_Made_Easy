@@ -126,6 +126,15 @@ DATASETS: list[DataBlock] = [
                           if p["kind"] in ("moons", "circles") and int(p["n_features"]) != 2
                           else [])),
     DataBlock(
+        "data.synthetic_table", "Synthetic Table", "Data",
+        (P("task", "enum", "classification", options=("classification", "regression")),
+         P("n_samples", "int", 3000, lo=50), P("noise", "float", 0.5, lo=0.0),
+         P("seed", "int", 0, lo=0)),
+        desc="A generated customer table with numbers and categories (age, income, tenure, "
+             "city, plan, channel); churn (classification) or monthly spend (regression) "
+             "depends on interactions between categories — for trying tabular models.",
+        modality=TABULAR),
+    DataBlock(
         "data.numpy", "NumPy Archive", "Data",
         (P("path", "str", "data.npz"), P("x_key", "str", "x"), P("y_key", "str", "y")),
         desc="Arrays stored in an .npz file (x: samples, y: targets).", modality=ARRAY),

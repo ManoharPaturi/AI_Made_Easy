@@ -23,6 +23,11 @@ def read_table(path: str, fmt: str) -> "pd.DataFrame":
 
 
 {% endif %}
+{% if d.block == "data.synthetic_table" %}
+{{ synthetic_table_code }}
+
+
+{% endif %}
 {% if needs_wav %}
 def read_wav(path: str, sample_rate: int, n_samples: int) -> np.ndarray:
     """Mono float32 waveform, resampled and padded/trimmed to n_samples."""
@@ -107,6 +112,14 @@ def load_raw():
     return frame, y.astype(str).map({c: i for i, c in enumerate(classes)}).to_numpy(), classes
 {% else %}
     return frame, y.to_numpy(dtype=np.float32), None
+{% endif %}
+{% elif d.block == "data.synthetic_table" %}
+    frame, y = synthetic_table({{ d.n_samples }}, {{ d.noise }}, {{ d.seed }}, {{ d.task | repr }})
+{% if classification %}
+    classes = sorted(set(y.tolist()))
+    return frame, np.asarray([classes.index(v) for v in y]), [str(c) for c in classes]
+{% else %}
+    return frame, y.astype(np.float32), None
 {% endif %}
 {% elif d.block == "data.numpy" %}
     archive = np.load({{ d.path | repr }})
@@ -466,6 +479,9 @@ class NumericPipeline:
     def _scale(self, x: np.ndarray) -> np.ndarray:
         shape = x.shape
         flat = x.reshape(len(x), -1).astype(np.float32)
+{% if raw_columns %}
+        raw = flat[:, {{ raw_columns | repr }}].copy()   # categorical codes stay integers
+{% endif %}
 {% if steps["prep.impute"] and not table_steps %}
         flat = np.where(np.isnan(flat), self.fill, flat)
 {% endif %}
@@ -490,6 +506,9 @@ class NumericPipeline:
 {% endif %}
 {% if steps["prep.robust_scale"] %}
         flat = (flat - self.median) / self.iqr
+{% endif %}
+{% if raw_columns %}
+        flat[:, {{ raw_columns | repr }}] = raw
 {% endif %}
         return flat.reshape(shape)
 

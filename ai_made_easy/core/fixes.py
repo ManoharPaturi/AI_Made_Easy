@@ -110,6 +110,14 @@ def fix_for_issue(graph: "Graph", issue: "ValidationIssue"):
         return ("Normalize the table", "rescale every column of the probability table to "
                 "sum to 1", g)
 
+    # a tabular model whose categorical positions differ from the data -> copy them
+    if node is not None and msg.endswith(": Use the data's categories"):
+        from ai_made_easy.core.tabular.rules import fix_categories
+
+        if fix_categories(g, node):
+            return ("Use the data's categories", "set the categorical positions and "
+                    "cardinalities from the dataset", g)
+
     # "... set <param> to <number>" on a block that has that parameter -> set it
     m = re.search(r"[Ss]et (\w+) to (-?\d+(?:\.\d+)?)\b", msg)
     if node is not None and m and m.group(1) in {p.name for p in node.definition().params}:

@@ -1,0 +1,146 @@
+{
+  "schema_version": 1,
+  "name": "tabular_ft_transformer",
+  "meta": {
+    "title": "Tabular \u2014 FT-Transformer",
+    "description": "Churn prediction on a table of numbers and categories. Ordinal Encode turns city, plan and channel into codes; the FT-Transformer embeds them, tokenises every number and learns the category interactions with attention."
+  },
+  "nodes": [
+    {
+      "id": "input",
+      "type": "core.input",
+      "params": {
+        "shape": "6"
+      },
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "ft_0",
+      "type": "tab.ft_transformer",
+      "params": {
+        "categorical": "3, 4, 5",
+        "cardinalities": "6, 3, 4",
+        "d": 32,
+        "layers": 2,
+        "heads": 4,
+        "dropout": 0.1
+      },
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "dense_1",
+      "type": "core.dense",
+      "params": {
+        "units": 2
+      },
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "output",
+      "type": "core.output",
+      "params": {},
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "data",
+      "type": "data.synthetic_table",
+      "params": {
+        "task": "classification",
+        "n_samples": 3000,
+        "noise": 0.5,
+        "seed": 0
+      },
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "ordinal",
+      "type": "prep.ordinal_encode",
+      "params": {},
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "normalize",
+      "type": "prep.normalize",
+      "params": {
+        "mode": "fit"
+      },
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "loss",
+      "type": "train.loss_cross_entropy",
+      "params": {},
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "opt",
+      "type": "train.adamw",
+      "params": {
+        "lr": 0.002
+      },
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "trainer",
+      "type": "train.trainer",
+      "params": {
+        "epochs": 30,
+        "batch_size": 128
+      },
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "acc",
+      "type": "eval.accuracy",
+      "params": {},
+      "position": [
+        0,
+        0
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "from": "input/out",
+      "to": "ft_0/in"
+    },
+    {
+      "from": "ft_0/out",
+      "to": "dense_1/in"
+    },
+    {
+      "from": "dense_1/out",
+      "to": "output/in"
+    }
+  ]
+}
