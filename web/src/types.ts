@@ -13,6 +13,8 @@ export interface ParamSpec {
 export interface PortSpec {
   name: string;
   dtype?: string;
+  multi?: boolean;
+  role?: string; // tensor | logits | boxes | masks | tokens | graph | variable | ...
 }
 
 export interface BlockDef {
@@ -26,6 +28,30 @@ export interface BlockDef {
   params: ParamSpec[];
   inputs: PortSpec[];
   outputs: PortSpec[];
+  requires?: string[];
+  extra?: string;
+  missing?: string[]; // required packages not installed on the server
+}
+
+export interface TaskInfo {
+  id: string;
+  label: string;
+  description: string;
+  family: string;
+  output_role: string;
+  classification: boolean;
+  trainer_kind: string;
+  losses: string[];
+  metrics: string[];
+}
+
+export interface FamilyInfo {
+  id: string;
+  label: string;
+  description: string;
+  frameworks: string[];
+  targets: string[];
+  trainable: boolean;
 }
 
 export interface ProjectNode {

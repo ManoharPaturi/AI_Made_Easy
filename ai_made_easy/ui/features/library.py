@@ -10,6 +10,7 @@ from typing import Callable
 
 from PySide6 import QtCore, QtGui, QtWidgets
 
+from ai_made_easy.core.spec import missing_requirements
 from ai_made_easy.core.registry import get_registry
 
 SECTIONS: list[tuple[str, list[str]]] = [
@@ -132,6 +133,13 @@ class BlockLibrary(QtWidgets.QWidget):
                         tip.append(block.description)
                     if block.library:
                         tip.append(f"<span style='color:gray'>{block.library}</span>")
+                    missing = missing_requirements(block)
+                    if missing:  # usable, but its generated code needs these packages
+                        extra = f"pip install 'ai-made-easy[{block.extra}]'" if block.extra \
+                            else "pip install " + " ".join(missing)
+                        tip.append(f"<span style='color:#e3a008'>Requires {', '.join(missing)}"
+                                   f" — {extra}</span>")
+                        item.setText(0, f"{block.display_name}  ⤓")
                     item.setToolTip(0, "<br>".join(tip))
                     item.setFlags(QtCore.Qt.ItemFlag.ItemIsEnabled
                                   | QtCore.Qt.ItemFlag.ItemIsSelectable

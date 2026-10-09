@@ -242,6 +242,13 @@ def import_model(kind: str, source: str, attr: str = "", input_shape: list[int] 
 
 
 @mcp.tool()
+def list_tasks(family: str = "") -> str:
+    """Tasks a design can be trained for (losses, metrics, output role, serving schema),
+    and the model families (neural, classic, llm, ...)."""
+    return json.dumps({**api.list_tasks(family or None), **api.list_families()})
+
+
+@mcp.tool()
 def profile_data(graph: dict | None = None, path: str = "", target: str = "") -> str:
     """Profile a dataset: the dataset block of ``graph``, or any table / class-folder
     ``path``. Returns rows, column statistics, class counts and findings (missing

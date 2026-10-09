@@ -1,7 +1,7 @@
 // Typed client for the AI Made Easy server. Every call goes to /api; errors carry the
 // server's user-facing message.
 import type {
-  BlockDef, DataProfile, ModelVersion, Project, RunEvent, RunRecord, SplitPreview, Summary,
+  BlockDef, DataProfile, FamilyInfo, TaskInfo, ModelVersion, Project, RunEvent, RunRecord, SplitPreview, Summary,
   SweepParam, SweepRecord, Validation,
 } from "./types";
 
@@ -47,6 +47,10 @@ export const api = {
 
   blocks: () => get<{ blocks: BlockDef[] }>("/blocks"),
   samples: () => get<{ samples: string[] }>("/samples"),
+  tasks: () => get<{ tasks: TaskInfo[] }>("/tasks"),
+  families: () => get<{ families: FamilyInfo[] }>("/families"),
+  describe: (graph: Project) =>
+    post<{ family: FamilyInfo; task: TaskInfo | null }>("/describe", { graph }),
   sample: (name: string) => get<Project>(`/samples/${encodeURIComponent(name)}`),
 
   validate: (graph: Project) => post<Validation>("/validate", { graph }),

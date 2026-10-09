@@ -49,6 +49,10 @@ export function Library({ onAdd }: { onAdd: (typeId: string) => void }) {
                      onDoubleClick={() => onAdd(b.type_id)}>
                   <span className="swatch" style={{ background: b.color }} />
                   {b.display_name}
+                  {b.missing?.length ? (
+                    <span className="chip" title={`Requires ${b.missing.join(", ")} — pip install ${
+                      b.extra ? `'ai-made-easy[${b.extra}]'` : b.missing.join(" ")}`}>needs {b.missing[0]}</span>
+                  ) : null}
                 </div>
               ))}
             </div>

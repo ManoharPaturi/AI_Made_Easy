@@ -451,14 +451,18 @@ class Graph:
             issues.append(ValidationIssue("error", str(exc)))
 
         issues += self._param_issues()
-        from ai_made_easy.core.classic.generate import classic_issues, is_classic
+        issues += self._role_issues() + self._requirement_issues()
+        from ai_made_easy.core.families import family_of
 
-        if is_classic(self):
-            from ai_made_easy.core.suggestions import add_tips
+        family = family_of(self)
+        if family.validate is not None:
+            issues += family.validate(self)
+        from ai_made_easy.core.suggestions import add_tips
+        return add_tips(issues, self)
 
-            return add_tips(issues + classic_issues(self), self)
-        flow_issues, chain = self._flow_issues()
-        issues += flow_issues
+    def neural_issues(self) -> list[ValidationIssue]:
+        """Tensor-flow rules: Input/Output, reachability, training config, shapes, lints."""
+        issues, chain = self._flow_issues()
         if chain:
             shapes, shape_issues = self.infer_shapes_detailed()
             issues += shape_issues
@@ -466,8 +470,45 @@ class Graph:
                 from ai_made_easy.core.lints import run_lints
 
                 issues += run_lints(self, self.model_nodes(), shapes)
-        from ai_made_easy.core.suggestions import add_tips
-        return add_tips(issues, self)
+        return issues
+
+    def _role_issues(self) -> list[ValidationIssue]:
+        """Wires must join ports whose semantic roles agree (``tensor`` matches anything)."""
+        from ai_made_easy.core.spec import roles_compatible
+
+        issues = []
+        for e in self.edges:
+            if e.source_id not in self.nodes or e.target_id not in self.nodes:
+                continue
+            src = next((p for p in self.nodes[e.source_id].definition().outputs
+                        if p.name == e.source_port), None)
+            dst = next((p for p in self.nodes[e.target_id].definition().inputs
+                        if p.name == e.target_port), None)
+            if src is not None and dst is not None and not roles_compatible(src.role, dst.role):
+                issues.append(ValidationIssue(
+                    "error", f"'{e.target_port}' expects {dst.role} but receives "
+                             f"{src.role} from {self.nodes[e.source_id].definition().display_name}",
+                    e.target_id))
+        return issues
+
+    def _requirement_issues(self) -> list[ValidationIssue]:
+        """Blocks whose optional libraries are missing from this environment."""
+        from ai_made_easy.core.spec import missing_requirements
+
+        issues = []
+        for node in self.nodes.values():
+            if not get_registry().has(node.type_id):
+                continue
+            missing = missing_requirements(node.definition())
+            if missing:
+                extra = node.definition().extra
+                hint = f"pip install 'ai-made-easy[{extra}]'" if extra else \
+                    "pip install " + " ".join(missing)
+                issues.append(ValidationIssue(
+                    "warning", f"{node.definition().display_name} needs "
+                               f"{', '.join(missing)}, which is not installed ({hint})",
+                    node.instance_id))
+        return issues
 
     # ----------------------------------------------------------------- JSON
 

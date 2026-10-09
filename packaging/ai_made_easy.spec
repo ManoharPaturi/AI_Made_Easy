@@ -12,7 +12,8 @@ icon = ROOT / "ai_made_easy" / "assets" / ("icon.icns" if sys.platform == "darwi
 # The package sources ship as files too: model importers and the training worker
 # run as `python -m ai_made_easy...` subprocesses of the user's Python environment.
 datas = collect_data_files("ai_made_easy", include_py_files=True,
-                           includes=["samples/*.json", "assets/*", "**/*.py"])
+                           includes=["samples/*.json", "assets/*", "core/zoo/*.json",
+                                     "**/*.py"])
 datas += collect_data_files("OdenGraphQt")
 hidden = collect_submodules("ai_made_easy") + collect_submodules("OdenGraphQt")
 

@@ -8,6 +8,8 @@ test.beforeEach(async ({ page }) => {
 
 test("loads the example design and validates it", async ({ page }) => {
   await expect(page.getByTestId("status")).toHaveText("No problems");
+  await expect(page.getByTestId("design-kind")).toHaveText(
+    "Neural network · Multi-class classification");
   await expect(page.locator(".block-node")).toHaveCount(18);
   await expect(page.locator(".react-flow__edge-text").first()).toContainText("[");
 });

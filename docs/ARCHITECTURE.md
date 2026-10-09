@@ -70,6 +70,26 @@ Train ─► training script (core/training or core/classic) ─► worker subpr
          predictions) ─► Error analysis · Saliency · Model card · Web demo
 ```
 
+## Families, tasks and port roles
+
+- `core/families.py`: every design belongs to one **family** (`neural`, `classic`,
+  `llm`, ...). A family declares how it is detected, its validation rules (run
+  after the generic graph checks), the frameworks that train it, its codegen
+  targets and pip extras. Use `family_of(graph)` instead of block-prefix checks.
+- `core/tasks.py`: a **task** (multiclass, regression, detection, ...) declares
+  its target format, output role, losses, metrics, default metrics, trainer
+  kind and serving schema. `TrainingSpec.task` resolves through it.
+- Trainer kinds (`supervised`, `adversarial`, `diffusion`, `vae`, ...) select
+  the training loop: `register_trainer(kind, renderer)` in
+  `core/training/generate.py`.
+- Ports carry a semantic `role` (`core.spec.ROLES`); `tensor` matches anything,
+  two specific roles must agree. `multi=True` input ports take many wires.
+- Blocks declare optional `requires` (modules) and `extra` (pip extra); missing
+  modules are warnings with an install hint, shown in both libraries.
+- `core/zoo/*.json`: pretrained catalogs generated offline by
+  `scripts/build_zoo.py` (measured feature widths, parameters, accuracy,
+  license).
+
 ## Runs, sweeps and deployment
 
 ```

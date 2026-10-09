@@ -90,13 +90,13 @@ def dataset_nodes(graph: Graph) -> list[tuple[str, str, dict]]:
 
 
 def _pipeline(graph: Graph) -> dict:
-    from ai_made_easy.core.training import catalog as cat
 
     steps = {n.type_id: dict(n.resolved_params()) for n in graph.nodes.values()
              if n.type_id.startswith("prep.")}
-    loss = next((n for n in graph.nodes.values() if n.type_id in cat.LOSS_IDS), None)
-    task = cat.COMPONENTS[loss.type_id].meta.get("task", "") if loss else ""
-    return {"steps": steps, "task": task}
+    from ai_made_easy.core.tasks import task_of as _task_of
+
+    task = _task_of(graph)
+    return {"steps": steps, "task": task.id if task else ""}
 
 
 def task_of(graph: Graph) -> str:

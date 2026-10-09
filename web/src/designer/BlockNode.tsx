@@ -29,12 +29,12 @@ function BlockNodeView({ id, data, selected }: NodeProps<FlowNode>) {
       {inputs.map((p, i) => (
         <Handle key={`in-${p.name}`} id={p.name} type="target" position={Position.Left}
                 style={{ top: `${((i + 1) / (inputs.length + 1)) * 100}%` }}
-                title={p.name} />
+                title={p.role && p.role !== "tensor" ? `${p.name} (${p.role})` : p.name} />
       ))}
       {outputs.map((p, i) => (
         <Handle key={`out-${p.name}`} id={p.name} type="source" position={Position.Right}
                 style={{ top: `${((i + 1) / (outputs.length + 1)) * 100}%` }}
-                title={p.name} />
+                title={p.role && p.role !== "tensor" ? `${p.name} (${p.role})` : p.name} />
       ))}
     </div>
   );
