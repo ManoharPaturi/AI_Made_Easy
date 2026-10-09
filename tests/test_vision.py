@@ -524,8 +524,9 @@ def test_box_tasks_train_and_serve(head, tmp_path):
         assert out["masks"][0]["size"] == [64, 64]
 
 
-@pytest.mark.skipif(importlib.util.find_spec("transformers") is None,
-                    reason="needs transformers (vision-tasks extra)")
+@pytest.mark.skipif(importlib.util.find_spec("transformers") is None
+                    or importlib.util.find_spec("scipy") is None,
+                    reason="needs transformers and scipy (vision-tasks extra)")
 def test_transformer_detector_trains(tmp_path):
     head = {"type": "vision.hf_detector",
             "params": {"arch": "conditional_detr", "num_classes": 3, "max_detections": 10}}
