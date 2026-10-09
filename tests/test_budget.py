@@ -55,7 +55,7 @@ def test_user_devices(isolated_home):
 # ================================================================ estimates
 
 @pytest.mark.skipif(not HAS_TORCH, reason="needs torch")
-@pytest.mark.parametrize("sample", ["mnist_cnn.json", "mlp_mnist.json", "lstm_classifier.json",
+@pytest.mark.parametrize("sample", ["mnist_cnn.json", "mlp_mnist.json",
                                     "cifar10_cnn_augmented.json", "skip_connection_mlp.json",
                                     "cifar10_transfer_resnet18.json"])
 def test_flops_match_torch_counter(sample):
@@ -79,6 +79,18 @@ def test_flops_match_torch_counter(sample):
     measured = counter.get_total_flops()
     assert measured > 0
     assert abs(estimated / measured - 1) < 0.10, (estimated, measured)
+
+
+def test_lstm_flops_formula():
+    """torch's FLOP counter misses the fused CPU LSTM kernel on Linux, so check the
+    recurrent layer against the textbook count: 2 x weights x time steps."""
+    graph = _sample("lstm_classifier.json")
+    est = budget.estimate(graph)
+    shapes = graph.infer_shapes()
+    lstm = next(layer for layer in est.layers if layer.type_id == "core.lstm")
+    edge = graph.input_edge_for(lstm.node_id, "in")
+    steps = shapes[edge.source_id][0]
+    assert lstm.params > 0 and lstm.flops == 2 * lstm.params * steps
 
 
 def test_estimate_parts():
