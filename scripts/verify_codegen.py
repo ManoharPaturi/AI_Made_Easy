@@ -15,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from ai_made_easy.core.graph import Edge, Graph, NodeInstance  # noqa: E402
 from ai_made_easy.core.registry import get_registry  # noqa: E402
+from ai_made_easy.core.spec import missing_requirements  # noqa: E402
 
 VARIANTS: dict[str, list[dict]] = {
     "core.conv2d": [{"padding": 2, "stride": 2}, {"dilation": 2, "padding": 2},
@@ -57,14 +58,25 @@ VARIANTS: dict[str, list[dict]] = {
     "core.pretrained_backbone": [{"architecture": a, "weights": "none"} for a in (
         "mobilenet_v3_small", "efficientnet_b0", "densenet121", "convnext_tiny", "vgg16")],
     "core.squeeze": [{"dim": 0}],
+    "vision.unet": [{"variant": v, "depth": 3} for v in (
+        "unet_plus_plus", "attention_unet", "resunet")] + [{"upsample": "bilinear",
+                                                             "norm": "group"}],
+    "vision.segmenter": [{"arch": "lraspp_mobilenet_v3_large", "weights": "none"}],
+    "vision.detector": [{"arch": a, "weights": "none"} for a in (
+        "ssdlite320_mobilenet_v3_large", "fcos_resnet50_fpn")],
 }
 
 # defaults that would download weights are replaced for offline verification
 DEFAULT_OVERRIDES = {"core.pretrained_backbone": {"weights": "none"},
-                     "core.hf_text_encoder": None}
+                     "core.hf_text_encoder": None,
+                     **{t: {"weights": "none"} for t in (
+                         "vision.detector", "vision.instance_segmenter",
+                         "vision.keypoint_detector", "vision.hf_detector", "vision.segmenter",
+                         "vision.hf_segmenter", "vision.timm_backbone",
+                         "vision.hf_image_encoder")}}
 
 CANDIDATE_SHAPES = ([32], [8, 16], [4, 16, 16], [4, 8, 8, 8], [8, 16, 16], [1, 16],
-                    [3, 64, 64])
+                    [3, 64, 64], [3, 224, 224])
 
 
 def _graph_for(type_id: str, shape: list[int], params: dict | None = None) -> Graph:
@@ -92,6 +104,8 @@ def block_cases(extra_params: dict | None = None):
             continue
         if DEFAULT_OVERRIDES.get(defn.type_id, {}) is None:
             continue  # needs network downloads (covered by tests that opt in)
+        if missing_requirements(defn):
+            continue  # optional package not installed (the extra's CI job covers it)
         variants = [DEFAULT_OVERRIDES.get(defn.type_id, {})] + list(
             (extra_params or {}).get(defn.type_id, []))
         for params in variants:

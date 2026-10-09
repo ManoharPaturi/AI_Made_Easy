@@ -3,6 +3,24 @@
 ## Unreleased (3.0 in progress — see docs/ROADMAP_3.0.md)
 
 ### Added
+- Vision tasks (`core/vision`): object detection, instance segmentation, keypoint
+  detection and semantic segmentation, with their own training loop and metrics.
+  - Models: torchvision Faster / Mask / Keypoint R-CNN, RetinaNet, FCOS, SSD(lite),
+    DeepLabV3, FCN, LR-ASPP; Hugging Face DETR, Conditional DETR, RT-DETR and
+    SegFormer; a U-Net family (U-Net, U-Net++, Attention U-Net, ResUNet); 87 curated
+    timm backbones and DINOv2 / CLIP / SigLIP image encoders.
+  - Data: COCO, YOLO (boxes, polygons, pose), Pascal VOC, segmentation mask folders
+    and generated Synthetic Shapes. Profiles in the Data workspace (objects per
+    class, COCO object sizes, empty images, mask class shares, boxes outside the image).
+  - Box / mask / keypoint-aware augmentation (`transforms.v2`); Dice, Tversky,
+    Lovász-Softmax and pixel focal losses; COCO mAP@[.5:.95] / mAP@.5 / mask mAP
+    (identical to pycocotools), PCK, mean IoU, Dice and pixel accuracy.
+  - Design rules with Quick Fixes: class / keypoint counts vs the dataset,
+    detectors wired straight from Input to Output, dataset ↔ task compatibility,
+    anchors vs image size, SegFormer stride, non-commercial weight licenses.
+  - Test-image overlays (truth vs prediction) in Error Analysis (desktop) and
+    the run view (web); deploy packages serve boxes, labels, scores and RLE masks.
+  - Two samples (Shapes detection, Shapes segmentation); `vision-tasks` extra and CI job.
 - Resource budgets (`core/budget.py`): per-layer FLOPs, training memory
   (weights, gradients, optimizer state, saved activations, mixed precision) and
   latency estimates against 11 device profiles (laptop CPU, Apple MPS, RTX

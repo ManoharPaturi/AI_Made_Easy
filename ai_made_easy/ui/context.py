@@ -656,12 +656,16 @@ class AppContext(QtCore.QObject):
 
     def act_error_analysis(self, *_):
         wd = self._run_workdir()
-        if wd is None or not (wd / "predictions.json").exists():
-            self.status_message.emit("Train a classification model first")
+        overlays = wd is not None and any((wd / "eval_samples").glob("*.png"))
+        if wd is None or not ((wd / "predictions.json").exists() or overlays):
+            self.status_message.emit("Train a classification or vision model first")
             return
-        from ai_made_easy.ui.features.analysis import ErrorAnalysisDialog
+        from ai_made_easy.ui.features.analysis import ErrorAnalysisDialog, VisionAnalysisDialog
 
-        ErrorAnalysisDialog(self.window, wd).exec()
+        if (wd / "eval_samples").is_dir() and not (wd / "predictions.json").exists():
+            VisionAnalysisDialog(self.window, wd).exec()
+        else:
+            ErrorAnalysisDialog(self.window, wd).exec()
 
     def act_saliency(self, *_, sample: str = "0"):
         wd = self._run_workdir()

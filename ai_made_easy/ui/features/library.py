@@ -20,7 +20,7 @@ SECTIONS: list[tuple[str, list[str]]] = [
     ("Layers", ["Linear", "Convolution", "Pooling", "Resizing", "Recurrent", "Attention",
                 "Embedding", "Activations", "Normalization", "Regularization", "Merge",
                 "Tensor Ops"]),
-    ("Models", ["Pretrained Models", "Architectures"]),
+    ("Models", ["Vision Tasks", "Pretrained Models", "Architectures"]),
     ("Training", ["Loss", "Optimizer", "Scheduler", "Training", "Metrics"]),
     ("Classic ML", ["Linear Models", "Support Vector Machines", "Neighbors & Bayes",
                     "Trees & Ensembles", "Gradient Boosting", "Neural (sklearn)", "Clustering",

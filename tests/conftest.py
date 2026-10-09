@@ -69,7 +69,9 @@ def _forget_custom_blocks():
             registry.unregister(block.type_id)
 
 
-_exit_status = {"code": 0}
+# pytest's "internal error" code until a session actually finishes: a crash before or
+# during collection must never turn into a passing CI job
+_exit_status = {"code": 3}
 
 
 def pytest_sessionfinish(session, exitstatus):  # noqa: ANN001

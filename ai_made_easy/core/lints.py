@@ -535,11 +535,33 @@ RULES: list[Callable[[LintContext], list]] = [
 ]
 
 
+# rules about the classification / regression data pipeline; tasks with their own
+# training loop (detection, segmentation, ...) skip them and bring their own rules
+PIPELINE_RULES = {classification_output_size, regression_output_activation,
+                  dataset_matches_input, loss_output_pairing, training_setup,
+                  pretrained_needs_imagenet_norm}
+
+
+def register_rule(rule: Callable[[LintContext], list]) -> None:
+    """Add a lint (task families register their design rules here)."""
+    if rule not in RULES:
+        RULES.append(rule)
+
+
 def run_lints(graph: "Graph", chain: list["NodeInstance"],
               shapes: dict[str, list[int]]) -> list["ValidationIssue"]:
+    from ai_made_easy.core.tasks import task_of
+
     ctx = LintContext(graph, chain, shapes)
+    try:
+        task = task_of(graph)
+    except Exception:  # noqa: BLE001 — incomplete designs: no task
+        task = None
+    own_loop = task is not None and task.trainer_kind != "supervised"
     issues: list = []
     for rule in RULES:
+        if own_loop and rule in PIPELINE_RULES:
+            continue
         try:
             issues += rule(ctx)
         except Exception:  # noqa: BLE001 — a lint must never break validation

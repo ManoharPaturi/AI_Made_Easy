@@ -17,6 +17,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 from verify_codegen import VARIANTS, block_cases, run_keras, run_torch  # noqa: E402
 
 from ai_made_easy.core.registry import get_registry  # noqa: E402
+from ai_made_easy.core.spec import missing_requirements  # noqa: E402
 
 CASES = list(block_cases(VARIANTS))
 IDS = [f"{t}-{'x'.join(map(str, s))}-{i}" for i, (t, s, _p, _g) in enumerate(CASES)]
@@ -26,7 +27,8 @@ def test_every_model_block_is_exercised():
     covered = {t for t, *_ in CASES}
     nn_blocks = {b.type_id for b in get_registry().all()
                  if b.shape_fn is not None and b.builder is None
-                 and b.type_id not in ("core.input", "core.output", "core.hf_text_encoder")}
+                 and b.type_id not in ("core.input", "core.output", "core.hf_text_encoder")
+                 and not missing_requirements(b)}  # optional extras: their CI job runs them
     assert nn_blocks - covered == set(), "blocks without a runnable test case"
 
 

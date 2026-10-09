@@ -13,9 +13,9 @@ boilerplate. It runs on the desktop or in the browser.
 
 ## Highlights
 
-- **345 blocks** across every major library: `torch.nn` layers, Keras 3
-  equivalents, torchvision / `keras.applications` pretrained backbones,
-  Hugging Face text encoders, scikit-learn, XGBoost, LightGBM and CatBoost,
+- **370 blocks** across every major library: `torch.nn` layers, Keras 3
+  equivalents, torchvision / `keras.applications` / timm pretrained backbones,
+  Hugging Face text and image encoders, scikit-learn, XGBoost, LightGBM and CatBoost,
   plus datasets, preprocessing, augmentation, losses, optimizers, schedulers
   and metrics.
 - **Design-time validation.** Shapes, ranks and dtypes are inferred live across
@@ -30,8 +30,15 @@ boilerplate. It runs on the desktop or in the browser.
   datasets; preprocessing fitted on the training split only (no leakage);
   chronological time-series splits; class balancing, MixUp/CutMix, mixed
   precision, gradient clipping and accumulation, early stopping, k-fold CV.
-- **Analysis.** Live training curves, error analysis, Grad-CAM saliency maps
-  and generated model cards.
+- **Vision tasks.** Object detection (Faster R-CNN, RetinaNet, FCOS, SSD, DETR,
+  RT-DETR), instance segmentation (Mask R-CNN), keypoints and semantic
+  segmentation (DeepLabV3, SegFormer, U-Net family) on COCO, YOLO, Pascal VOC or
+  mask-folder datasets, with box / mask-aware augmentation and COCO mAP.
+- **Resource budgets.** FLOPs, training memory and latency estimates for 11
+  devices (laptop CPU to H100, iPhone, Jetson, Raspberry Pi), with warnings and
+  Quick Fixes when a design will not fit.
+- **Analysis.** Live training curves, error analysis (with prediction overlays
+  for vision tasks), Grad-CAM saliency maps and generated model cards.
 - **Experiments and tuning.** Every run is recorded with its design, parameters,
   metrics, environment and data fingerprint. Compare runs side by side,
   restore any of them, and sweep hyperparameters with grid, random or
@@ -68,6 +75,7 @@ Install only what you need with the optional extras:
 |---|---|
 | `torch` | In-app training, ONNX / TorchScript export |
 | `vision` | torchvision datasets, transforms and pretrained backbones |
+| `vision-tasks` | timm backbones, Hugging Face DETR / SegFormer / DINOv2, COCO RLE masks |
 | `data` | pandas-backed table files (CSV, TSV, Parquet, Excel, JSON) |
 | `classic` | scikit-learn, XGBoost, LightGBM, CatBoost |
 | `keras` | Keras 3 for running exported Keras code |
@@ -110,11 +118,11 @@ desktop app. Hosting, authentication and the REST API are covered in
 
 | Section | Blocks | Contents |
 |---|---|---|
-| Data | 14 | Input / Output, torchvision benchmarks, image / text / audio folders, table files, scikit-learn datasets, NumPy, JSON, Hugging Face, time series, synthetic |
+| Data | 19 | Input / Output, torchvision benchmarks, image / text / audio folders, table files, scikit-learn datasets, NumPy, JSON, Hugging Face, time series, COCO, YOLO, Pascal VOC, mask folders, synthetic |
 | Preprocessing | 41 | Split, loader, class balancing, imputation, encoding, scaling, outlier clipping, tokenization, audio features, SpecAugment, 24 image transforms incl. RandAugment, AutoAugment, AugMix, MixUp / CutMix |
 | Layers | 132 | Linear, convolution (1-3D, transposed, depthwise, separable), pooling, padding / resizing, recurrent, attention & transformers, embeddings, 27 activations, normalization, regularization, merges, tensor ops |
-| Models | 10 | 16 ImageNet backbones, 8 Hugging Face encoders, architecture templates (ResNet-18, UNet, VGG, …) |
-| Training | 65 | 14 losses, 12 optimizers, 12 LR schedulers, trainer, k-fold, 25 metrics |
+| Models | 19 | Detectors, instance / semantic segmenters, keypoint detector, U-Net family, 39 torchvision + 87 timm backbones, Hugging Face text and image encoders, architecture templates |
+| Training | 76 | 18 losses (incl. Dice, Tversky, Lovász), 12 optimizers, 12 LR schedulers, trainer, k-fold, 32 metrics (incl. COCO mAP, mean IoU, PCK) |
 | Classic ML | 68 | 55 estimators (linear, SVM, neighbors, Bayes, trees, ensembles, boosting, clustering, anomaly detection), feature engineering, TF-IDF, hyperparameter search |
 | LLM | 15 | Model, tokenizer, prompts, LoRA / QLoRA fine-tuning, embeddings, vector store, retrieval, RAG |
 

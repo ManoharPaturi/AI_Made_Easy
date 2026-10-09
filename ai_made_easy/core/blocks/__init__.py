@@ -22,4 +22,5 @@ from ai_made_easy.core.blocks import (  # noqa: F401
     evaluation,
     llm_blocks,
     classic,
+    vision,
 )

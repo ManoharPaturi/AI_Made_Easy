@@ -90,6 +90,34 @@ Train ─► training script (core/training or core/classic) ─► worker subpr
   `scripts/build_zoo.py` (measured feature widths, parameters, accuracy,
   license).
 
+## Vision tasks
+
+`core/vision` adds detection, instance / semantic segmentation and keypoints
+without touching the classification pipeline:
+
+- `blocks.py`: task heads in the "Vision Tasks" category declare
+  `meta["task"]` and a `meta["cost"]` hook (parameters, FLOPs) for the summary
+  and budgets. Every wrapper (`helpers.py`) takes [0, 1] images and normalizes
+  internally; detectors expose `losses()` / `detect()` and return padded
+  detections `[D, 6]` from `forward`, so designed shapes still hold.
+- `tasks.py`: registers the tasks (trainer kinds `detection` / `segmentation`)
+  and a task resolver: a head block decides the task; a vision dataset plus a
+  `[C, H, W]` output means semantic segmentation.
+- `template.py`: the training script, registered with
+  `register_trainer(kind, render, needs_spec=False)`, so it reads the graph
+  directly instead of a `TrainingSpec`. It embeds `runtime.py` (dataset
+  readers, metrics, RLE / overlays), which the app also executes for
+  profiling and tests, so training and the Data workspace read data
+  identically.
+- `rules.py`: design rules registered with `lints.register_rule`. Tasks with
+  their own training loop skip the classification-pipeline lints
+  (`lints.PIPELINE_RULES`).
+- `profile.py`: `register_profiler` hooks vision datasets into the Data
+  workspace and data lints.
+
+Loading a trained model sets `AIME_SKIP_PRETRAINED=1` so wrappers rebuild the
+same architecture without downloading pretrained weights.
+
 ## Resource budgets
 
 `core/budget.py` estimates a neural design's cost from the IR alone (no

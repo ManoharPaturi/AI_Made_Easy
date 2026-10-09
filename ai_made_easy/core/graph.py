@@ -369,20 +369,29 @@ class Graph:
         optimizers = [n for n in self.nodes.values()
                       if n.type_id in _OPTIMIZERS]
         losses = [n for n in self.nodes.values()
-                  if n.type_id.startswith("train.loss")]
+                  if n.type_id.startswith(("train.loss", "vision.loss"))]
         schedulers = [n for n in self.nodes.values()
                       if n.type_id in _SCHEDULERS]
         if trainers:
-            if not losses:
+            # tasks with their own training loop declare their defaults (None: no warning)
+            from ai_made_easy.core.tasks import task_of
+
+            try:
+                task = task_of(self)
+            except Exception:  # noqa: BLE001 — incomplete designs
+                task = None
+            meta = task.meta if task is not None else {}
+            default_loss = meta.get("default_loss", "CrossEntropyLoss")
+            default_opt = meta.get("default_optimizer", "Adam (lr = 1e-3)")
+            if not losses and default_loss:
                 issues.append(ValidationIssue(
                     "warning",
                     "no loss function configured; training defaults to "
-                    "CrossEntropyLoss", trainers[0].instance_id))
-            if not optimizers:
+                    f"{default_loss}", trainers[0].instance_id))
+            if not optimizers and default_opt:
                 issues.append(ValidationIssue(
                     "warning",
-                    "no optimizer configured; training defaults to Adam "
-                    "(lr = 1e-3)",
+                    f"no optimizer configured; training defaults to {default_opt}",
                     trainers[0].instance_id))
         else:
             for n in schedulers:

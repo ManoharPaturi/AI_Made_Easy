@@ -71,6 +71,36 @@ class PreviewError(RuntimeError):
     """The preview could not be produced (message is user-facing)."""
 
 
+# previewers for other dataset kinds: fn(graph, out_dir, **options) -> result or None
+PREVIEWERS: list = []
+
+
+def register_previewer(fn) -> None:  # noqa: ANN001
+    if fn not in PREVIEWERS:
+        PREVIEWERS.append(fn)
+
+
+def run_preview(script: str, cfg: dict, out: Path, python: str | None, timeout: float) -> dict:
+    """Run a preview script on ``cfg`` in the training environment; parse its result."""
+    (out / "preview.json").write_text(json.dumps(cfg))
+    (out / "preview.py").write_text(script)
+    env = {**os.environ, "PYTHONWARNINGS": "ignore"}
+    try:
+        proc = subprocess.run([python or sys.executable, str(out / "preview.py"),
+                               str(out / "preview.json")], capture_output=True, text=True,
+                              timeout=timeout, env=env)
+    except subprocess.TimeoutExpired as exc:
+        raise PreviewError(f"the preview took longer than {timeout:.0f}s") from exc
+    line = next((ln for ln in proc.stdout.splitlines() if ln.startswith(MARKER)), None)
+    if line is None:
+        tail = (proc.stderr or proc.stdout)[-1500:]
+        if "No module named" in tail:
+            missing = tail.split("No module named", 1)[1].strip().splitlines()[0]
+            raise PreviewError(f"the training environment lacks {missing}")
+        raise PreviewError("the preview failed:\n" + tail)
+    return json.loads(line[len(MARKER):])
+
+
 def image_pipeline(graph: Graph) -> dict:
     """Transform expressions in the order the training script applies them."""
     from ai_made_easy.core.training import data_catalog as dcat
@@ -132,6 +162,11 @@ def augmentation_preview(graph: Graph, out_dir: str | Path, *, base=None,
                          seed: int = 0, files: list[str] | None = None,
                          timeout: float = 180) -> dict:
     """Render evaluation and training views of a few dataset images."""
+    for previewer in PREVIEWERS:
+        result = previewer(graph, out_dir, base=base, python=python, images=images,
+                           variants=variants, seed=seed, timeout=timeout)
+        if result is not None:
+            return result
     data = next((n for n in graph.nodes.values() if n.type_id == "data.image_folder"), None)
     if data is None and not files:
         raise PreviewError("augmentation preview needs an Image Folder dataset")
@@ -149,23 +184,7 @@ def augmentation_preview(graph: Graph, out_dir: str | Path, *, base=None,
     cfg = {"files": files, "out": str(out), "seed": seed, "variants": variants,
            "grayscale": bool(params.get("grayscale")), "always": pipe["always"],
            "train": pipe["train"], "after": pipe["after"]}
-    (out / "preview.json").write_text(json.dumps(cfg))
-    (out / "preview.py").write_text(_SCRIPT)
-    env = {**os.environ, "PYTHONWARNINGS": "ignore"}
-    try:
-        proc = subprocess.run([python or sys.executable, str(out / "preview.py"),
-                               str(out / "preview.json")], capture_output=True, text=True,
-                              timeout=timeout, env=env)
-    except subprocess.TimeoutExpired as exc:
-        raise PreviewError(f"the preview took longer than {timeout:.0f}s") from exc
-    line = next((ln for ln in proc.stdout.splitlines() if ln.startswith(MARKER)), None)
-    if line is None:
-        tail = (proc.stderr or proc.stdout)[-1500:]
-        if "No module named" in tail:
-            missing = tail.split("No module named", 1)[1].strip().splitlines()[0]
-            raise PreviewError(f"the training environment lacks {missing}")
-        raise PreviewError("the preview failed:\n" + tail)
-    result = json.loads(line[len(MARKER):])
+    result = run_preview(_SCRIPT, cfg, out, python, timeout)
     result.update(always=pipe["always"], train_transforms=pipe["train"] + pipe["after"],
                   skipped=pipe["skipped"])
     return result

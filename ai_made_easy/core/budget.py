@@ -288,9 +288,14 @@ def estimate(graph, device: str | Device | None = None) -> Estimate:  # noqa: AN
         out_shape = list(shapes.get(node.instance_id) or [])
         params = int(defn.param_fn(in_shapes, resolved)) if defn.param_fn else 0
         trainable = True
+        cost = (defn.meta or {}).get("cost") if isinstance(defn.meta, dict) else None
         if node.type_id == "core.pretrained_backbone" and in_shapes:
             params, flops, acts = _backbone_cost(resolved, in_shapes[0])
             trainable = not resolved.get("freeze", False)
+        elif callable(cost) and in_shapes:
+            # composite blocks (detectors, segmenters, U-Nets) report their own cost
+            params, flops = cost(in_shapes, resolved)
+            acts = int(flops * BACKBONE_ACTIVATIONS_PER_FLOP)
         else:
             flops = layer_flops(node.type_id, params, in_shapes, out_shape)
             acts = _saved_values(graph, node, resolved, in_shapes, out_shape)

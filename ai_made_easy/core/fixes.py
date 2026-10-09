@@ -101,6 +101,14 @@ def fix_for_issue(graph: "Graph", issue: "ValidationIssue"):
             return ("Match input", "set the Input shape to the dataset's "
                     f"{m.group(1)} features", g)
 
+    # "... set <param> to <number>" on a block that has that parameter -> set it
+    m = re.search(r"[Ss]et (\w+) to (-?\d+(?:\.\d+)?)\b", msg)
+    if node is not None and m and m.group(1) in {p.name for p in node.definition().params}:
+        spec = next(p for p in node.definition().params if p.name == m.group(1))
+        value = int(float(m.group(2))) if spec.type == "int" else float(m.group(2))
+        node.params[spec.name] = value
+        return (f"Set {spec.name} = {value}", f"set {spec.name} to {value}", g)
+
     # training memory over budget -> mixed precision, else a batch size that fits
     if msg.startswith("Training needs about"):
         fixed = _fit_training_memory(g)

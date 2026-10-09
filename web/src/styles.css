@@ -240,3 +240,5 @@ fieldset.budget label { display: flex; justify-content: space-between; align-ite
 .budget-bar.over span { background: var(--error); }
 .budget-bar em { position: relative; font-style: normal; font-size: 11px; padding-left: 6px; line-height: 18px; }
 .error-text { color: var(--error); margin: 2px 0; }
+.sample-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px; margin-top: 8px; }
+.sample-grid img { width: 100%; image-rendering: pixelated; border: 1px solid var(--border); border-radius: 4px; }
