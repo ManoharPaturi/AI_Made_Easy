@@ -115,6 +115,14 @@ def fix_for_issue(graph: "Graph", issue: "ValidationIssue"):
         if fixed is not None:
             return fixed
 
+    # "... Set the Input shape to '28, 28'" -> set it
+    m = re.search(r"Set the Input shape to '([\d, ]+)'", msg)
+    if m:
+        inputs = [n for n in g.nodes.values() if n.type_id == "core.input"]
+        if len(inputs) == 1:
+            inputs[0].params["shape"] = m.group(1)
+            return ("Match input", f"set the Input shape to {m.group(1)}", g)
+
     # disconnected input with an obvious nearest predecessor -> wire it
     if node is not None and "is not connected" in msg:
         candidates = [n for n in g.nodes.values()

@@ -15,8 +15,8 @@ from dataclasses import dataclass, field
 from typing import Callable
 
 # how a model is trained; the training template is chosen by this
-TRAINER_KINDS = ("supervised", "detection", "segmentation", "adversarial", "diffusion", "vae",
-                 "self_supervised", "rl", "bayesian")
+TRAINER_KINDS = ("supervised", "detection", "segmentation", "forecasting", "speech",
+                 "adversarial", "diffusion", "vae", "self_supervised", "rl", "bayesian")
 
 
 @dataclass(frozen=True)

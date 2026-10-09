@@ -44,6 +44,9 @@ _INPUT_HELP = {
     "images": "a list of base64-encoded images (or use POST /predict/image)",
     "audio": "a list of mono waveforms (float arrays at the training sample rate)",
     "windows": "a list of windows, each [time steps][feature columns]",
+    "series": "a list of series: {\"history\": [values], \"past_covariates\": [[...]], "
+              "\"future_covariates\": [[...]] (history + horizon rows)} or a plain list of "
+              "values",
     "arrays": "a list of samples shaped like the model input",
 }
 
@@ -107,6 +110,16 @@ def _describe(graph_dict: dict) -> dict:
             out["export_note"] = ("detectors are served by the FastAPI package; ONNX / "
                                   "TorchScript tracing of detection models is not supported")
         return out
+    if task is not None and task.trainer_kind == "forecasting":
+        from ai_made_easy.core.forecast.tasks import dataset_of as forecast_data
+
+        data = forecast_data(graph)
+        return {"task": task.id, "modality": "timeseries",
+                "dataset": data.type_id if data else "data.synthetic_series",
+                "input_kind": "series", "input_help": _INPUT_HELP["series"],
+                "response": task.serving,
+                "export_note": "forecasters are served by the FastAPI package; covariates and "
+                               "scaling run in Python before the model"}
     if is_classic(graph):
         spec = collect_classic(graph)
         task, modality, block = spec.task, spec.modality, spec.dataset["block"]
@@ -165,6 +178,8 @@ def _example(meta: dict, signature: dict) -> str:
         return json.dumps({"inputs": ["an example text"]})
     if kind == "images":
         return '{"inputs": ["<base64 image>"]}'
+    if kind == "series":
+        return json.dumps({"inputs": [{"history": [12.0, 15.0, 14.0, 18.0, 21.0]}]})
     shape = signature.get("input_shape") or []
     if kind == "arrays" and len(shape) == 1 and shape[0] <= 16:
         return json.dumps({"inputs": [[0.0] * int(shape[0])]})

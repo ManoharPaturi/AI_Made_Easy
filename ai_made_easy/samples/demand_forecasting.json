@@ -1,0 +1,123 @@
+{
+ "schema_version": 1,
+ "name": "demand_forecasting",
+ "meta": {
+  "title": "Demand \u2014 Probabilistic Forecasting (N-HiTS)",
+  "description": "N-HiTS forecasts the next 24 hours of 30 seasonal demand series with 10% / 50% / 90% quantiles. Test MASE below 1 beats the seasonal-naive forecast. Swap Synthetic Series for a Forecasting Table to forecast your own data, or switch the head to negbin for counts."
+ },
+ "nodes": [
+  {
+   "id": "input",
+   "type": "core.input",
+   "params": {
+    "shape": "72, 1",
+    "dtype": "float32"
+   },
+   "position": [
+    0,
+    0
+   ]
+  },
+  {
+   "id": "nhits",
+   "type": "forecast.nhits",
+   "params": {
+    "horizon": 24,
+    "head": "quantile",
+    "quantiles": "0.1, 0.5, 0.9",
+    "pools": "8, 4, 1",
+    "blocks": 1,
+    "layers": 2,
+    "width": 256
+   },
+   "position": [
+    260,
+    0
+   ]
+  },
+  {
+   "id": "output",
+   "type": "core.output",
+   "params": {},
+   "position": [
+    520,
+    0
+   ]
+  },
+  {
+   "id": "series",
+   "type": "data.synthetic_series",
+   "params": {
+    "n_series": 30,
+    "length": 400,
+    "trend": 0.2,
+    "noise": 0.1,
+    "counts": false,
+    "promotions": false,
+    "seed": 0,
+    "window": 72,
+    "horizon": 24,
+    "stride": 1,
+    "season_length": 24,
+    "val_windows": 2,
+    "test_windows": 2
+   },
+   "position": [
+    0,
+    200
+   ]
+  },
+  {
+   "id": "optimizer",
+   "type": "train.adamw",
+   "params": {
+    "lr": 0.001
+   },
+   "position": [
+    260,
+    200
+   ]
+  },
+  {
+   "id": "mase",
+   "type": "eval.mase",
+   "params": {},
+   "position": [
+    520,
+    200
+   ]
+  },
+  {
+   "id": "crps",
+   "type": "eval.crps",
+   "params": {},
+   "position": [
+    520,
+    300
+   ]
+  },
+  {
+   "id": "trainer",
+   "type": "train.trainer",
+   "params": {
+    "epochs": 30,
+    "batch_size": 64,
+    "device": "auto"
+   },
+   "position": [
+    260,
+    300
+   ]
+  }
+ ],
+ "edges": [
+  {
+   "from": "input/out",
+   "to": "nhits/in"
+  },
+  {
+   "from": "nhits/out",
+   "to": "output/in"
+  }
+ ]
+}

@@ -87,8 +87,8 @@ def new_run_id() -> str:
 # Keys where smaller is better when picking an epoch's "best" value.
 def lower_is_better(metric: str) -> bool:
     m = metric.lower()
-    return any(t in m for t in ("loss", "error", "mae", "mse", "rmse", "mape",
-                                "perplexity", "wer", "cer"))
+    return any(t in m for t in ("loss", "error", "mae", "mse", "rmse", "mape", "mase", "wape",
+                                "crps", "pinball", "nll", "perplexity", "wer", "cer"))
 
 
 class RunHistory:

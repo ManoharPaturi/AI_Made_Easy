@@ -23,4 +23,6 @@ from ai_made_easy.core.blocks import (  # noqa: F401
     llm_blocks,
     classic,
     vision,
+    sequence,
+    forecast,
 )
