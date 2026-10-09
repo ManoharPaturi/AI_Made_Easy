@@ -364,7 +364,7 @@ _GRAPH_TRAINERS: set[str] = set()
 def own_loop_requirements(model_code: str, extra: tuple[str, ...] = ()) -> str:
     """The "Needs:" line of a task-specific training script (deploy packages read it)."""
     reqs = ["torch", "numpy", "pillow"]
-    for module in ("torchvision", "transformers", "timm"):
+    for module in ("torchvision", "transformers", "timm", "torch_geometric"):
         if re.search(rf"^\s*(import|from) {module}\b", model_code, re.M):
             reqs.append(module)
     return ", ".join(dict.fromkeys([*reqs, *extra]))

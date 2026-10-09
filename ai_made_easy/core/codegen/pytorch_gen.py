@@ -32,7 +32,15 @@ class {{ class_name }}(nn.Module):
         {{ m.torch_module }}
 {% endfor %}
 
+{% if graph_model %}
+    def forward(self, x: torch.Tensor, edge_index: torch.Tensor | None = None,
+                batch: torch.Tensor | None = None) -> torch.Tensor:
+        """x: node features [nodes, ...]; edge_index [2, edges]; batch: graph id per node
+        (None: one graph)."""
+        g = graph_context(x, edge_index, batch)
+{% else %}
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+{% endif %}
 {% for n in nodes %}
         {{ n.torch_expr }}
 {% endfor %}

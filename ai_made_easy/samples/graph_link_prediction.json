@@ -1,0 +1,132 @@
+{
+  "schema_version": 1,
+  "name": "graph_link_prediction",
+  "meta": {
+    "title": "Graph \u2014 Link Prediction (GraphSAGE)",
+    "description": "GraphSAGE embeds every node; the Link Predictor scores pairs of nodes. Validation and test edges are hidden from message passing and ranked against random non-edges (ROC-AUC)."
+  },
+  "nodes": [
+    {
+      "id": "input",
+      "type": "core.input",
+      "params": {
+        "shape": "16"
+      },
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "sage_0",
+      "type": "graph.sage",
+      "params": {
+        "out_channels": 64
+      },
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "relu_1",
+      "type": "core.relu",
+      "params": {},
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "sage_2",
+      "type": "graph.sage",
+      "params": {
+        "out_channels": 32
+      },
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "output",
+      "type": "core.output",
+      "params": {},
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "data",
+      "type": "data.synthetic_graph",
+      "params": {
+        "n_nodes": 600,
+        "communities": 4,
+        "p_in": 0.05,
+        "p_out": 0.005,
+        "feature_dim": 16,
+        "feature_signal": 0.5,
+        "seed": 0
+      },
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "link",
+      "type": "graph.link_decoder",
+      "params": {
+        "decoder": "dot",
+        "hidden": 64,
+        "negatives": 1.0
+      },
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "opt",
+      "type": "train.adam",
+      "params": {
+        "lr": 0.01
+      },
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "trainer",
+      "type": "train.trainer",
+      "params": {
+        "epochs": 100,
+        "batch_size": 64
+      },
+      "position": [
+        0,
+        0
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "from": "input/out",
+      "to": "sage_0/in"
+    },
+    {
+      "from": "sage_0/out",
+      "to": "relu_1/in"
+    },
+    {
+      "from": "relu_1/out",
+      "to": "sage_2/in"
+    },
+    {
+      "from": "sage_2/out",
+      "to": "output/in"
+    }
+  ]
+}

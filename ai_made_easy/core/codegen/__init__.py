@@ -415,6 +415,7 @@ def template_context(graph: Graph, plan: EmissionPlan) -> dict:
         "uses_ops": any("ops." in line for line in keras_lines)
         or any("ops." in h for h in render_helpers(plan.keras_helpers, KERAS_HELPERS)),
         "total_params": _param_count(graph),
+        "graph_model": "GraphContext" in plan.torch_helpers,
     }
 
 

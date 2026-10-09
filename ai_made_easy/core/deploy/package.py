@@ -58,6 +58,9 @@ _INPUT_HELP = {
               "\"future_covariates\": [[...]] (history + horizon rows)} or a plain list of "
               "values",
     "arrays": "a list of samples shaped like the model input",
+    "graph": "a list of graphs {\"x\": [[node features]], \"edges\": [[u, v], ...]}; "
+             "node models also take {\"nodes\": [index, ...]} for the training graph, link "
+             "models {\"pairs\": [[u, v], ...]}",
     "density": "a list of points ([values] or {\"column\": value}) -> log-density, or "
                "{\"sample\": n, \"seed\": 0} -> points drawn from the model",
 }
@@ -172,6 +175,16 @@ def _describe(graph_dict: dict) -> dict:
         return {"task": task.id, "modality": "image" if kind == "generation" else "text",
                 "dataset": data.type_id if data else "",
                 "input_kind": kind, "input_help": _INPUT_HELP[kind], "response": task.serving}
+    if task is not None and task.trainer_kind == "graph":
+        from ai_made_easy.core.gnn.tasks import dataset_of as graph_data
+
+        data = graph_data(graph)
+        return {"task": task.id, "modality": "graph",
+                "dataset": data.type_id if data else "data.synthetic_graph",
+                "input_kind": "graph", "input_help": _INPUT_HELP["graph"],
+                "response": task.serving,
+                "export_note": "graph models are served by the FastAPI package; ONNX export "
+                               "of message-passing layers is not supported"}
     if task is not None and task.trainer_kind == "flow":
         from ai_made_easy.core.flows.tasks import dataset_of as flow_data
 
@@ -254,6 +267,8 @@ def _example(meta: dict, signature: dict) -> str:
         return json.dumps({"inputs": [{"n": 4, "seed": 0}]})
     if kind == "prompt":
         return json.dumps({"inputs": ["the cat"]})
+    if kind == "graph":
+        return json.dumps({"inputs": [{"nodes": [0, 1, 2]}]})
     if kind == "density":
         shape = signature.get("input_shape") or [2]
         return json.dumps({"inputs": [[0.0] * int(shape[0]), {"sample": 3, "seed": 0}]})

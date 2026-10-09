@@ -1,0 +1,186 @@
+{
+  "schema_version": 1,
+  "name": "graph_classification_gin",
+  "meta": {
+    "title": "Graph \u2014 Graph Classification (GIN)",
+    "description": "Graph isomorphism layers and sum pooling tell apart trees with a planted cycle, house or star. Every node looks alike (only its degree); the class lives in the structure."
+  },
+  "nodes": [
+    {
+      "id": "input",
+      "type": "core.input",
+      "params": {
+        "shape": "8"
+      },
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "gin_0",
+      "type": "graph.gin",
+      "params": {
+        "hidden": 64
+      },
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "gin_1",
+      "type": "graph.gin",
+      "params": {
+        "hidden": 64
+      },
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "gin_2",
+      "type": "graph.gin",
+      "params": {
+        "hidden": 64
+      },
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "pool_3",
+      "type": "graph.global_pool",
+      "params": {
+        "mode": "add"
+      },
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "dense_4",
+      "type": "core.dense",
+      "params": {
+        "units": 64
+      },
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "relu_5",
+      "type": "core.relu",
+      "params": {},
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "dense_6",
+      "type": "core.dense",
+      "params": {
+        "units": 3
+      },
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "output",
+      "type": "core.output",
+      "params": {},
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "data",
+      "type": "data.synthetic_graphs",
+      "params": {
+        "n_graphs": 600,
+        "min_nodes": 12,
+        "max_nodes": 24,
+        "feature_dim": 8,
+        "seed": 0
+      },
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "loss",
+      "type": "train.loss_cross_entropy",
+      "params": {},
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "opt",
+      "type": "train.adam",
+      "params": {
+        "lr": 0.01
+      },
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "trainer",
+      "type": "train.trainer",
+      "params": {
+        "epochs": 60,
+        "batch_size": 64
+      },
+      "position": [
+        0,
+        0
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "from": "input/out",
+      "to": "gin_0/in"
+    },
+    {
+      "from": "gin_0/out",
+      "to": "gin_1/in"
+    },
+    {
+      "from": "gin_1/out",
+      "to": "gin_2/in"
+    },
+    {
+      "from": "gin_2/out",
+      "to": "pool_3/in"
+    },
+    {
+      "from": "pool_3/out",
+      "to": "dense_4/in"
+    },
+    {
+      "from": "dense_4/out",
+      "to": "relu_5/in"
+    },
+    {
+      "from": "relu_5/out",
+      "to": "dense_6/in"
+    },
+    {
+      "from": "dense_6/out",
+      "to": "output/in"
+    }
+  ]
+}
