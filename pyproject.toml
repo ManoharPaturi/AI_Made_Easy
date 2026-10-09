@@ -43,6 +43,7 @@ probabilistic = ["pgmpy>=1.1", "hmmlearn>=0.3", "pymc>=5.16", "gpytorch>=1.11",
                  "statsmodels>=0.14", "scikit-learn>=1.4", "pandas>=2.0", "scipy>=1.10",
                  "pillow>=10"]
 graph = ["torch_geometric>=2.5", "scipy>=1.10", "pandas>=2.0"]
+rl = ["gymnasium>=1.0", "stable-baselines3>=2.3"]
 data = ["pandas>=2.0", "pyarrow>=14", "openpyxl>=3.1"]
 classic = ["scikit-learn>=1.4", "joblib>=1.3", "xgboost>=2.0", "lightgbm>=4.0",
            "catboost>=1.2", "pandas>=2.0"]
@@ -51,7 +52,7 @@ serve = ["fastapi>=0.110", "uvicorn[standard]>=0.29", "python-multipart>=0.0.9",
 export = ["onnx>=1.16", "onnxruntime>=1.18", "onnxscript>=0.1", "skl2onnx>=1.17"]
 tuning = ["optuna>=3.6"]
 web = ["ai-made-easy[serve]"]
-all = ["ai-made-easy[torch,vision,vision-tasks,audio,probabilistic,graph,data,classic,keras,llm,mcp-server,serve,export,tuning]"]
+all = ["ai-made-easy[torch,vision,vision-tasks,audio,probabilistic,graph,rl,data,classic,keras,llm,mcp-server,serve,export,tuning]"]
 dev = ["pytest>=8.0", "pytest-qt>=4.4", "pillow>=10", "ruff>=0.6", "httpx>=0.27"]
 perception = ["sounddevice>=0.4"]
 mcp-server = ["mcp[cli]>=1.0,<2"]

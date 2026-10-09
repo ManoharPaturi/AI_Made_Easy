@@ -63,6 +63,8 @@ _INPUT_HELP = {
              "models {\"pairs\": [[u, v], ...]}",
     "ranking": "a list of requests {\"user\": id, \"k\": 10, \"exclude_seen\": true} -> "
                "the top items, or {\"user\": id, \"items\": [ids]} -> their scores",
+    "observations": "a list of observations ([values], or {\"observation\": [...], "
+                    "\"deterministic\": true}) -> the action to take",
     "density": "a list of points ([values] or {\"column\": value}) -> log-density, or "
                "{\"sample\": n, \"seed\": 0} -> points drawn from the model",
 }
@@ -195,6 +197,16 @@ def _describe(graph_dict: dict) -> dict:
                 "dataset": data.type_id if data else "data.synthetic_interactions",
                 "input_kind": "ranking", "input_help": _INPUT_HELP["ranking"],
                 "response": task.serving}
+    if task is not None and task.trainer_kind == "rl":
+        from ai_made_easy.core.rl.tasks import env_node
+
+        env = env_node(graph)
+        env_id = env.resolved_params()["env_id"] if env is not None else "CartPole-v1"
+        return {"task": task.id, "modality": "environment", "dataset": env_id,
+                "input_kind": "observations", "input_help": _INPUT_HELP["observations"],
+                "response": task.serving,
+                "export_note": "the exported ONNX / TorchScript model is the policy network "
+                               "(action scores); serving uses stable-baselines3"}
     if task is not None and task.trainer_kind == "flow":
         from ai_made_easy.core.flows.tasks import dataset_of as flow_data
 
@@ -277,6 +289,9 @@ def _example(meta: dict, signature: dict) -> str:
         return json.dumps({"inputs": [{"n": 4, "seed": 0}]})
     if kind == "prompt":
         return json.dumps({"inputs": ["the cat"]})
+    if kind == "observations":
+        shape = signature.get("input_shape") or [4]
+        return json.dumps({"inputs": [[0.0] * int(shape[0])]})
     if kind == "ranking":
         return json.dumps({"inputs": [{"user": "1", "k": 5}]})
     if kind == "graph":

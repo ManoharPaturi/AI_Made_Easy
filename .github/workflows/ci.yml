@@ -128,10 +128,10 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install torch --index-url https://download.pytorch.org/whl/cpu
-          pip install -e ".[dev,graph,serve]"
+          pip install -e ".[dev,graph,rl,serve]"
       - name: Test
         run: >-
-          pytest -q -p no:cacheprovider tests/test_gnn.py
+          pytest -q -p no:cacheprovider tests/test_gnn.py tests/test_rl.py
           tests/test_codegen_runtime.py -k "graph or exercised"
 
   web:
