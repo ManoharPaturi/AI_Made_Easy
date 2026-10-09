@@ -1,0 +1,111 @@
+{
+  "schema_version": 1,
+  "name": "rl_cartpole_ppo",
+  "meta": {
+    "title": "Reinforcement Learning \u2014 CartPole with PPO",
+    "description": "PPO learns to balance a pole on a moving cart. The network on the canvas reads the four observations; stable-baselines3 adds the action and value heads. The reward curve is drawn live; 500 is a perfect episode."
+  },
+  "nodes": [
+    {
+      "id": "input",
+      "type": "core.input",
+      "params": {
+        "shape": "4"
+      },
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "dense_0",
+      "type": "core.dense",
+      "params": {
+        "units": 64
+      },
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "tanh_1",
+      "type": "core.tanh",
+      "params": {},
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "output",
+      "type": "core.output",
+      "params": {},
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "env",
+      "type": "rl.env",
+      "params": {
+        "env_id": "CartPole-v1",
+        "custom_id": "",
+        "n_envs": 4,
+        "seed": 0
+      },
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "algo",
+      "type": "rl.ppo",
+      "params": {
+        "total_timesteps": 40000,
+        "learning_rate": 0.0003,
+        "n_steps": 256,
+        "batch_size": 64,
+        "n_epochs": 10,
+        "gamma": 0.99,
+        "gae_lambda": 0.95,
+        "clip_range": 0.2,
+        "ent_coef": 0.0,
+        "head": "64",
+        "evaluations": 8,
+        "eval_episodes": 10
+      },
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "trainer",
+      "type": "train.trainer",
+      "params": {
+        "device": "cpu"
+      },
+      "position": [
+        0,
+        0
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "from": "input/out",
+      "to": "dense_0/in"
+    },
+    {
+      "from": "dense_0/out",
+      "to": "tanh_1/in"
+    },
+    {
+      "from": "tanh_1/out",
+      "to": "output/in"
+    }
+  ]
+}

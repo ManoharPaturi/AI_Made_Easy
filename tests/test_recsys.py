@@ -1,0 +1,183 @@
+"""Recommenders: task, rules and Quick Fixes, interaction generators and splits, ranking
+metrics, parameter counts, generated scripts that beat the popularity baseline, serving
+and deploys."""
+from __future__ import annotations
+
+import importlib.util
+import json
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+import pytest
+
+from ai_made_easy.core import api
+from ai_made_easy.core.fixes import fix_for_issue
+from ai_made_easy.core.graph import Graph
+from ai_made_easy.core.recsys import runtime
+from ai_made_easy.core.tasks import task_of
+
+HAS_TORCH = importlib.util.find_spec("torch") is not None
+needs_torch = pytest.mark.skipif(not HAS_TORCH, reason="needs torch")
+SAMPLES = ("recommender_matrix_factorization.json", "recommender_dlrm.json")
+
+
+def n(nid: str, type_id: str, **params) -> dict:
+    return {"id": nid, "type": type_id, "params": params, "position": [0, 0]}
+
+
+def design(width: int, model: str, params: dict | None = None, data: dict | None = None,
+           extra: list | None = None, data_type: str = "data.synthetic_interactions") -> dict:
+    return {"name": "r", "nodes": [
+        n("in", "core.input", shape=str(width)),
+        n("m", model, **{"n_users": 600, "n_items": 400, **(params or {})}),
+        n("out", "core.output"), n("data", data_type, **(data or {})), *(extra or [])],
+        "edges": [{"from": "in/out", "to": "m/in"}, {"from": "m/out", "to": "out/in"}]}
+
+
+def messages(data: dict) -> list[str]:
+    return [i.message for i in Graph.from_dict(data).validate()]
+
+
+def test_task_and_samples():
+    for sample in SAMPLES:
+        graph = Graph.from_dict(api.read_sample(sample))
+        assert graph.validate() == []
+        assert task_of(graph).id == "recommendation"
+
+
+def test_rules_and_fixes(tmp_path):
+    small = design(2, "rec.mf", {"n_users": 100})
+    found = messages(small)
+    assert any("set n_users to 600" in m for m in found)
+    g = Graph.from_dict(small)
+    issue = next(i for i in g.validate() if "n_users" in i.message)
+    assert fix_for_issue(g, issue)[2].nodes["m"].params["n_users"] == 600
+    assert any("Set the Input shape to '2'" in m for m in messages(design(5, "rec.mf")))
+    assert any("DLRM can read the 8" in m for m in messages(design(2, "rec.dlrm")))
+    assert any("uses only the ids" in m for m in messages(design(10, "rec.ncf")))
+    mse = design(2, "rec.mf", extra=[n("o", "rec.objective", objective="mse")])
+    g = Graph.from_dict(mse)
+    issue = next(i for i in g.validate() if "set objective to bpr" in i.message)
+    assert fix_for_issue(g, issue)[2].nodes["o"].params["objective"] == "bpr"   # enum fix
+    ratings = design(2, "rec.mf", data={"feedback": "ratings"},
+                     extra=[n("o", "rec.objective", objective="bpr")])
+    assert any("set objective to mse" in m for m in messages(ratings))
+    (tmp_path / "log.csv").write_text("u,i\n" + "".join(f"a{k % 7},b{k % 11}\n"
+                                                       for k in range(40)))
+    csv = design(2, "rec.mf", {"n_users": 3, "n_items": 11},
+                 {"path": str(tmp_path / "log.csv"), "user_column": "u", "item_column": "i"},
+                 data_type="data.interactions_csv")
+    assert any("set n_users to 7" in m for m in messages(csv))
+    wrong = design(2, "rec.mf", data={"path": str(tmp_path / "log.csv")},
+                   data_type="data.interactions_csv")
+    assert any("are not in the file" in m for m in messages(wrong))
+
+
+def test_generator_split_and_metrics():
+    import numpy as np
+
+    ns = runtime.namespace()
+    data = ns["synthetic_interactions"]({"n_users": 50, "n_items": 40, "per_user": 10,
+                                         "feedback": "ratings", "features": 3, "seed": 0})
+    assert data["user_features"].shape == (50, 3) and data["item_features"].shape == (40, 3)
+    assert set(np.unique(data["ratings"])) <= {1, 2, 3, 4, 5}
+    parts = ns["split_per_user"](data["users"], 0.1, 0.2, 0)
+    assert sum(len(v) for v in parts.values()) == len(data["users"])
+    assert set(data["users"][parts["train"]]) == set(range(50))   # every user keeps some
+    scores = np.array([[0.9, 0.8, 0.1, 0.0], [0.1, 0.2, 0.9, 0.8]])
+    m = ns["ranking_metrics"](scores, [{1}, {0}], 2)
+    assert m["recall_at_2"] == pytest.approx(0.5)
+    assert m["mrr"] == pytest.approx((1 / 2 + 1 / 4) / 2)
+    assert m["ndcg_at_2"] == pytest.approx((1 / np.log2(3)) / 2)
+
+
+@needs_torch
+@pytest.mark.parametrize("model,width,params", [
+    ("rec.mf", 2, {"biases": True}), ("rec.ncf", 2, {"hidden": "64, 16"}),
+    ("rec.two_tower", 2, {}), ("rec.dlrm", 10, {"bottom": "32, 8", "top": "16"}),
+    ("rec.dlrm", 2, {}),
+])
+def test_parameter_counts(model, width, params):
+    from ai_made_easy.core.codegen import class_name_for, generate
+    from ai_made_easy.core.summary import summarize
+
+    graph = Graph.from_dict({**design(width, model, params), "name": "count"})
+    ns: dict = {}
+    exec(generate(graph, "pytorch"), ns)  # noqa: S102 — generated by us
+    net = ns[class_name_for("count")]()
+    assert summarize(graph).total_params == sum(p.numel() for p in net.parameters())
+
+
+def _run(data: dict, tmp_path: Path) -> tuple[Path, Path]:
+    from ai_made_easy.core.codegen import export_training
+
+    script = export_training(Graph.from_dict(data), "pytorch", tmp_path)
+    proc = subprocess.run([sys.executable, script.name], cwd=tmp_path, capture_output=True,
+                          text=True, timeout=900)
+    assert proc.returncode == 0, proc.stdout[-2000:] + proc.stderr[-3000:]
+    return tmp_path, script
+
+
+def _infer(folder: Path, script: Path, items: list) -> list:
+    code = (f"import sys, json; sys.path.insert(0, '.'); import {script.stem} as m; "
+            f"m.load_predictor('.'); print('OUT ' + json.dumps(m.infer({items!r})))")
+    proc = subprocess.run([sys.executable, "-c", code], cwd=folder, capture_output=True,
+                          text=True, timeout=300, env={**os.environ, "PYTHONWARNINGS": "ignore"})
+    assert "OUT " in proc.stdout, proc.stderr[-3000:]
+    return json.loads(proc.stdout.split("OUT ", 1)[1])
+
+
+@needs_torch
+@pytest.mark.parametrize("model,width,objective", [
+    ("rec.mf", 2, "bpr"), ("rec.ncf", 2, "bce"), ("rec.two_tower", 2, "bpr"),
+    ("rec.dlrm", 10, "bpr"),
+])
+def test_models_beat_popularity(model, width, objective, tmp_path):
+    data = design(width, model, extra=[n("o", "rec.objective", objective=objective),
+                                       n("opt", "train.adam", lr=0.01),
+                                       n("tr", "train.trainer", epochs=12, batch_size=512)])
+    run, script = _run(data, tmp_path)
+    metrics = json.loads((run / "metrics.json").read_text())
+    assert metrics["ndcg_at_10"] > 1.15 * metrics["popular_ndcg_at_10"]
+    out = _infer(run, script, [{"user": "3", "k": 3}, {"user": "stranger", "k": 2},
+                               {"user": "3", "items": ["1", "2"]}])
+    assert len(out[0]["items"]) == 3 and out[0]["known"]
+    assert not out[1]["known"] and len(out[1]["items"]) == 2
+    assert [r["item"] for r in out[2]["items"]] == ["1", "2"]
+
+
+@needs_torch
+def test_rating_regression(tmp_path):
+    data = design(2, "rec.mf", {"dim": 16}, {"feedback": "ratings"},
+                  [n("o", "rec.objective", objective="mse"), n("opt", "train.adam", lr=0.01),
+                   n("tr", "train.trainer", epochs=15, batch_size=512)])
+    run, _script = _run(data, tmp_path)
+    assert json.loads((run / "metrics.json").read_text())["rmse"] < 0.95   # std ~1.3
+
+
+@needs_torch
+def test_recommender_deploys(tmp_path, isolated_home):
+    pytest.importorskip("fastapi")
+    from ai_made_easy.core.deploy.package import build_package
+    from ai_made_easy.core.runner.manager import RunManager
+    from ai_made_easy.core.runs.history import RunHistory
+
+    data = api.read_sample(SAMPLES[0])
+    for node in data["nodes"]:
+        if node["type"] == "train.trainer":
+            node["params"]["epochs"] = 2
+    mgr = RunManager(RunHistory(tmp_path / "runs"))
+    api.set_manager(mgr)
+    try:
+        run_id = mgr.start(Graph.from_dict(data))
+        status = mgr.wait(run_id, 900)
+        assert status["state"] == "finished", mgr.history.get(run_id).error[-2000:]
+        assert mgr.history.epochs(run_id)
+        result = build_package(mgr.history.path(run_id), tmp_path / "pkg")
+        assert result.verified, result.log[-3000:]
+        meta = json.loads((tmp_path / "pkg/metadata.json").read_text())
+        assert meta["task"] == "recommendation" and meta["input_kind"] == "ranking"
+    finally:
+        api.set_manager(None)

@@ -126,3 +126,23 @@ test("probabilistic samples and the CPD table editor", async ({ page }) => {
   await page.getByPlaceholder(/Search/).fill("conformal");
   await expect(page.getByTestId("lib-eval.conformal")).toBeVisible();
 });
+
+test("graph, tabular, recommender and reinforcement-learning samples", async ({ page }) => {
+  for (const [sample, kind] of [
+    ["graph_node_classification.json", "Neural network · Node classification"],
+    ["graph_classification_gin.json", "Neural network · Graph classification"],
+    ["graph_link_prediction.json", "Neural network · Link prediction"],
+    ["tabular_ft_transformer.json", "Neural network · Multi-class classification"],
+    ["recommender_dlrm.json", "Neural network · Recommendation"],
+    ["rl_cartpole_ppo.json", "Neural network · Reinforcement learning"],
+  ]) {
+    await page.getByRole("button", { name: "Open" }).click();
+    await page.getByTestId(`sample-${sample}`).click();
+    await expect(page.getByTestId("design-kind")).toHaveText(kind);
+    // the graph and rl extras may be missing (CI's web job): "needs … not installed" warnings
+    await expect(page.getByTestId("status")).toHaveText(
+      /^(graph|rl)_/.test(sample) ? /^(No problems|\d+ warning\(s\))$/ : "No problems");
+  }
+  await page.getByPlaceholder(/Search/).fill("transformer");
+  await expect(page.getByTestId("lib-tab.ft_transformer")).toBeVisible();
+});

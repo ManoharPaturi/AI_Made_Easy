@@ -1,0 +1,106 @@
+{
+  "schema_version": 1,
+  "name": "recommender_matrix_factorization",
+  "meta": {
+    "title": "Recommender \u2014 Matrix Factorization (BPR)",
+    "description": "Users and items become vectors; Bayesian personalised ranking teaches the model to score an item a user interacted with above a random one. Recall@10, NDCG@10 and MRR are compared with recommending the most popular items."
+  },
+  "nodes": [
+    {
+      "id": "input",
+      "type": "core.input",
+      "params": {
+        "shape": "2"
+      },
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "model",
+      "type": "rec.mf",
+      "params": {
+        "n_users": 600,
+        "n_items": 400,
+        "dim": 32,
+        "biases": true
+      },
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "output",
+      "type": "core.output",
+      "params": {},
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "data",
+      "type": "data.synthetic_interactions",
+      "params": {
+        "n_users": 600,
+        "n_items": 400,
+        "per_user": 30,
+        "feedback": "implicit",
+        "features": 4,
+        "seed": 0
+      },
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "opt",
+      "type": "train.adam",
+      "params": {
+        "lr": 0.01
+      },
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "trainer",
+      "type": "train.trainer",
+      "params": {
+        "epochs": 20,
+        "batch_size": 512
+      },
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "objective",
+      "type": "rec.objective",
+      "params": {
+        "objective": "bpr",
+        "negatives": 4,
+        "top_k": 10
+      },
+      "position": [
+        0,
+        0
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "from": "input/out",
+      "to": "model/in"
+    },
+    {
+      "from": "model/out",
+      "to": "output/in"
+    }
+  ]
+}

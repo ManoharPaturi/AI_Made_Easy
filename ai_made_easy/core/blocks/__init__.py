@@ -33,4 +33,8 @@ from ai_made_easy.core.blocks import (  # noqa: F401
     bayes,
     flows,
     ssm,
+    gnn,
+    tabular,
+    recsys,
+    rl,
 )

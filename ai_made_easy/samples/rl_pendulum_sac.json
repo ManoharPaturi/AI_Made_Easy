@@ -1,0 +1,111 @@
+{
+  "schema_version": 1,
+  "name": "rl_pendulum_sac",
+  "meta": {
+    "title": "Reinforcement Learning \u2014 Pendulum with SAC",
+    "description": "Soft actor-critic learns to swing a pendulum up and hold it with continuous torque. It reuses past experience from a replay buffer, so 20,000 steps are enough; around -200 is solved."
+  },
+  "nodes": [
+    {
+      "id": "input",
+      "type": "core.input",
+      "params": {
+        "shape": "3"
+      },
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "dense_0",
+      "type": "core.dense",
+      "params": {
+        "units": 64
+      },
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "tanh_1",
+      "type": "core.tanh",
+      "params": {},
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "output",
+      "type": "core.output",
+      "params": {},
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "env",
+      "type": "rl.env",
+      "params": {
+        "env_id": "Pendulum-v1",
+        "custom_id": "",
+        "n_envs": 4,
+        "seed": 0
+      },
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "algo",
+      "type": "rl.sac",
+      "params": {
+        "total_timesteps": 20000,
+        "learning_rate": 0.001,
+        "buffer_size": 100000,
+        "learning_starts": 100,
+        "batch_size": 256,
+        "tau": 0.005,
+        "train_freq": 1,
+        "gradient_steps": -1,
+        "gamma": 0.99,
+        "head": "64, 64",
+        "evaluations": 5,
+        "eval_episodes": 10
+      },
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "trainer",
+      "type": "train.trainer",
+      "params": {
+        "device": "cpu"
+      },
+      "position": [
+        0,
+        0
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "from": "input/out",
+      "to": "dense_0/in"
+    },
+    {
+      "from": "dense_0/out",
+      "to": "tanh_1/in"
+    },
+    {
+      "from": "tanh_1/out",
+      "to": "output/in"
+    }
+  ]
+}

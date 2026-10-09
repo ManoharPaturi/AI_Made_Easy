@@ -178,8 +178,12 @@ def run_torch(graph: Graph) -> tuple[int, ...]:
     shapes = graph.infer_shapes()
     in_shape = shapes["inp"]
     int_input = graph.nodes["inp"].params.get("dtype") == "int64"
+    x = _sample(in_shape, int_input)
     with torch.no_grad():
-        out = model(_sample(in_shape, int_input))
+        if "graph_context(x, edge_index, batch)" in code:   # graph models: a real edge
+            out = model(x, torch.tensor([[0, 1], [1, 0]]))
+        else:
+            out = model(x)
     return tuple(out.shape[1:])
 
 

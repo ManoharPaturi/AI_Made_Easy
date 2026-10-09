@@ -1,0 +1,154 @@
+{
+  "schema_version": 1,
+  "name": "graph_node_classification",
+  "meta": {
+    "title": "Graph \u2014 Node Classification (GCN)",
+    "description": "Two graph convolutions classify every node of a community graph. Features alone are weak; averaging over neighbours (who links to whom) reveals the community."
+  },
+  "nodes": [
+    {
+      "id": "input",
+      "type": "core.input",
+      "params": {
+        "shape": "16"
+      },
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "gcn_0",
+      "type": "graph.gcn",
+      "params": {
+        "out_channels": 32
+      },
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "relu_1",
+      "type": "core.relu",
+      "params": {},
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "dropout_2",
+      "type": "core.dropout",
+      "params": {
+        "p": 0.5
+      },
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "gcn_3",
+      "type": "graph.gcn",
+      "params": {
+        "out_channels": 4
+      },
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "output",
+      "type": "core.output",
+      "params": {},
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "data",
+      "type": "data.synthetic_graph",
+      "params": {
+        "n_nodes": 600,
+        "communities": 4,
+        "p_in": 0.05,
+        "p_out": 0.005,
+        "feature_dim": 16,
+        "feature_signal": 0.3,
+        "seed": 0
+      },
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "loss",
+      "type": "train.loss_cross_entropy",
+      "params": {},
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "opt",
+      "type": "train.adam",
+      "params": {
+        "lr": 0.01,
+        "weight_decay": 0.0005
+      },
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "trainer",
+      "type": "train.trainer",
+      "params": {
+        "epochs": 100,
+        "batch_size": 64,
+        "early_stopping_patience": 20
+      },
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "acc",
+      "type": "eval.accuracy",
+      "params": {},
+      "position": [
+        0,
+        0
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "from": "input/out",
+      "to": "gcn_0/in"
+    },
+    {
+      "from": "gcn_0/out",
+      "to": "relu_1/in"
+    },
+    {
+      "from": "relu_1/out",
+      "to": "dropout_2/in"
+    },
+    {
+      "from": "dropout_2/out",
+      "to": "gcn_3/in"
+    },
+    {
+      "from": "gcn_3/out",
+      "to": "output/in"
+    }
+  ]
+}

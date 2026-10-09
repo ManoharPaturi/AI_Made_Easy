@@ -392,8 +392,8 @@ def _strip_main(code: str) -> str:
     head, _sep, _tail = code.partition('\n\nif __name__ == "__main__":')
     body = head.split('\nfrom __future__ import annotations\n', 1)[-1]
     lines = [ln for ln in body.splitlines()
-             if not ln.startswith(("import torch", "import torch.nn as nn",
-                                   "import torch.nn.functional as F"))]
+             if ln.strip() not in ("import torch", "import torch.nn as nn",
+                                   "import torch.nn.functional as F")]
     return "\n".join(lines).strip("\n") + "\n"
 
 

@@ -450,6 +450,10 @@ def fit(model: nn.Module, train_loader, val_loader, device, log: bool = True):
 {% if prob and prob.kl %}
                 loss = loss + kl_scale * kl_penalty(model)
 {% endif %}
+{% if aux_loss %}
+                loss = loss + sum(m.aux_loss() for m in model.modules()   # e.g. TabNet sparsity
+                                  if hasattr(m, "aux_loss"))
+{% endif %}
             scaler.scale(loss / ACCUM_STEPS).backward()
             if step % ACCUM_STEPS == 0 or step == len(train_loader):
                 if GRAD_CLIP > 0:
