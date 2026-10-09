@@ -3,6 +3,29 @@
 ## Unreleased (3.0 in progress — see docs/ROADMAP_3.0.md)
 
 ### Added
+- Graph neural networks (`core/gnn`, PyTorch Geometric, `graph` extra): GCN, GAT / GATv2,
+  GraphSAGE, GIN, GraphConv, EdgeConv and graph transformer layers; global, attention,
+  TopK and SAG pooling; a Link Predictor. Node classification, graph classification and
+  link prediction (held-out edges, negative sampling, ROC-AUC / AP) on generated community
+  or motif graphs, node / edge CSVs, Planetoid and TU benchmarks. Graph models take
+  `forward(x, edge_index, batch)`; deploy packages serve node, graph and link requests.
+- Tabular deep learning (`core/tabular`): Tabular ResNet, FT-Transformer, TabTransformer,
+  TabNet and categorical entity embeddings. A Quick Fix fills the positions and
+  cardinalities of ordinal-encoded columns from the data, scaling keeps those codes as
+  integers, and a generated Synthetic Table mixes numbers and categories. Modules can
+  add an `aux_loss()` to the supervised loss (TabNet's sparsity penalty).
+- Recommenders (`core/recsys`): matrix factorisation, NCF, two-tower retrieval and
+  DLRM-lite with BPR, BCE (sampled negatives) or MSE objectives; Recall@K, NDCG@K and MRR
+  over all items next to a most-popular baseline; top-K serving with a popularity
+  fallback; generated interactions (implicit or ratings, with features) and CSV logs.
+- Reinforcement learning (`core/rl`, `rl` extra): Gymnasium environments and PPO, A2C,
+  DQN, SAC and TD3 from stable-baselines3; the canvas network is the policy's feature
+  extractor; live reward curves, best-policy checkpoints, a random-policy baseline, and
+  deploy packages that return actions.
+- Quick Fixes now also set enum and boolean parameters ("set objective to bpr").
+- Samples: GCN node classification, GIN graph classification, GraphSAGE link prediction,
+  FT-Transformer churn, Tabular ResNet regression, matrix factorisation, DLRM, PPO on
+  CartPole and SAC on Pendulum.
 - Probabilistic models, all behind the `probabilistic` extra except the
   PyTorch parts.
   - Graphical models (`core/pgm`, pgmpy): discrete and Gaussian variables wired by a

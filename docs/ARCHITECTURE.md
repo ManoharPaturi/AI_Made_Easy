@@ -183,7 +183,25 @@ Two more live inside neural designs:
   `inverse`; the `flow` trainer adds the log-determinants to a standard-normal base
   log-density and samples by running the layers backwards.
 
-## Resource budgets
+## Graphs, tables, recommenders and reinforcement learning
+
+All four live in the neural family with their own trainer kinds, so the canvas chain is
+always the network that is trained and served:
+
+- `core/gnn` (trainer `graph`): models containing graph layers are generated with
+  `forward(x, edge_index=None, batch=None)`; the first line builds a mutable context `g`
+  that message-passing layers read and TopK / SAG pooling rewrite. `tasks.graph_kind`
+  picks node classification, graph classification (global pooling or a multi-graph
+  dataset) or link prediction (a Link Predictor block).
+- `core/tabular`: blocks for the supervised pipeline. `layout.layout_of(graph)` mirrors
+  `preprocess_tables` to give the input width and the positions / cardinalities of
+  ordinal-encoded columns; `_raw_columns` keeps those positions unscaled.
+- `core/recsys` (trainer `recommendation`): models score `[user, item, *features]` rows;
+  ids are clamped into the embedding tables so random inputs (export checks) still run.
+- `core/rl` (trainer `rl`): the generated model becomes a stable-baselines3
+  `BaseFeaturesExtractor`; `ServedPolicy` exposes the trained policy as a module for
+  exports, `infer()` uses `algorithm.predict`.
+
 
 `core/budget.py` estimates a neural design's cost from the IR alone (no
 torch import): `estimate(graph, device)` walks `model_nodes()` and gives each

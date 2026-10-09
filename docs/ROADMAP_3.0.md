@@ -231,6 +231,10 @@ Goal: about 750+ blocks, every family validated at design time, generating runna
   - the policy / value network is designed on the canvas and becomes an SB3 custom policy
   - reward curve events; evaluation episodes
   - rules: action-space vs head output (discrete vs continuous)
+- **Status:** shipped. The canvas network is the policy's shared feature extractor; stable-baselines3 adds the action / value heads (their widths are the algorithm's `head` parameter). Tabular models read the preprocessed vector: ordinal-encoded columns are embedded at positions a Quick Fix fills from the data, and scaling leaves them as integers. Not in this phase (moved to a later release):
+  - OGB datasets and graph-level CSV datasets (generated graphs, Planetoid, TU benchmarks and node / edge CSVs ship)
+  - user / item feature tables for interaction CSVs (generated interactions carry features)
+  - image observations (CNN policies), Atari and Box2D environments; observation / action sizes of custom environments are checked when training starts, not at design time
 
 ## Phase 7 — Task-first wizards and AutoML
 - **New-project wizard (desktop and web):**
