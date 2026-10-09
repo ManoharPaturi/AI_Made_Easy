@@ -4,7 +4,7 @@ import { api } from "../api";
 import { CodeView } from "../components/CodeView";
 import { formatValue, shapeLabel } from "../project";
 import { useStore } from "../state";
-import type { Budget, BudgetReport, DeviceProfile, ParamSpec, Summary } from "../types";
+import type { Budget, BudgetReport, DeviceProfile, ParamSpec, Summary, TableLayout } from "../types";
 
 function ParamField({ spec, value, onChange }: {
   spec: ParamSpec; value: unknown; onChange: (v: unknown) => void;
@@ -47,6 +47,85 @@ function ParamField({ spec, value, onChange }: {
   );
 }
 
+function tableSummary(value: unknown): string {
+  const text = String(value ?? "").trim();
+  if (!text) return "learned from data";
+  try {
+    const rows = JSON.parse(text) as unknown[];
+    const cols = Array.isArray(rows[0]) ? (rows[0] as unknown[]).length : 1;
+    return `${rows.length} × ${cols} table`;
+  } catch {
+    return "invalid table";
+  }
+}
+
+function TableField({ spec, value, nodeId, onChange }: {
+  spec: ParamSpec; value: unknown; nodeId: string; onChange: (v: unknown) => void;
+}) {
+  const { project, notify } = useStore();
+  const [layout, setLayout] = useState<TableLayout | null>(null);
+  const [cells, setCells] = useState<string[][]>([]);
+  const open = async () => {
+    try {
+      const info = await api.tableLayout(project(), nodeId);
+      if (info.error) return notify(info.error, true);
+      setLayout(info);
+      setCells((info.values ?? []).map((r) => r.map((v) => String(+v.toFixed(8)))));
+    } catch (e) {
+      notify(String((e as Error).message), true);
+    }
+  };
+  const numbers = cells.map((r) => r.map((c) => parseFloat(c) || 0));
+  const bad = (layout?.columns ?? []).filter((_c, j) =>
+    Math.abs(numbers.reduce((s, r) => s + r[j], 0) - 1) > 1e-4 || numbers.some((r) => r[j] < 0));
+  const normalize = () => setCells(numbers.map((r) => r.map((_v, j) => {
+    const total = numbers.reduce((s, row) => s + Math.max(row[j], 0), 0);
+    return String(+(total ? Math.max(r[j], 0) / total : 1 / numbers.length).toFixed(8));
+  })));
+  const close = (result?: string) => {
+    if (result !== undefined) onChange(result);
+    setLayout(null);
+  };
+  return (
+    <div className="field">
+      <label>{spec.name}</label>
+      <div className="toolbar">
+        <span className="muted">{tableSummary(value)}</span>
+        <button onClick={open} data-testid="edit-table">Edit table…</button>
+      </div>
+      {spec.help && <div className="help">{spec.help}</div>}
+      {layout && (
+        <div className="modal-backdrop">
+          <div className="modal" style={{ maxWidth: "90vw", overflow: "auto" }}
+               data-testid="table-editor">
+            <h3>P({layout.variable}{layout.parents?.length ? ` | ${layout.parents.join(", ")}` : ""})</h3>
+            <p className="muted">Each column is one combination of parent states and must sum to 1.</p>
+            <table>
+              <thead><tr><th />{layout.columns?.map((c) => <th key={c}>{c}</th>)}</tr></thead>
+              <tbody>{layout.rows?.map((r, i) => (
+                <tr key={r}><th>{r}</th>{layout.columns?.map((c, j) => (
+                  <td key={c}><input value={cells[i]?.[j] ?? ""} inputMode="decimal"
+                                     style={{ width: 72 }} aria-label={`${r} | ${c}`}
+                                     onChange={(e) => setCells(cells.map((row, a) => row.map(
+                                       (v, b) => (a === i && b === j ? e.target.value : v))))} />
+                  </td>))}</tr>))}</tbody>
+            </table>
+            <p className={bad.length ? "sev-warning" : "muted"}>
+              {bad.length ? `⚠ ${bad.length} column(s) do not sum to 1 (e.g. ${bad[0]})`
+                : "✓ every column sums to 1"}</p>
+            <div className="actions">
+              <button onClick={normalize}>Normalize columns</button>
+              <button onClick={() => close("")}>Learn from data</button>
+              <button onClick={() => close()}>Cancel</button>
+              <button className="primary" data-testid="save-table"
+                      onClick={() => close(JSON.stringify(numbers))}>Save</button>
+            </div>
+          </div>
+        </div>)}
+    </div>
+  );
+}
+
 function Properties() {
   const { selected, nodes, blockMap, setParam, commit, validation, dataIssues, name, setName,
           blocks } = useStore();
@@ -79,7 +158,11 @@ function Properties() {
       </div>
       {[...issues.map((i) => [i.severity, i.message]), ...data.map((i) => [i.severity, i.message])]
         .map(([sev, msg], k) => <div key={k} className={`sev-${sev}`}>{sev === "error" ? "✕" : "⚠"} {msg}</div>)}
-      {(def?.params ?? []).map((spec) => (
+      {(def?.params ?? []).map((spec) => spec.type === "table" ? (
+        <TableField key={spec.name} spec={spec} nodeId={node.id}
+                    value={node.data.params[spec.name] ?? spec.default}
+                    onChange={(v) => { commit(); setParam(node.id, spec.name, v); }} />
+      ) : (
         <ParamField key={spec.name} spec={spec} value={node.data.params[spec.name] ?? spec.default}
                     onChange={(v) => { commit(); setParam(node.id, spec.name, v); }} />
       ))}

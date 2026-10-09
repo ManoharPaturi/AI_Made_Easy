@@ -380,6 +380,11 @@ def generate_training(graph: Graph, framework: str) -> str:
     from ai_made_easy.core.classic.generate import generate_classic, is_classic
     from ai_made_easy.core.tasks import get_task
 
+    from ai_made_easy.core.families import generator_for
+
+    own = generator_for(graph, framework)
+    if own is not None:
+        return own(graph)
     if is_classic(graph) or framework == "sklearn":
         if not is_classic(graph):
             raise CodegenError("scikit-learn export needs a classic ML estimator block")

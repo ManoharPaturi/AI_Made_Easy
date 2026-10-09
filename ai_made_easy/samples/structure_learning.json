@@ -1,0 +1,157 @@
+{
+ "schema_version": 1,
+ "name": "structure_learning",
+ "meta": {
+  "title": "Bayesian Network \u2014 Learn the Structure",
+  "description": "5,000 rows are sampled from the student network's tables, then greedy equivalence search learns which variables depend on which. The report compares the learned graph with the design: the skeleton is recovered exactly, and the one reversed edge (I\u2013S) is one the data cannot orient."
+ },
+ "nodes": [
+  {
+   "id": "difficulty",
+   "type": "pgm.variable",
+   "params": {
+    "name": "D",
+    "states": "easy, hard",
+    "cpd": "[[0.6], [0.4]]",
+    "latent": false,
+    "lagged_parents": ""
+   },
+   "position": [
+    0,
+    0
+   ]
+  },
+  {
+   "id": "intelligence",
+   "type": "pgm.variable",
+   "params": {
+    "name": "I",
+    "states": "low, high",
+    "cpd": "[[0.7], [0.3]]",
+    "latent": false,
+    "lagged_parents": ""
+   },
+   "position": [
+    320,
+    0
+   ]
+  },
+  {
+   "id": "grade",
+   "type": "pgm.variable",
+   "params": {
+    "name": "G",
+    "states": "A, B, C",
+    "cpd": "[[0.3, 0.9, 0.05, 0.5], [0.4, 0.08, 0.25, 0.3], [0.3, 0.02, 0.7, 0.2]]",
+    "latent": false,
+    "lagged_parents": ""
+   },
+   "position": [
+    160,
+    160
+   ]
+  },
+  {
+   "id": "letter",
+   "type": "pgm.variable",
+   "params": {
+    "name": "L",
+    "states": "weak, strong",
+    "cpd": "[[0.1, 0.4, 0.99], [0.9, 0.6, 0.01]]",
+    "latent": false,
+    "lagged_parents": ""
+   },
+   "position": [
+    160,
+    320
+   ]
+  },
+  {
+   "id": "sat",
+   "type": "pgm.variable",
+   "params": {
+    "name": "S",
+    "states": "low, high",
+    "cpd": "[[0.95, 0.2], [0.05, 0.8]]",
+    "latent": false,
+    "lagged_parents": ""
+   },
+   "position": [
+    480,
+    160
+   ]
+  },
+  {
+   "id": "rows",
+   "type": "data.network_sample",
+   "params": {
+    "n_rows": 5000,
+    "seed": 1
+   },
+   "position": [
+    0,
+    480
+   ]
+  },
+  {
+   "id": "structure",
+   "type": "pgm.structure_learning",
+   "params": {
+    "method": "ges",
+    "score": "bic",
+    "max_indegree": 0,
+    "significance": 0.01,
+    "start_from_design": true
+   },
+   "position": [
+    640,
+    0
+   ]
+  },
+  {
+   "id": "parameters",
+   "type": "pgm.parameter_learning",
+   "params": {
+    "estimator": "bayesian",
+    "prior": "BDeu",
+    "equivalent_sample_size": 5.0,
+    "iterations": 100
+   },
+   "position": [
+    640,
+    120
+   ]
+  },
+  {
+   "id": "query",
+   "type": "pgm.query",
+   "params": {
+    "variables": "I",
+    "evidence": "G=C",
+    "kind": "marginal"
+   },
+   "position": [
+    640,
+    240
+   ]
+  }
+ ],
+ "edges": [
+  {
+   "from": "difficulty/out",
+   "to": "grade/parents"
+  },
+  {
+   "from": "intelligence/out",
+   "to": "grade/parents"
+  },
+  {
+   "from": "grade/out",
+   "to": "letter/parents"
+  },
+  {
+   "from": "intelligence/out",
+   "to": "sat/parents"
+  }
+ ]
+}

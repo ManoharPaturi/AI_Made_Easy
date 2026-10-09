@@ -40,18 +40,19 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("blocks", help="list registered blocks")
     p_val = sub.add_parser("validate", help="validate a project graph")
     p_val.add_argument("project", help="path to project .json")
-    for name, help_text, choices in (
-            ("gen", "generate model code", FRAMEWORKS),
-            ("train", "generate a training script (classic ML projects: sklearn)",
-             (*FRAMEWORKS, "sklearn"))):
+    for name, help_text, choices, default in (
+            ("gen", "generate model code", FRAMEWORKS, "pytorch"),
+            ("train", "generate a training script (auto: the design's framework)", None,
+             "auto")):
         p = sub.add_parser(name, help=help_text)
         p.add_argument("project", help="path to project .json")
-        p.add_argument("-f", "--framework", choices=choices, default="pytorch")
+        p.add_argument("-f", "--framework", choices=choices, default=default,
+                       help="pytorch, keras, sklearn, pgmpy, pymc, ... (train: auto)")
         p.add_argument("-o", "--out", default="exports", help="output directory")
     p_run = sub.add_parser("run", help="train headlessly and stream events")
     p_run.add_argument("project", help="path to project .json")
     p_run.add_argument("-f", "--framework", default="auto",
-                       choices=("auto", "pytorch", "keras", "sklearn"))
+                       help="auto (the design's framework), pytorch, keras, sklearn, ...")
     p_runs = sub.add_parser("runs", help="run history")
     p_runs.add_argument("action", nargs="?", default="list",
                         choices=("list", "show", "compare", "delete"))
@@ -164,6 +165,10 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command in ("gen", "train"):
         try:
+            if args.command == "train":
+                from ai_made_easy.core.runner.manager import resolve_framework
+
+                args.framework = resolve_framework(graph, args.framework)
             path = (
                 export(graph, args.framework, args.out)
                 if args.command == "gen"

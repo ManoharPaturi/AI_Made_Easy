@@ -457,11 +457,14 @@ def export_training(graph: Graph, framework: str, out_dir: str | Path) -> Path:
     """
     from ai_made_easy.core.classic.generate import generate_classic, is_classic
     from ai_made_easy.core.codegen.training_gen import generate_training
+    from ai_made_easy.core.families import generator_for
 
     if is_classic(graph):
         framework = "sklearn"
     out = Path(out_dir) / f"{sanitize_identifier(graph.name)}_train_{framework}.py"
     out.parent.mkdir(parents=True, exist_ok=True)
-    code = generate_classic(graph) if framework == "sklearn" else generate_training(graph, framework)
+    own = generator_for(graph, framework)
+    code = own(graph) if own is not None else (
+        generate_classic(graph) if framework == "sklearn" else generate_training(graph, framework))
     out.write_text(code)
     return out

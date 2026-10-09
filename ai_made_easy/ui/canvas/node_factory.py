@@ -90,7 +90,8 @@ def make_node_class(block: BlockDefinition) -> Type[BaseNode]:
         self.view.text_color = TEXT_COLOR
         self.view.border_color = rgba
         for port in block.inputs:
-            self.add_input(port.name, color=port_rgba, display_name=False)
+            self.add_input(port.name, multi_input=port.multi, color=port_rgba,
+                           display_name=False)
         for port in block.outputs:
             self.add_output(port.name, color=port_rgba, display_name=False)
         if len(block.inputs) > 1:

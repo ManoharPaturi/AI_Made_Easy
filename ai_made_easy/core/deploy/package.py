@@ -50,6 +50,10 @@ _INPUT_HELP = {
                   "\"name\", \"steps\": 50, \"guidance\": 2.0}; returns base64 PNG images",
     "prompt": "a list of prompts (language model: text or {\"prompt\", \"max_new_tokens\", "
               "\"temperature\", \"top_k\", \"seed\"}) or source texts (seq2seq)",
+    "evidence": "a list of evidence dicts {\"Variable\": \"state\"}, or {\"evidence\": {...}, "
+                "\"variables\": [...], \"kind\": \"marginal\" | \"map\"}; returns posteriors",
+    "sequences": "a list of observation sequences ([[value, ...], ...] per step); returns the "
+                 "hidden state of every step",
     "series": "a list of series: {\"history\": [values], \"past_covariates\": [[...]], "
               "\"future_covariates\": [[...]] (history + horizon rows)} or a plain list of "
               "values",
@@ -78,7 +82,8 @@ def _artifacts(run_dir: Path, framework: str) -> tuple[Path, list[Path]]:
     script = next(iter(sorted(run_dir.glob(f"*_train_{framework}.py"))), None)
     if script is None:
         raise DeployError(f"no {framework} training script in {run_dir}")
-    patterns = {"pytorch": ("*_best.pt", "inference_state.pkl"),
+    patterns = {"pgmpy": ("*_model.pkl",),
+                "pytorch": ("*_best.pt", "inference_state.pkl"),
                 "keras": ("*_best.keras", "inference_state.pkl"),
                 "sklearn": ("*_model.joblib", "inference.json")}[framework]
     files = []
@@ -104,6 +109,13 @@ def _describe(graph_dict: dict) -> dict:
     from ai_made_easy.core.tasks import task_of
 
     task = None if is_classic(graph) else task_of(graph)
+    if task is not None and task.family == "pgm":
+        from ai_made_easy.core.pgm.tasks import dataset_of as pgm_data
+
+        data = pgm_data(graph)
+        kind = "sequences" if task.id == "regime_detection" else "evidence"
+        return {"task": task.id, "modality": "tabular", "dataset": data.type_id if data else "",
+                "input_kind": kind, "input_help": _INPUT_HELP[kind], "response": task.serving}
     if task is not None and "image" in task.modalities and task.trainer_kind != "supervised":
         from ai_made_easy.core.vision.tasks import dataset_of
 
@@ -202,6 +214,10 @@ def _example(meta: dict, signature: dict) -> str:
         return json.dumps({"inputs": ["an example text"]})
     if kind == "images":
         return '{"inputs": ["<base64 image>"]}'
+    if kind == "evidence":
+        return json.dumps({"inputs": [{"evidence": {}, "kind": "marginal"}]})
+    if kind == "sequences":
+        return json.dumps({"inputs": [[0.1, 2.0, 2.2]]})
     if kind == "generation":
         return json.dumps({"inputs": [{"n": 4, "seed": 0}]})
     if kind == "prompt":

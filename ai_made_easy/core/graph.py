@@ -454,11 +454,14 @@ class Graph:
                             node.instance_id,
                         )
                     )
-        # structure
-        try:
-            self.topo_order()
-        except GraphError as exc:
-            issues.append(ValidationIssue("error", str(exc)))
+        # structure (families with undirected models check cycles themselves)
+        from ai_made_easy.core.families import family_of
+
+        if family_of(self).acyclic:
+            try:
+                self.topo_order()
+            except GraphError as exc:
+                issues.append(ValidationIssue("error", str(exc)))
 
         issues += self._param_issues()
         issues += self._role_issues() + self._requirement_issues()

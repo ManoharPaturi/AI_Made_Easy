@@ -101,6 +101,15 @@ def fix_for_issue(graph: "Graph", issue: "ValidationIssue"):
             return ("Match input", "set the Input shape to the dataset's "
                     f"{m.group(1)} features", g)
 
+    # a probability table whose columns do not sum to 1 -> rescale them
+    if node is not None and msg.endswith(": Normalize the table") \
+            and str(node.params.get("cpd", "")).strip():
+        from ai_made_easy.core.pgm.network import normalized
+
+        node.params["cpd"] = normalized(node.params["cpd"])
+        return ("Normalize the table", "rescale every column of the probability table to "
+                "sum to 1", g)
+
     # "... set <param> to <number>" on a block that has that parameter -> set it
     m = re.search(r"[Ss]et (\w+) to (-?\d+(?:\.\d+)?)\b", msg)
     if node is not None and m and m.group(1) in {p.name for p in node.definition().params}:

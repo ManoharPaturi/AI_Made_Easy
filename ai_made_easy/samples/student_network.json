@@ -1,0 +1,167 @@
+{
+ "schema_version": 1,
+ "name": "student_network",
+ "meta": {
+  "title": "Bayesian Network \u2014 the Student example",
+  "description": "Koller & Friedman's student network: course difficulty and intelligence explain the grade, which explains the recommendation letter; intelligence also explains the SAT score. The queries show explaining away: a C grade makes high intelligence unlikely (8%), but a high SAT score as well raises it to 58%. Edit any probability table with Edit table\u2026."
+ },
+ "nodes": [
+  {
+   "id": "difficulty",
+   "type": "pgm.variable",
+   "params": {
+    "name": "D",
+    "states": "easy, hard",
+    "cpd": "[[0.6], [0.4]]",
+    "latent": false,
+    "lagged_parents": ""
+   },
+   "position": [
+    0,
+    0
+   ]
+  },
+  {
+   "id": "intelligence",
+   "type": "pgm.variable",
+   "params": {
+    "name": "I",
+    "states": "low, high",
+    "cpd": "[[0.7], [0.3]]",
+    "latent": false,
+    "lagged_parents": ""
+   },
+   "position": [
+    320,
+    0
+   ]
+  },
+  {
+   "id": "grade",
+   "type": "pgm.variable",
+   "params": {
+    "name": "G",
+    "states": "A, B, C",
+    "cpd": "[[0.3, 0.9, 0.05, 0.5], [0.4, 0.08, 0.25, 0.3], [0.3, 0.02, 0.7, 0.2]]",
+    "latent": false,
+    "lagged_parents": ""
+   },
+   "position": [
+    160,
+    160
+   ]
+  },
+  {
+   "id": "letter",
+   "type": "pgm.variable",
+   "params": {
+    "name": "L",
+    "states": "weak, strong",
+    "cpd": "[[0.1, 0.4, 0.99], [0.9, 0.6, 0.01]]",
+    "latent": false,
+    "lagged_parents": ""
+   },
+   "position": [
+    160,
+    320
+   ]
+  },
+  {
+   "id": "sat",
+   "type": "pgm.variable",
+   "params": {
+    "name": "S",
+    "states": "low, high",
+    "cpd": "[[0.95, 0.2], [0.05, 0.8]]",
+    "latent": false,
+    "lagged_parents": ""
+   },
+   "position": [
+    480,
+    160
+   ]
+  },
+  {
+   "id": "model",
+   "type": "pgm.model",
+   "params": {
+    "kind": "bayesian_network",
+    "class_variable": "",
+    "test_fraction": 0.2
+   },
+   "position": [
+    640,
+    0
+   ]
+  },
+  {
+   "id": "inference",
+   "type": "pgm.inference",
+   "params": {
+    "method": "variable_elimination",
+    "samples": 5000
+   },
+   "position": [
+    640,
+    120
+   ]
+  },
+  {
+   "id": "q_grade",
+   "type": "pgm.query",
+   "params": {
+    "variables": "I",
+    "evidence": "G=C",
+    "kind": "marginal"
+   },
+   "position": [
+    640,
+    240
+   ]
+  },
+  {
+   "id": "q_sat",
+   "type": "pgm.query",
+   "params": {
+    "variables": "I",
+    "evidence": "G=C, S=high",
+    "kind": "marginal"
+   },
+   "position": [
+    640,
+    360
+   ]
+  },
+  {
+   "id": "q_map",
+   "type": "pgm.query",
+   "params": {
+    "variables": "G, L",
+    "evidence": "I=high",
+    "kind": "map"
+   },
+   "position": [
+    640,
+    480
+   ]
+  }
+ ],
+ "edges": [
+  {
+   "from": "difficulty/out",
+   "to": "grade/parents"
+  },
+  {
+   "from": "intelligence/out",
+   "to": "grade/parents"
+  },
+  {
+   "from": "grade/out",
+   "to": "letter/parents"
+  },
+  {
+   "from": "intelligence/out",
+   "to": "sat/parents"
+  }
+ ]
+}

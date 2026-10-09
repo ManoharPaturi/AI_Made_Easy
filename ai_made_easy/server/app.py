@@ -136,6 +136,10 @@ def create_app(*, token: str | None = None, projects_dir: str | Path | None = No
     def describe(payload: dict = Body(...)) -> dict:  # noqa: B008
         return api.describe_design(_graph_body(payload))
 
+    @app.post("/api/table_layout", dependencies=guard)
+    def table_layout(payload: dict = Body(...)) -> dict:  # noqa: B008
+        return api.table_layout(_graph_body(payload), str(payload.get("node", "")))
+
     @app.get("/api/samples", dependencies=guard)
     def samples() -> dict:
         return api.list_samples()
