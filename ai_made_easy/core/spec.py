@@ -48,7 +48,7 @@ class PortSpec:
 # What a wire carries, beyond its shape. "tensor" is the generic role and is
 # compatible with every other; two specific roles must match.
 ROLES = ("tensor", "logits", "probs", "boxes", "masks", "keypoints", "tokens", "graph",
-         "distribution", "variable", "latent", "kernel", "artifact")
+         "distribution", "variable", "latent", "kernel", "component", "artifact")
 
 
 def roles_compatible(source: str, target: str) -> bool:

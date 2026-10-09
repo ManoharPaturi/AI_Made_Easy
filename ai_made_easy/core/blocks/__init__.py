@@ -32,4 +32,5 @@ from ai_made_easy.core.blocks import (  # noqa: F401
     gp,
     bayes,
     flows,
+    ssm,
 )

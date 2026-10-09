@@ -25,7 +25,7 @@ SECTIONS: list[tuple[str, list[str]]] = [
     ("Training", ["Loss", "Optimizer", "Scheduler", "Training", "Generative Training",
                   "Metrics"]),
     ("Probabilistic", ["Graphical Models", "Probabilistic Programs", "Gaussian Processes",
-                       "Normalizing Flows"]),
+                       "Normalizing Flows", "State-Space Models"]),
     ("Classic ML", ["Linear Models", "Support Vector Machines", "Neighbors & Bayes",
                     "Trees & Ensembles", "Gradient Boosting", "Neural (sklearn)", "Clustering",
                     "Anomaly Detection", "Feature Engineering", "Text Features",

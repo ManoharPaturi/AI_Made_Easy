@@ -84,7 +84,8 @@ def _artifacts(run_dir: Path, framework: str) -> tuple[Path, list[Path]]:
     script = next(iter(sorted(run_dir.glob(f"*_train_{framework}.py"))), None)
     if script is None:
         raise DeployError(f"no {framework} training script in {run_dir}")
-    patterns = {"pgmpy": ("*_model.pkl",), "pymc": ("*_draws.npz", "*_state.json"),
+    patterns = {"pgmpy": ("*_model.pkl",), "statsmodels": ("*_ssm.pkl",),
+                "pymc": ("*_draws.npz", "*_state.json"),
                 "gpytorch": ("*_gp.pt", "inference_state.json"),
                 "pytorch": ("*_best.pt", "inference_state.pkl"),
                 "keras": ("*_best.keras", "inference_state.pkl"),
@@ -143,6 +144,14 @@ def _describe(graph_dict: dict) -> dict:
             out["export_note"] = ("detectors are served by the FastAPI package; ONNX / "
                                   "TorchScript tracing of detection models is not supported")
         return out
+    if task is not None and task.family == "ssm":
+        from ai_made_easy.core.ssm.template import dataset_of as ssm_data
+
+        data = ssm_data(graph)
+        return {"task": task.id, "modality": "timeseries",
+                "dataset": data.type_id if data else "data.structural_series",
+                "input_kind": "series", "input_help": _INPUT_HELP["series"],
+                "response": task.serving}
     if task is not None and task.trainer_kind == "forecasting":
         from ai_made_easy.core.forecast.tasks import dataset_of as forecast_data
 

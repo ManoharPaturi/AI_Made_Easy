@@ -1,0 +1,92 @@
+{
+  "schema_version": 1,
+  "name": "structural_time_series",
+  "meta": {
+    "title": "State-Space \u2014 Structural Time Series",
+    "description": "A local linear trend, a monthly season and short-term autoregression are wired into one state-space model and fitted with the Kalman filter. The components picture compares the recovered trend and season with the true ones; the forecast comes with a 90% interval."
+  },
+  "nodes": [
+    {
+      "id": "trend",
+      "type": "ssm.trend",
+      "params": {
+        "kind": "local linear trend"
+      },
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "season",
+      "type": "ssm.seasonal",
+      "params": {
+        "period": 12,
+        "harmonics": 0,
+        "stochastic": true
+      },
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "ar",
+      "type": "ssm.autoregressive",
+      "params": {
+        "order": 1
+      },
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "model",
+      "type": "ssm.model",
+      "params": {
+        "target_column": "",
+        "horizon": 24,
+        "interval": 0.9,
+        "irregular": true,
+        "max_iterations": 200
+      },
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "data",
+      "type": "data.structural_series",
+      "params": {
+        "length": 240,
+        "slope": 0.05,
+        "level_drift": 0.02,
+        "season_length": 12,
+        "season_amplitude": 2.0,
+        "cycle_amplitude": 0.0,
+        "noise": 0.4,
+        "seed": 0
+      },
+      "position": [
+        0,
+        0
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "from": "trend/out",
+      "to": "model/components"
+    },
+    {
+      "from": "season/out",
+      "to": "model/components"
+    },
+    {
+      "from": "ar/out",
+      "to": "model/components"
+    }
+  ]
+}

@@ -105,7 +105,7 @@ jobs:
           pip install torch --index-url https://download.pytorch.org/whl/cpu
           pip install -e ".[dev,probabilistic,serve]"
       - name: Test
-        run: pytest -q -p no:cacheprovider tests/test_pgm.py tests/test_ppl.py tests/test_gp.py
+        run: pytest -q -p no:cacheprovider tests/test_pgm.py tests/test_ppl.py tests/test_gp.py tests/test_ssm.py
 
   web:
     needs: lint
