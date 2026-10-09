@@ -378,7 +378,7 @@ def predict(model: nn.Module, loader: DataLoader, device: torch.device):
     model.eval()
     outs, ys = [], []
     for xb, yb in loader:
-        outs.append(model(xb.to(device)).float().cpu())
+        outs.append({{ "mc_forward(model, xb.to(device))" if prob else "model(xb.to(device))" }}.float().cpu())
         ys.append(yb)
     if not outs:
         return np.zeros((0,)), np.zeros((0,))
@@ -392,7 +392,7 @@ def evaluate(model: nn.Module, loss_fn, loader: DataLoader, device: torch.device
     with torch.no_grad():
         out_t, y_t = adapt(torch.from_numpy(outputs), torch.from_numpy(targets))
         loss = float(loss_fn(out_t, y_t))
-    return loss, compute_metrics(outputs, targets)
+    return loss, compute_metrics({{ "mdn_point(outputs)" if prob and prob.mdn else "outputs" }}, targets)
 
 
 def reset_peak_memory(device: torch.device) -> None:
@@ -416,6 +416,12 @@ def fit(model: nn.Module, train_loader, val_loader, device, log: bool = True):
     loss_fn = make_loss({{ "dataset_targets(train_loader.dataset)" if balance == "class weights" else "" }})
     if hasattr(loss_fn, "to"):
         loss_fn = loss_fn.to(device)
+{% if prob and prob.mdn %}
+    loss_fn = mdn_nll          # the mixture density head trains on its likelihood
+{% endif %}
+{% if prob and prob.kl %}
+    kl_scale = 1.0 / max(len(train_loader.dataset), 1)   # ELBO per training example
+{% endif %}
     optimizer = {{ optimizer_expr }}
 {% if scheduler_expr %}
     scheduler = {{ scheduler_expr }}
@@ -441,6 +447,9 @@ def fit(model: nn.Module, train_loader, val_loader, device, log: bool = True):
             with torch.autocast(device_type=device.type, dtype=amp_dtype, enabled=use_amp):
                 out, target = adapt(model(xb), yb)
                 loss = loss_fn(out, target)
+{% if prob and prob.kl %}
+                loss = loss + kl_scale * kl_penalty(model)
+{% endif %}
             scaler.scale(loss / ACCUM_STEPS).backward()
             if step % ACCUM_STEPS == 0 or step == len(train_loader):
                 if GRAD_CLIP > 0:
@@ -604,6 +613,10 @@ def main() -> None:
     print(f"saved best weights to {CHECKPOINT}")
     test_loss, test_metrics = evaluate(model, loss_fn, test_loader, device)
     report = {"loss": test_loss, **{k: v for k, v in test_metrics.items() if isinstance(v, float)}}
+{% if prob %}
+    report.update(probabilistic_report(model, train_loader, val_loader, test_loader, device))
+    save_inference_state()      # temperature, conformal quantiles, Laplace posterior
+{% endif %}
     print("test: " + " ".join(f"{k}={v:.4f}" for k, v in report.items()))
     Path("metrics.json").write_text(json.dumps(
         {k: v for k, v in {**report, **test_metrics}.items()

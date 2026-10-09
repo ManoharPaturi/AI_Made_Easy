@@ -191,7 +191,10 @@ def _torch_ctx(graph: Graph, spec: TrainingSpec) -> dict:
     if spec.scheduler:
         sched_expr = cat.render(spec.scheduler["kind"], spec.scheduler, "pytorch")
         sched_step = cat.COMPONENTS[spec.scheduler["kind"]].meta["step"]
+    from ai_made_easy.core.bayes.codegen import probabilistic_context
+
     ctx.update(
+        prob=probabilistic_context(graph),
         loss_expr=loss_expr,
         optimizer_expr=cat.render(spec.optimizer["kind"], spec.optimizer, "pytorch"),
         scheduler_expr=sched_expr, scheduler_step=sched_step,
@@ -239,6 +242,10 @@ def _render_torch(graph: Graph, spec: TrainingSpec, ctx: dict, main: str,
         parts.append(_env.from_string(DATA_TEMPLATE).render(**ctx))
         parts.append(_env.from_string(TORCH_ARRAY_LOADERS).render(**ctx))
     parts.append(_env.from_string(TORCH_TRAINING).render(**ctx))
+    if ctx.get("prob"):
+        from ai_made_easy.core.bayes.template import PROBABILISTIC
+
+        parts.append(_env.from_string(PROBABILISTIC).render(**ctx))
     if inference:
         parts.append(_env.from_string(INFERENCE_COMMON).render(**ctx))
         if ctx["torchvision_pipeline"]:

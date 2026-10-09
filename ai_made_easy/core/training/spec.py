@@ -98,6 +98,9 @@ def collect_spec(graph: Graph) -> TrainingSpec:
         input_dtype=str(head.resolved_params().get("dtype", "float32")),
         output_shape=list(shapes[out_node.instance_id]),
     )
+    mdn = [n for n in chain if n.type_id == "bayes.mdn"]
+    if mdn:  # the head emits mixture parameters; the targets are `targets` wide
+        spec.output_shape = [int(mdn[-1].resolved_params()["targets"])]
 
     def pick(ids: tuple[str, ...], label: str):
         found = [n for n in graph.nodes.values() if n.type_id in ids]
@@ -112,9 +115,9 @@ def collect_spec(graph: Graph) -> TrainingSpec:
         spec.dataset = {"block": ds.type_id, **_resolved(ds)}
     # ------------------------------------------------------------ loss/task
     loss = pick(cat.LOSS_IDS, "loss")
+    default_loss = "train.loss_mse" if mdn else "train.loss_cross_entropy"
     spec.loss = ({"kind": loss.type_id, **cat.resolved(loss.type_id, loss.params)}
-                 if loss else {"kind": "train.loss_cross_entropy",
-                               **cat.resolved("train.loss_cross_entropy", {})})
+                 if loss else {"kind": default_loss, **cat.resolved(default_loss, {})})
     meta = cat.COMPONENTS[spec.loss["kind"]].meta
     spec.task = resolve_task(meta["task"], spec.num_outputs).id
     if ds is None:

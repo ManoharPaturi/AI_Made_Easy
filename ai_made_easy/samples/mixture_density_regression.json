@@ -1,0 +1,175 @@
+{
+  "schema_version": 1,
+  "name": "mixture_density_regression",
+  "meta": {
+    "title": "Uncertainty \u2014 Mixture Density Network",
+    "description": "The head predicts a mixture of three Gaussians instead of one number, trained with the mixture's negative log-likelihood. Each prediction comes with a standard deviation and a conformal 90% interval."
+  },
+  "nodes": [
+    {
+      "id": "input",
+      "type": "core.input",
+      "params": {
+        "shape": "8"
+      },
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "dense_0",
+      "type": "core.dense",
+      "params": {
+        "units": 64
+      },
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "relu_1",
+      "type": "core.relu",
+      "params": {},
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "dense_2",
+      "type": "core.dense",
+      "params": {
+        "units": 64
+      },
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "relu_3",
+      "type": "core.relu",
+      "params": {},
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "mdn_4",
+      "type": "bayes.mdn",
+      "params": {
+        "components": 3,
+        "targets": 1
+      },
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "output",
+      "type": "core.output",
+      "params": {},
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "data",
+      "type": "data.synthetic",
+      "params": {
+        "kind": "regression",
+        "n_samples": 3000,
+        "n_features": 8,
+        "noise": 0.5,
+        "seed": 42
+      },
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "loss",
+      "type": "train.loss_mse",
+      "params": {},
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "opt",
+      "type": "train.adam",
+      "params": {
+        "lr": 0.003
+      },
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "trainer",
+      "type": "train.trainer",
+      "params": {
+        "epochs": 60,
+        "batch_size": 64
+      },
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "mae",
+      "type": "eval.mae",
+      "params": {},
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "conformal",
+      "type": "eval.conformal",
+      "params": {
+        "alpha": 0.1
+      },
+      "position": [
+        0,
+        0
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "from": "input/out",
+      "to": "dense_0/in"
+    },
+    {
+      "from": "dense_0/out",
+      "to": "relu_1/in"
+    },
+    {
+      "from": "relu_1/out",
+      "to": "dense_2/in"
+    },
+    {
+      "from": "dense_2/out",
+      "to": "relu_3/in"
+    },
+    {
+      "from": "relu_3/out",
+      "to": "mdn_4/in"
+    },
+    {
+      "from": "mdn_4/out",
+      "to": "output/in"
+    }
+  ]
+}

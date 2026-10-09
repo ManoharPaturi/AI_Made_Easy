@@ -1,0 +1,226 @@
+{
+  "schema_version": 1,
+  "name": "uncertainty_mc_dropout",
+  "meta": {
+    "title": "Uncertainty \u2014 MC Dropout, Calibration and Conformal Sets",
+    "description": "A classifier on two noisy moons keeps dropout on when predicting and averages 30 passes. The report measures calibration (ECE, reliability diagram), fits a temperature on the validation set and builds conformal prediction sets that contain the true class 90% of the time."
+  },
+  "nodes": [
+    {
+      "id": "input",
+      "type": "core.input",
+      "params": {
+        "shape": "2"
+      },
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "dense_0",
+      "type": "core.dense",
+      "params": {
+        "units": 64
+      },
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "relu_1",
+      "type": "core.relu",
+      "params": {},
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "mc_2",
+      "type": "bayes.mc_dropout",
+      "params": {
+        "p": 0.2,
+        "samples": 30
+      },
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "dense_3",
+      "type": "core.dense",
+      "params": {
+        "units": 64
+      },
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "relu_4",
+      "type": "core.relu",
+      "params": {},
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "mc_5",
+      "type": "bayes.mc_dropout",
+      "params": {
+        "p": 0.2,
+        "samples": 30
+      },
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "dense_6",
+      "type": "core.dense",
+      "params": {
+        "units": 2
+      },
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "output",
+      "type": "core.output",
+      "params": {},
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "data",
+      "type": "data.synthetic",
+      "params": {
+        "kind": "moons",
+        "n_samples": 2000,
+        "n_features": 2,
+        "noise": 0.35,
+        "seed": 42
+      },
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "loss",
+      "type": "train.loss_cross_entropy",
+      "params": {},
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "opt",
+      "type": "train.adamw",
+      "params": {
+        "lr": 0.005
+      },
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "trainer",
+      "type": "train.trainer",
+      "params": {
+        "epochs": 30,
+        "batch_size": 64
+      },
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "acc",
+      "type": "eval.accuracy",
+      "params": {},
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "ece",
+      "type": "eval.ece",
+      "params": {
+        "bins": 15
+      },
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "temp",
+      "type": "eval.temperature_scaling",
+      "params": {},
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "conformal",
+      "type": "eval.conformal",
+      "params": {
+        "alpha": 0.1
+      },
+      "position": [
+        0,
+        0
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "from": "input/out",
+      "to": "dense_0/in"
+    },
+    {
+      "from": "dense_0/out",
+      "to": "relu_1/in"
+    },
+    {
+      "from": "relu_1/out",
+      "to": "mc_2/in"
+    },
+    {
+      "from": "mc_2/out",
+      "to": "dense_3/in"
+    },
+    {
+      "from": "dense_3/out",
+      "to": "relu_4/in"
+    },
+    {
+      "from": "relu_4/out",
+      "to": "mc_5/in"
+    },
+    {
+      "from": "mc_5/out",
+      "to": "dense_6/in"
+    },
+    {
+      "from": "dense_6/out",
+      "to": "output/in"
+    }
+  ]
+}
