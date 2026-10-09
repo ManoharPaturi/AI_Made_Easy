@@ -119,15 +119,17 @@ def test_task_of_designs():
 
 
 def test_unknown_trainer_kind_is_reported():
-    from ai_made_easy.core.training.generate import generate_training
+    from ai_made_easy.core.tasks import TRAINER_KINDS
+    from ai_made_easy.core.training.generate import TRAINERS, generate_training
 
     with pytest.raises(ValueError, match="trainer kind"):
         register_task(Task("zz_task", "ZZ", trainer_kind="telepathy"))
+    missing = next(k for k in TRAINER_KINDS if k not in TRAINERS)   # declared, not built yet
     original = get_task("multiclass")
-    register_task(Task("multiclass", original.label, trainer_kind="adversarial",
+    register_task(Task("multiclass", original.label, trainer_kind=missing,
                        classification=True, default_metrics=original.default_metrics))
     try:
-        with pytest.raises(CodegenError, match="adversarial trainer"):
+        with pytest.raises(CodegenError, match=f"{missing} trainer"):
             generate_training(Graph.from_dict(tiny_classifier_dict()), "pytorch")
     finally:
         register_task(original)

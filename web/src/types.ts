@@ -153,7 +153,7 @@ export interface EpochEvent {
 }
 
 export interface RunEvent {
-  type: "log" | "epoch" | "error" | "done" | "env" | "status";
+  type: "log" | "epoch" | "error" | "done" | "env" | "status" | "resources" | "samples";
   [key: string]: unknown;
 }
 
@@ -268,4 +268,5 @@ export interface RunSamples {
   per_class: (number | null)[];
   per_class_metric: string;
   samples: { name: string; data_url: string }[];
+  texts?: { name: string; text: string }[];
 }

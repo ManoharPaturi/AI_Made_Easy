@@ -1,0 +1,104 @@
+{
+ "schema_version": 1,
+ "name": "tiny_gpt",
+ "meta": {
+  "title": "Text \u2014 Tiny GPT Language Model",
+  "description": "A 3-layer GPT learns to write toy sentences byte by byte (\"the cat sees a red ball in the park.\"). Live samples show it go from noise to grammar. Swap Synthetic Text for a Text Corpus to train on your own writing."
+ },
+ "nodes": [
+  {
+   "id": "input",
+   "type": "core.input",
+   "params": {
+    "shape": "64",
+    "dtype": "int64"
+   },
+   "position": [
+    0,
+    0
+   ]
+  },
+  {
+   "id": "gpt",
+   "type": "gen.gpt",
+   "params": {
+    "vocab_size": 256,
+    "context": 64,
+    "d_model": 128,
+    "layers": 3,
+    "heads": 4,
+    "dropout": 0.1,
+    "tie_weights": true
+   },
+   "position": [
+    200,
+    0
+   ]
+  },
+  {
+   "id": "output",
+   "type": "core.output",
+   "params": {},
+   "position": [
+    400,
+    0
+   ]
+  },
+  {
+   "id": "text",
+   "type": "data.synthetic_text",
+   "params": {
+    "n_sentences": 4000,
+    "seed": 0,
+    "val_fraction": 0.1
+   },
+   "position": [
+    0,
+    240
+   ]
+  },
+  {
+   "id": "optimizer",
+   "type": "train.adamw",
+   "params": {
+    "lr": 0.001
+   },
+   "position": [
+    200,
+    240
+   ]
+  },
+  {
+   "id": "perplexity",
+   "type": "eval.perplexity",
+   "params": {},
+   "position": [
+    400,
+    240
+   ]
+  },
+  {
+   "id": "trainer",
+   "type": "train.trainer",
+   "params": {
+    "epochs": 30,
+    "batch_size": 64,
+    "device": "auto"
+   },
+   "position": [
+    600,
+    240
+   ]
+  }
+ ],
+ "edges": [
+  {
+   "from": "input/out",
+   "to": "gpt/in"
+  },
+  {
+   "from": "gpt/out",
+   "to": "output/in"
+  }
+ ]
+}

@@ -10,6 +10,8 @@ Emitted events (one JSON object per line, flushed immediately):
   {"type": "error", "traceback": "..."}
   {"type": "done",  "returncode": 0}
   {"type": "env",   "python": "3.12.4", "platform": "...", "packages": {...}}
+  {"type": "samples", "path": "...", "epoch": 3, "data_url": "data:image/png;base64,..."}
+      (or "text": "..." for .txt samples) from "samples: <file>" lines
 
 The generated scripts stay clean and standalone — this wrapper owns all
 IPC. Stderr passes through untouched (library warnings, tqdm, etc.).
@@ -26,6 +28,9 @@ import traceback
 
 _EPOCH_RE = re.compile(r"^epoch (\d+)/(\d+)\s+(.*)$")
 _RESOURCES_RE = re.compile(r"^resources:\s+(.*)$")
+_SAMPLES_RE = re.compile(r"^samples:\s+(\S+)$")
+_SAMPLE_EPOCH_RE = re.compile(r"epoch_(\d+)")
+MAX_SAMPLE_BYTES = 2_000_000
 _KV_RE = re.compile(r"([A-Za-z_]\w*)=(-?[\d.]+(?:[eE][+-]?\d+)?)")
 
 
@@ -78,8 +83,32 @@ class LineTap(io.TextIOBase):
                 except ValueError:
                     event[key] = value
             _emit(event, self._sink)
+        elif _SAMPLES_RE.match(line):
+            event = _samples_event(_SAMPLES_RE.match(line).group(1))
+            _emit(event or {"type": "log", "line": line}, self._sink)
         else:
             _emit({"type": "log", "line": line}, self._sink)
+
+
+def _samples_event(raw: str) -> dict | None:
+    """A sample grid (PNG) or generated text written by the script, inlined for the UI."""
+    import base64
+    from pathlib import Path
+
+    path = Path(raw).resolve()
+    try:
+        data = path.read_bytes()
+    except OSError:
+        return None
+    if len(data) > MAX_SAMPLE_BYTES:
+        return None
+    m = _SAMPLE_EPOCH_RE.search(path.stem)
+    event = {"type": "samples", "path": str(path), "epoch": int(m.group(1)) if m else None}
+    if path.suffix.lower() == ".png":
+        event["data_url"] = "data:image/png;base64," + base64.b64encode(data).decode()
+    else:
+        event["text"] = data.decode("utf-8", errors="replace")
+    return event
 
 
 _PACKAGES = ("torch", "torchvision", "torchaudio", "keras", "tensorflow", "jax",

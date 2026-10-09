@@ -83,3 +83,17 @@ test("forecasting and speech samples", async ({ page }) => {
   await page.getByPlaceholder(/Search/).fill("mamba");
   await expect(page.getByTestId("lib-seq.mamba")).toBeVisible();
 });
+
+test("generative samples", async ({ page }) => {
+  await page.getByRole("button", { name: "Open" }).click();
+  await page.getByTestId("sample-shapes_diffusion.json").click();
+  await expect(page.getByTestId("design-kind")).toHaveText(
+    "Neural network · Image generation (diffusion)");
+  await expect(page.getByTestId("status")).toHaveText("No problems");
+  await page.getByRole("button", { name: "Open" }).click();
+  await page.getByTestId("sample-tiny_gpt.json").click();
+  await expect(page.getByTestId("design-kind")).toHaveText("Neural network · Language modeling");
+  await expect(page.getByTestId("status")).toHaveText("No problems");
+  await page.getByPlaceholder(/Search/).fill("discriminator");
+  await expect(page.getByTestId("lib-gen.discriminator")).toBeVisible();
+});

@@ -238,7 +238,7 @@ def get_run(run_id: str) -> dict:
 
 
 def run_samples(run_id: str, limit: int = 12) -> dict:
-    """Test-image overlays of a vision run (PNG data URLs) and its per-class scores."""
+    """Sample images (PNG data URLs) and texts a run saved, with per-class scores."""
     import base64
     import json as _json
 
@@ -255,10 +255,14 @@ def run_samples(run_id: str, limit: int = 12) -> dict:
         else:
             classes = value
     per_class = metrics.get("per_class_ap") or metrics.get("per_class_iou") or []
+    texts = [{"name": f.stem, "text": f.read_text(encoding="utf-8", errors="replace")[:20000]}
+             for f in sorted((folder / "eval_samples").glob("*.txt"))[:limit]]
     return {"run_id": run_id, "classes": classes, "per_class": per_class,
-            "per_class_metric": "AP" if "per_class_ap" in metrics else "IoU",
+            "per_class_metric": ("AP" if "per_class_ap" in metrics else
+                                 "IoU" if "per_class_iou" in metrics else ""),
             "samples": [{"name": f.stem, "data_url": "data:image/png;base64,"
-                         + base64.b64encode(f.read_bytes()).decode()} for f in files]}
+                         + base64.b64encode(f.read_bytes()).decode()} for f in files],
+            "texts": texts}
 
 
 def update_run(run_id: str, *, tags: list[str] | None = None, note: str | None = None) -> dict:

@@ -1,0 +1,126 @@
+{
+ "schema_version": 1,
+ "name": "shapes_diffusion",
+ "meta": {
+  "title": "Shapes \u2014 Class-conditional Diffusion",
+  "description": "A small U-Net learns to remove noise from shapes, conditioned on the shape class. DDIM sampling with classifier-free guidance then draws circles, squares or triangles on request (try POST /generate with {\"class\": \"triangle\"}). Diffusion needs a few thousand steps: on a GPU or Apple silicon this takes a few minutes."
+ },
+ "nodes": [
+  {
+   "id": "input",
+   "type": "core.input",
+   "params": {
+    "shape": "1, 32, 32",
+    "dtype": "float32"
+   },
+   "position": [
+    0,
+    0
+   ]
+  },
+  {
+   "id": "denoiser",
+   "type": "gen.diffusion_unet",
+   "params": {
+    "base_channels": 32,
+    "depth": 3,
+    "attention": true,
+    "num_classes": 3,
+    "dropout": 0.1
+   },
+   "position": [
+    200,
+    0
+   ]
+  },
+  {
+   "id": "output",
+   "type": "core.output",
+   "params": {},
+   "position": [
+    400,
+    0
+   ]
+  },
+  {
+   "id": "shapes",
+   "type": "data.synthetic_images",
+   "params": {
+    "kind": "shapes",
+    "n_images": 5000,
+    "image_size": 32,
+    "channels": 1,
+    "seed": 0,
+    "val_fraction": 0.1
+   },
+   "position": [
+    0,
+    240
+   ]
+  },
+  {
+   "id": "scheduler",
+   "type": "gen.noise_scheduler",
+   "params": {
+    "timesteps": 1000,
+    "schedule": "cosine",
+    "sampler": "ddim",
+    "sample_steps": 50,
+    "guidance": 2.0,
+    "cond_dropout": 0.1,
+    "ema": 0.999,
+    "sample_every": 5
+   },
+   "position": [
+    200,
+    240
+   ]
+  },
+  {
+   "id": "optimizer",
+   "type": "train.adamw",
+   "params": {
+    "lr": 0.001
+   },
+   "position": [
+    400,
+    240
+   ]
+  },
+  {
+   "id": "fid",
+   "type": "eval.fid",
+   "params": {
+    "features": "pixels",
+    "samples": 300
+   },
+   "position": [
+    600,
+    240
+   ]
+  },
+  {
+   "id": "trainer",
+   "type": "train.trainer",
+   "params": {
+    "epochs": 30,
+    "batch_size": 64,
+    "device": "auto"
+   },
+   "position": [
+    800,
+    240
+   ]
+  }
+ ],
+ "edges": [
+  {
+   "from": "input/out",
+   "to": "denoiser/in"
+  },
+  {
+   "from": "denoiser/out",
+   "to": "output/in"
+  }
+ ]
+}

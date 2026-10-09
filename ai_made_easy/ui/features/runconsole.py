@@ -118,6 +118,18 @@ class TrainingPage(QtWidgets.QWidget):
             plot.setLabel("bottom", "epoch")
         layout.addWidget(self.plots, 1)
 
+        self.samples_box = QtWidgets.QGroupBox("Samples")
+        samples_layout = QtWidgets.QHBoxLayout(self.samples_box)
+        self.samples_image = QtWidgets.QLabel()
+        self.samples_image.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
+        self.samples_text = QtWidgets.QPlainTextEdit()
+        self.samples_text.setReadOnly(True)
+        samples_layout.addWidget(self.samples_image)
+        samples_layout.addWidget(self.samples_text)
+        self.samples_box.setMaximumHeight(280)
+        self.samples_box.hide()
+        layout.addWidget(self.samples_box)
+
         tools = QtWidgets.QHBoxLayout()
         self.errors_btn = QtWidgets.QPushButton("Error Analysis")
         self.errors_btn.setIcon(icons.icon("list"))
@@ -183,7 +195,29 @@ class TrainingPage(QtWidgets.QWidget):
     def last_metrics(self) -> dict[str, float]:
         return {k: v[-1] for k, v in self._series.items() if v}
 
+    def on_samples(self, event: dict) -> None:
+        """Show the newest sample grid (image) or generated text of a generative run."""
+        import base64
+
+        epoch = event.get("epoch")
+        self.samples_box.setTitle("Samples" + (f" — epoch {epoch}" if epoch else ""))
+        url = str(event.get("data_url") or "")
+        if url.startswith("data:image/png;base64,"):
+            pixmap = QtGui.QPixmap()
+            pixmap.loadFromData(base64.b64decode(url.split(",", 1)[1]), "PNG")
+            self.samples_image.setPixmap(pixmap.scaled(
+                520, 250, QtCore.Qt.AspectRatioMode.KeepAspectRatio,
+                QtCore.Qt.TransformationMode.FastTransformation))
+            self.samples_image.show()
+            self.samples_text.hide()
+        else:
+            self.samples_text.setPlainText(str(event.get("text", "")))
+            self.samples_text.show()
+            self.samples_image.hide()
+        self.samples_box.show()
+
     def reset(self) -> None:
+        self.samples_box.hide()
         self._epoch_x.clear()
         self._series.clear()
         for curve in self._curves.values():

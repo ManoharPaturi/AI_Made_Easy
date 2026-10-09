@@ -144,14 +144,17 @@ function RunSamplesView({ runId }: { runId: string }) {
     setData(null);
     api.runSamples(runId).then(setData).catch(() => setData(null));
   }, [runId]);
-  if (!data || !data.samples.length) return null;
+  const texts = data?.texts ?? [];
+  if (!data || (!data.samples.length && !texts.length)) return null;
   const offset = data.per_class.length === data.classes.length + 1 ? 1 : 0;
+  const caption = data.per_class_metric === "AP"
+    ? "Green: ground truth · red: prediction with its score."
+    : data.per_class_metric === "IoU" ? "Each sample: true mask (left) and prediction (right)."
+      : "What the trained model produced on held-out data or from noise.";
   return (
     <div data-testid="run-samples">
-      <h3>Test predictions</h3>
-      <p className="muted">{data.per_class_metric === "AP"
-        ? "Green: ground truth · red: prediction with its score."
-        : "Each sample: true mask (left) and prediction (right)."}</p>
+      <h3>{data.per_class_metric ? "Test predictions" : "Samples"}</h3>
+      <p className="muted">{caption}</p>
       {data.per_class.length > 0 && (
         <table style={{ maxWidth: 420 }}>
           <thead><tr><th>Class</th><th className="num">{data.per_class_metric}</th></tr></thead>
@@ -162,6 +165,9 @@ function RunSamplesView({ runId }: { runId: string }) {
       <div className="sample-grid">
         {data.samples.map((s) => <img key={s.name} src={s.data_url} alt={s.name} title={s.name} />)}
       </div>
+      {texts.map((t) => (
+        <pre key={t.name} className="code" style={{ whiteSpace: "pre-wrap", maxHeight: 320,
+                                                    overflow: "auto" }}>{t.text}</pre>))}
     </div>
   );
 }

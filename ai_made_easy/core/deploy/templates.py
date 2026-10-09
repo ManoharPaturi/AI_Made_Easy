@@ -86,6 +86,15 @@ def predict(request: PredictRequest) -> PredictResponse:
     return _predict(request.inputs)
 {image_route}'''
 
+GENERATE_ROUTE = '''
+
+
+@app.post("/generate", response_model=PredictResponse, dependencies=[Depends(check_key)])
+def generate(request: PredictRequest) -> PredictResponse:
+    """Generation requests (same body as /predict): see the input description."""
+    return _predict(request.inputs)
+'''
+
 IMAGE_ROUTE = '''
 
 @app.post("/predict/image", response_model=PredictResponse, dependencies=[Depends(check_key)])

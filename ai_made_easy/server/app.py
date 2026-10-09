@@ -286,6 +286,8 @@ def create_app(*, token: str | None = None, projects_dir: str | Path | None = No
         try:
             for epoch in mgr.history.epochs(run_id):  # replay what happened so far
                 await ws.send_json({"type": "epoch", **epoch})
+            if (samples := mgr.latest_samples(run_id)) is not None:
+                await ws.send_json(samples)
             while True:
                 record = mgr.history.get(run_id)
                 if record.status != "running" and queue.empty():

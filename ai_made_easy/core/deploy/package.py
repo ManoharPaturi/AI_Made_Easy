@@ -46,6 +46,10 @@ _INPUT_HELP = {
     "speech": "a list of clips: base64 WAV files, float waveforms at the training sample rate, "
               "or {\"waveform\": [...], \"sample_rate\": n} (resampled)",
     "windows": "a list of windows, each [time steps][feature columns]",
+    "generation": "a list of requests: a count, or {\"n\": 4, \"seed\": 0, \"class\": "
+                  "\"name\", \"steps\": 50, \"guidance\": 2.0}; returns base64 PNG images",
+    "prompt": "a list of prompts (language model: text or {\"prompt\", \"max_new_tokens\", "
+              "\"temperature\", \"top_k\", \"seed\"}) or source texts (seq2seq)",
     "series": "a list of series: {\"history\": [values], \"past_covariates\": [[...]], "
               "\"future_covariates\": [[...]] (history + horizon rows)} or a plain list of "
               "values",
@@ -122,6 +126,16 @@ def _describe(graph_dict: dict) -> dict:
                 "response": task.serving,
                 "export_note": "forecasters are served by the FastAPI package; covariates and "
                                "scaling run in Python before the model"}
+    if task is not None and task.trainer_kind in ("vae", "adversarial", "diffusion",
+                                                  "language_model", "seq2seq"):
+        from ai_made_easy.core.generative.tasks import dataset_of as generative_data
+
+        data = generative_data(graph)
+        kind = "generation" if task.trainer_kind in ("vae", "adversarial", "diffusion") \
+            else "prompt"
+        return {"task": task.id, "modality": "image" if kind == "generation" else "text",
+                "dataset": data.type_id if data else "",
+                "input_kind": kind, "input_help": _INPUT_HELP[kind], "response": task.serving}
     if task is not None and task.trainer_kind == "speech":
         from ai_made_easy.core.speech.tasks import dataset_of as speech_data
 
@@ -188,6 +202,10 @@ def _example(meta: dict, signature: dict) -> str:
         return json.dumps({"inputs": ["an example text"]})
     if kind == "images":
         return '{"inputs": ["<base64 image>"]}'
+    if kind == "generation":
+        return json.dumps({"inputs": [{"n": 4, "seed": 0}]})
+    if kind == "prompt":
+        return json.dumps({"inputs": ["the cat"]})
     if kind == "speech":
         return '{"inputs": ["<base64 WAV file>"]}'
     if kind == "series":
@@ -249,7 +267,9 @@ def build_package(run_dir: Path | str, out_dir: Path | str, *, formats: tuple[st
     (out_dir / "requirements.txt").write_text("\n".join(reqs) + "\n")
     (out_dir / "app.py").write_text(templates.APP.format(
         name=name, image=image,
-        image_route=templates.IMAGE_ROUTE if meta["input_kind"] == "images" else ""))
+        image_route=(templates.IMAGE_ROUTE if meta["input_kind"] == "images" else
+                     templates.GENERATE_ROUTE if meta["input_kind"] in ("generation", "prompt")
+                     else "")))
     (out_dir / "Dockerfile").write_text(templates.DOCKERFILE.format(
         name=name, python=py_minor, env=keras_env))
     (out_dir / ".dockerignore").write_text(templates.DOCKERIGNORE)
@@ -285,7 +305,9 @@ def build_package(run_dir: Path | str, out_dir: Path | str, *, formats: tuple[st
         name=name, run_id=meta["run_id"], task=meta["task"], framework=framework,
         input_help=meta["input_help"], metrics_rows=metrics_rows, image=image,
         image_endpoint=("- `POST /predict/image` — multipart image files\n"
-                        if meta["input_kind"] == "images" else ""),
+                        if meta["input_kind"] == "images" else
+                        "- `POST /generate` — the same requests as `/predict`\n"
+                        if meta["input_kind"] in ("generation", "prompt") else ""),
         example=_example(meta, signature).replace("'", "\\'"),
         exports_section=("\n## Exported formats\n\n" + exports) if exports else ""))
     return result

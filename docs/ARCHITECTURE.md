@@ -136,6 +136,25 @@ resolver, `runtime.py` shared by scripts and the app, `template.py`, `rules.py`,
 - `sequence/` holds the reusable TCN / Mamba / S4D / sLSTM / mel front-end
   helpers; their `meta["cost"]` feeds the summary and budgets.
 
+## Generative models
+
+`core/generative` adds five trainer kinds (`vae`, `adversarial`, `diffusion`,
+`language_model`, `seq2seq`) rendered by two templates (`image_template.py`,
+`text_template.py`). Blocks decide the kind (`tasks.generative_kind`): a Noise
+Scheduler or Diffusion U-Net → diffusion, a Discriminator → GAN, a Reparameterize
+block → VAE, text pairs / Seq2Seq Transformer → seq2seq, text / GPT / Causal
+Transformer → language model.
+
+- The canvas chain is always the model that is served: the VAE (generation sets
+  `Reparameterize.prior_z` and runs the decoder half), the GAN generator, the
+  denoiser, or the language model. Discriminator and Noise Scheduler are
+  configuration blocks off the chain.
+- Scripts print `samples: <png | txt>` after each epoch; the worker inlines the file
+  into a `samples` event that the desktop and web training panels show, and the
+  run manager replays the latest one to late subscribers.
+- `runtime.py` holds the data generators / readers and the metrics (FID, KID,
+  BLEU, chrF, ROUGE-L) shared by scripts, profiles and tests.
+
 ## Resource budgets
 
 `core/budget.py` estimates a neural design's cost from the IR alone (no

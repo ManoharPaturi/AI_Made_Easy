@@ -58,6 +58,7 @@ class TrainingRun:
         self.events: list[dict] = []
         self.logs: list[str] = []
         self.epochs: list[dict] = []
+        self.latest_samples: dict | None = None   # last "samples" event (live sample grid)
         self.error: str | None = None
         self.process: subprocess.Popen | None = None
         self.listeners: list[Listener] = []
@@ -72,6 +73,8 @@ class TrainingRun:
                 self.epochs.append(event)
             elif kind == "log":
                 self.logs.append(str(event.get("line", "")))
+            elif kind == "samples":
+                self.latest_samples = event
             elif kind == "error":
                 self.error = str(event.get("traceback", ""))
             elif kind == "done" and self.state not in FINAL_STATES:
@@ -197,6 +200,11 @@ class RunManager:
 
     def is_live(self, run_id: str) -> bool:
         return run_id in self._runs
+
+    def latest_samples(self, run_id: str) -> dict | None:
+        """The newest sample grid / text a live run produced (None when there is none)."""
+        run = self._runs.get(run_id)
+        return run.latest_samples if run is not None else None
 
     def status(self, run_id: str) -> dict:
         if run_id in self._runs:

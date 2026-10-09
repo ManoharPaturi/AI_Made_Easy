@@ -3,6 +3,28 @@
 ## Unreleased (3.0 in progress — see docs/ROADMAP_3.0.md)
 
 ### Added
+- Generative models (`core/generative`), each with its own training loop.
+  - VAEs built from layers around a Reparameterize bottleneck (β, KL warm-up; MSE
+    or binary cross-entropy reconstruction); generation decodes prior samples.
+  - GANs: any generator on the canvas (or a DCGAN generator block) against a
+    Discriminator block with BCE, hinge or WGAN-GP losses, spectral norm and
+    several critic steps.
+  - Diffusion: a time- and class-conditioned U-Net with a Noise Scheduler block
+    (linear / cosine, DDPM or DDIM sampling, classifier-free guidance, EMA).
+  - Language models (GPT block, or Embedding + Causal Transformer) and
+    encoder-decoder transformers on byte-level text (text corpora, CSV pairs,
+    generated sentences and tasks).
+  - Metrics: FID / KID (offline pixel features or Inception-v3), perplexity and
+    bits per byte, BLEU / chrF (identical to sacrebleu) and ROUGE-L.
+  - Live sample grids and generated text every epoch in the desktop and web
+    training panels (a new `samples` worker event); saved samples in the run view.
+  - Rules with Quick Fixes: dataset vs Input / generator shape, VAE reconstruction
+    shape, latent Input for GANs, U-Net depth vs image size, class counts, causal
+    language models (no bidirectional layers), byte vocabularies, context and
+    target lengths, one generative model per design.
+  - Deploy packages add `POST /generate` (images as base64 PNG, or text).
+  - Samples: shapes VAE, DCGAN, class-conditional diffusion, tiny GPT and a
+    reverse-the-word seq2seq.
 - Time-series forecasting (`core/forecast`), with its own training loop.
   - Models: DLinear, N-BEATS, N-HiTS, PatchTST, TiDE, TCN, a DeepAR-style RNN and
     an Informer-style Transformer, each with a point, quantile (non-crossing),
@@ -76,6 +98,10 @@
   800MF–3.2GF, ShuffleNetV2, MNASNet, ViT-B/32, ViT-L/16, Swin(V2), MaxViT.
 
 ### Fixed
+- Desktop training runs now record measured peak memory and step time (they
+  were only recorded for runs started from the CLI, web or MCP).
+- The "softmax before a logit loss" lint no longer fires on tasks that do not
+  train with cross-entropy (VAE, GAN, diffusion, forecasting).
 - Deploy packages of vision runs listed no PyTorch requirement: task-specific
   training scripts now declare what they need.
 - RegNet backbones were mapped to Keras classes that Keras 3 does not provide;
