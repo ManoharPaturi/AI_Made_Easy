@@ -89,6 +89,12 @@ def load_raw():
     y[np.arange(n), rng.integers(0, {{ n_outputs }}, size=n)] = 1.0
     x = y @ rng.normal(size=({{ n_outputs }}, d)) + rng.normal(scale=0.5, size=(n, d))
     return x.astype(np.float32), y, [str(i) for i in range({{ n_outputs }})]
+{% elif task == "distribution" %}
+    # soft labels (e.g. annotators' vote shares): a softmax of the features
+    logits = x @ rng.normal(size=(d, {{ n_outputs }})) / np.sqrt(d)
+    y = np.exp(logits - logits.max(axis=1, keepdims=True))
+    y /= y.sum(axis=1, keepdims=True)
+    return x.astype(np.float32), y.astype(np.float32), [str(i) for i in range({{ n_outputs }})]
 {% endif %}
     return x.astype(np.float32), y, [str(i) for i in range(k)]
 {% endif %}

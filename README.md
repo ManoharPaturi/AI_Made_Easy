@@ -13,6 +13,10 @@ boilerplate. It runs on the desktop or in the browser.
 
 ## Highlights
 
+- **Start from a task, not a blank canvas:** **File ▸ New from Task** asks what you want
+  to predict and where your data is, detects its format, target and classes, and ranks
+  ready-to-train recipes for your data size and hardware budget, each explaining why
+  every block is there. Or let **AutoML** try the recipes and tune them for you.
 - **510+ blocks** across every major library: `torch.nn` layers, Keras 3
   equivalents, torchvision / `keras.applications` / timm pretrained backbones,
   Hugging Face text and image encoders, scikit-learn, XGBoost, LightGBM and CatBoost,
@@ -119,8 +123,9 @@ Install only what you need with the optional extras:
 ai-made-easy            # or: python -m ai_made_easy
 ```
 
-1. Drag blocks from the **Block Library** (or press <kbd>⌘K</kbd> / <kbd>Ctrl+K</kbd>)
-   and connect them on the canvas.
+1. Start with **File ▸ New from Task** (<kbd>Ctrl+Shift+N</kbd>) to get a ranked recipe
+   for your task and data, or drag blocks from the **Block Library** (or press
+   <kbd>⌘K</kbd> / <kbd>Ctrl+K</kbd>) and connect them on the canvas.
 2. Edit parameters in the **Inspector**; shapes and problems update live.
 3. Add a dataset, loss, optimizer and Trainer block, then press **Train**.
 4. Export from the **Export** menu, or browse **File ▸ Open Example** for
@@ -166,6 +171,9 @@ aime train project.json -f keras -o exports    # training script (pytorch | kera
 aime run project.json                          # train headlessly, stream JSON events
 aime runs list | show ID | compare A B         # run history
 aime sweep project.json -p opt.lr=log:1e-4:1e-1 -p d1.units=choice:32,64 -n 12
+aime new --task binary --data churn.csv -o churn.json   # best recipe for the data
+aime automl --task binary --data churn.csv -n 12 -o best.json   # search the recipes
+aime recipes --task forecasting                # recipes per task
 aime data profile data.csv --target label      # dataset profile and findings
 aime data split project.json                   # samples per class in each split
 aime deploy RUN_ID -o serving --formats onnx   # serving package from a run

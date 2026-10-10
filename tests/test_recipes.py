@@ -273,14 +273,21 @@ def test_built_recipes_train(tmp_path, isolated_home):
     if HAS_PIL:
         jobs.append((image_folder(tmp_path), "image_cnn", {"epochs": 2, "image_size": 32},
                      "accuracy"))
+    jobs += [(None, "tabular_mlp", {"epochs": 3}, "multilabel"),
+             (None, "tabular_mlp", {"epochs": 3}, "distribution")]
     for path, recipe_id, knobs, metric in jobs:
         facts = recipes.detect(path)
-        graph = recipes.build(recipe_id, facts.task, facts, knobs)
+        task = metric if path is None else facts.task
+        graph = recipes.build(recipe_id, task, facts, knobs)
         run_id = mgr.start(graph)
         status = mgr.wait(run_id, 600)
         rec = mgr.history.get(run_id)
         assert status["state"] == "finished", (recipe_id, rec.error[-2000:])
-        assert metric in rec.final_metrics, (recipe_id, rec.final_metrics)
+        if path is not None:
+            assert metric in rec.final_metrics, (recipe_id, rec.final_metrics)
+        else:                                   # demo multi-label / soft-label targets
+            losses = [e["metrics"]["val_loss"] for e in mgr.history.epochs(run_id)]
+            assert losses[-1] < losses[0], (task, losses)
 
 
 @pytest.mark.parametrize("code,returncode", [("'the data does not fit'", 1), ("3", 3),

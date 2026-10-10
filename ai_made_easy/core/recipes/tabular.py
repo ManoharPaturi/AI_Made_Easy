@@ -118,7 +118,7 @@ def metrics(d: Draft, task: str) -> None:
         d.add("eval.rmse", "root mean squared error, in the target's units", nid="rmse")
         d.add("eval.mae", "mean absolute error: the typical miss", nid="mae")
         d.add("eval.r2", "R²: the share of the variance explained (1 is perfect)", nid="r2")
-    elif task in ("multilabel", "distribution"):
+    elif task == "multilabel":
         d.add("eval.f1", "F1 balances precision and recall", nid="f1")
     else:
         d.add("eval.accuracy", "the share of rows classified correctly", nid="accuracy")
