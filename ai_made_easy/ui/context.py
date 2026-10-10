@@ -151,6 +151,9 @@ class AppContext(QtCore.QObject):
         ep, es = self.experiments_page, self.experiment_service
         ep.scope.currentIndexChanged.connect(lambda *_: self._refresh_experiments())
         ep.compare_requested.connect(self._compare_runs)
+        ep.stop_pipeline_requested.connect(lambda _pid: self.experiment_service.stop_pipeline())
+        ep.resume_pipeline_requested.connect(
+            lambda pid: self._run_pipeline(None, resume_from=pid))
         ep.results_requested.connect(self._load_run_results)
         ep.restore_requested.connect(self._restore_run)
         ep.folder_requested.connect(self._open_run_folder)
@@ -619,6 +622,11 @@ class AppContext(QtCore.QObject):
 
     def act_train(self, *_):
         ir = self.project_service.snapshot()
+        from ai_made_easy.core.families import family_of
+
+        if family_of(ir).id == "pipeline":
+            self._run_pipeline(ir)
+            return
         if project_kind(ir.to_dict()) == "LLM workflow":
             self.status_message.emit("LLM workflows run as scripts: Export ▸ LLM Workflow Script")
             return
@@ -630,6 +638,19 @@ class AppContext(QtCore.QObject):
         self.training_page.reset()
         self._run_kind = "train"
         self.process_service.run_training(ir, project=self.project_store.name)
+
+    def _run_pipeline(self, ir, resume_from: str = "") -> None:  # noqa: ANN001
+        if not resume_from and not self._guard_run("run the pipeline"):
+            return
+        path = self.project_store.path
+        pipeline_id = self.experiment_service.start_pipeline(
+            ir, self.project_store.name, base=str(path.parent) if path else None,
+            resume_from=resume_from)
+        if pipeline_id:
+            self.act_experiments()
+            self.experiments_page.show_pipeline(pipeline_id)
+            self.status_message.emit(f"Pipeline {pipeline_id} running — Experiments ▸ "
+                                     "Pipelines shows its stages")
 
     def act_test_run(self, *_):
         ir = self.project_service.snapshot()
@@ -774,6 +795,8 @@ class AppContext(QtCore.QObject):
             project = self._experiment_project()
             self.experiments_page.set_runs(self.experiment_service.runs(project))
             self.experiments_page.set_sweeps(self.experiment_service.sweep_records(project))
+            self.experiments_page.set_pipelines(
+                self.experiment_service.pipeline_records(project))
             self.experiments_page.set_models(self.experiment_service.registry.list())
         except OSError as exc:
             self.log_bus.warning(f"could not read the run history: {exc}")
