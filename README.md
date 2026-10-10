@@ -13,6 +13,9 @@ boilerplate. It runs on the desktop or in the browser.
 
 ## Highlights
 
+- **Pipelines:** chain Train, Fine-tune, Distill, Prune, Quantize, Evaluate, Ensemble,
+  Export and Register stages; every stage is a tracked run, and re-running a pipeline
+  picks up where it stopped.
 - **Start from a task, not a blank canvas:** **File ▸ New from Task** asks what you want
   to predict and where your data is, detects its format, target and classes, and ranks
   ready-to-train recipes for your data size and hardware budget, each explaining why
@@ -174,6 +177,7 @@ aime sweep project.json -p opt.lr=log:1e-4:1e-1 -p d1.units=choice:32,64 -n 12
 aime new --task binary --data churn.csv -o churn.json   # best recipe for the data
 aime automl --task binary --data churn.csv -n 12 -o best.json   # search the recipes
 aime recipes --task forecasting                # recipes per task
+aime pipeline run pipeline.json                # run a pipeline (resumes finished stages)
 aime data profile data.csv --target label      # dataset profile and findings
 aime data split project.json                   # samples per class in each split
 aime deploy RUN_ID -o serving --formats onnx   # serving package from a run

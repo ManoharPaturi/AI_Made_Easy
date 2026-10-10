@@ -247,6 +247,23 @@ settings; the median rule stops trials that fall behind at the same epoch. Recor
 sweep records with `spec["automl"]`, so the Experiments page, `best_graph()` and the CLI
 handle them like sweeps.
 
+## Pipelines
+
+`core/pipelines/` adds the `pipeline` family. `blocks.py` defines the stage blocks (wired
+through `artifact` ports); `plan.py` orders the stages and resolves the design each one
+trains (a project path, `sample:<name>` or `embedded:<key>` from `graph.meta["designs"]`)
+and the design behind the model each one passes on; `rules.py` validates the pipeline.
+`PipelineRunner` (`runner.py`) runs the stages on a thread: Train and Cross-validate are
+ordinary `RunManager.start` runs (Cross-validate adds a `train.kfold` block); the stages
+that work inside a network use `RunManager.start_stage` with a writer from `stages.py`,
+which copies (or generates) the model's training script into the stage folder and writes a
+`stage_<kind>.py` that imports it and sets its hooks (`INIT_HOOK`, `LOSS_HOOK`,
+`EPOCH_HOOK`, `LR_SCALE`, `BEFORE_SAVE`, `QUANTIZE`) before calling its `main()`, so
+the folder holds the usual script, weights, inference state and metrics. Export and
+Register call the deploy packager and the model registry. Stage fingerprints (stage,
+settings, canonical design, data fingerprint, input fingerprints, version) let a new
+attempt reuse finished stages of any earlier one. Records live in `$AIME_HOME/pipelines`.
+
 ## Runs, sweeps and deployment
 
 ```
