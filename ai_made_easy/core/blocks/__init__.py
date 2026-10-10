@@ -37,4 +37,5 @@ from ai_made_easy.core.blocks import (  # noqa: F401
     tabular,
     recsys,
     rl,
+    pipelines,
 )

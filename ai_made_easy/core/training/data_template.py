@@ -465,10 +465,12 @@ class NumericPipeline:
         self.std = np.asarray({{ norm_std }}, dtype=np.float32)
 {% elif per_channel %}
         self.mean = x.mean(axis=axes)
-        self.std = x.std(axis=axes) + 1e-8
+        self.std = x.std(axis=axes)
 {% else %}
-        self.mean, self.std = flat.mean(axis=0), flat.std(axis=0) + 1e-8
+        self.mean, self.std = flat.mean(axis=0), flat.std(axis=0)
 {% endif %}
+        # constant in training: leave unscaled (like scikit-learn), never divide by ~0
+        self.std = np.where(self.std < 1e-8, 1.0, self.std).astype(np.float32)
 {% endif %}
 {% if steps["prep.robust_scale"] %}
         self.median = np.median(flat, axis=0)

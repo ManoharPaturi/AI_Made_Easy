@@ -158,6 +158,26 @@ class RunManager:
             self.history.finalize(record.run_id, "failed", None,
                                   f"could not generate the training script: {exc}")
             raise
+        return self._launch(record.run_id, script, workdir)
+
+    def start_stage(self, graph: Graph, write, *, framework: str = "pytorch",
+                    kind: str = "stage", project: str = "", parent: str = "",
+                    trial: dict | None = None, tags: list[str] | None = None) -> str:
+        """Run a script that ``write(workdir) -> script path`` puts in a new run folder
+        (pipeline stages); ``graph`` is the design the run's model comes from."""
+        record = self.history.create(graph.to_dict(), framework=framework, project=project,
+                                     kind=kind, parent=parent, trial=trial, tags=tags)
+        workdir = self.history.path(record.run_id)
+        try:
+            script = write(workdir)
+        except Exception as exc:
+            self.history.finalize(record.run_id, "failed", None,
+                                  f"could not prepare the stage: {exc}")
+            raise
+        return self._launch(record.run_id, script, workdir)
+
+    def _launch(self, run_id: str, script, workdir) -> str:  # noqa: ANN001
+        record = self.history.get(run_id)
         run = TrainingRun(record.run_id, script, workdir, self.history)
         run.listeners = self._listeners
         self._runs[record.run_id] = run

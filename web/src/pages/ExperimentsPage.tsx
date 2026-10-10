@@ -4,6 +4,7 @@ import { api } from "../api";
 import { LineChart, type Series } from "../components/LineChart";
 import { duration, metric, Modal, StatusChip } from "../components/Modal";
 import { useStore } from "../state";
+import { PipelinesList } from "../components/Pipeline";
 import type { RunRecord, RunSamples, SweepParam, SweepRecord } from "../types";
 
 function DeployModal({ run, onClose }: { run: RunRecord; onClose: () => void }) {
@@ -351,7 +352,7 @@ export function ExperimentsPage({ initialTab = "runs" }: { initialTab?: string }
       <div className="toolbar" style={{ marginBottom: 10 }}>
         <h2 style={{ margin: 0 }}>Experiments</h2>
         <div className="tabs" style={{ border: "none", padding: 0 }}>
-          {["runs", "sweeps"].map((t) => (
+          {["runs", "sweeps", "pipelines"].map((t) => (
             <button key={t} className={tab === t ? "active" : ""} onClick={() => setTab(t)}>
               {t[0].toUpperCase() + t.slice(1)}</button>
           ))}
@@ -361,7 +362,8 @@ export function ExperimentsPage({ initialTab = "runs" }: { initialTab?: string }
                                         onChange={(e) => setScoped(e.target.checked)} /> only “{name}”</label>
         )}
       </div>
-      {tab === "runs" ? <Runs scope={scoped ? name : ""} /> : <Sweeps />}
+      {tab === "runs" ? <Runs scope={scoped ? name : ""} /> : tab === "sweeps" ? <Sweeps />
+        : <PipelinesList />}
     </div>
   );
 }

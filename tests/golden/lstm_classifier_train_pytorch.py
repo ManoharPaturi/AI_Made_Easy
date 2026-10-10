@@ -40,6 +40,13 @@ INPUT_SHAPE = (50, 32)
 NUM_CLASSES = 5
 CHECKPOINT = "lstm_classifier_best.pt"
 CLASS_NAMES = None
+# pipeline hooks (fine-tune, distill, prune and quantize stages set these)
+LR_SCALE = 1.0          # multiplies the optimizer's learning rates
+INIT_HOOK = None        # f(model): load weights / freeze layers before training
+EPOCH_HOOK = None       # f(epoch, model): e.g. unfreeze after some epochs
+LOSS_HOOK = None        # f(loss, out, xb, model) -> loss: e.g. knowledge distillation
+BEFORE_SAVE = None      # f(model): e.g. make pruning permanent
+QUANTIZE = ""           # "dynamic_int8": quantize Linear layers when serving
 
 
 # ================================================================= model
@@ -289,6 +296,8 @@ def fit(model: nn.Module, train_loader, val_loader, device, log: bool = True):
     if hasattr(loss_fn, "to"):
         loss_fn = loss_fn.to(device)
     optimizer = torch.optim.RAdam(model.parameters(), lr=0.001, betas=(0.9, 0.999), eps=1e-08)
+    for group in optimizer.param_groups:
+        group["lr"] *= LR_SCALE
     scheduler = torch.optim.lr_scheduler.OneCycleLR(optimizer, max_lr=0.01, total_steps=EPOCHS * len(train_loader), pct_start=0.3, anneal_strategy="cos")
     use_amp = MIXED_PRECISION and device.type in ("cuda", "mps")
     amp_dtype = torch.float16 if device.type == "cuda" else torch.bfloat16
@@ -296,6 +305,8 @@ def fit(model: nn.Module, train_loader, val_loader, device, log: bool = True):
     best_loss, best_state, bad_epochs = float("inf"), None, 0
     reset_peak_memory(device)
     for epoch in range(1, EPOCHS + 1):
+        if EPOCH_HOOK is not None:
+            EPOCH_HOOK(epoch, model)
         model.train()
         started, running, seen = time.time(), 0.0, 0
         optimizer.zero_grad(set_to_none=True)
@@ -305,6 +316,8 @@ def fit(model: nn.Module, train_loader, val_loader, device, log: bool = True):
             with torch.autocast(device_type=device.type, dtype=amp_dtype, enabled=use_amp):
                 out, target = adapt(model(xb), yb)
                 loss = loss_fn(out, target)
+                if LOSS_HOOK is not None:
+                    loss = LOSS_HOOK(loss, out, xb, model)
             scaler.scale(loss / ACCUM_STEPS).backward()
             if step % ACCUM_STEPS == 0 or step == len(train_loader):
                 if GRAD_CLIP > 0:
@@ -424,6 +437,13 @@ def load_predictor(folder: str | Path = ".", device: str = "cpu") -> nn.Module:
     model = LstmClassifier()
     model.load_state_dict(torch.load(Path(folder) / CHECKPOINT, map_location=device))
     model.eval()
+    if QUANTIZE == "dynamic_int8":       # set by a pipeline's Quantize stage (CPU serving)
+        engines = torch.backends.quantized.supported_engines
+        if torch.backends.quantized.engine == "none" or torch.backends.quantized.engine \
+                not in engines:
+            torch.backends.quantized.engine = next(e for e in ("fbgemm", "x86", "qnnpack")
+                                                   if e in engines)
+        model = torch.ao.quantization.quantize_dynamic(model, {nn.Linear}, dtype=torch.qint8)
     _PREDICTOR = model.to(device)
     return _PREDICTOR
 
@@ -447,8 +467,12 @@ def main() -> None:
     print(f"samples: train={len(train_loader.dataset)} val={len(val_loader.dataset)} "
           f"test={len(test_loader.dataset)}")
     model = LstmClassifier().to(device)
+    if INIT_HOOK is not None:
+        INIT_HOOK(model)
     print(f"parameters: {sum(p.numel() for p in model.parameters() if p.requires_grad):,}")
     model, loss_fn = fit(model, train_loader, val_loader, device)
+    if BEFORE_SAVE is not None:
+        BEFORE_SAVE(model)
     torch.save(model.state_dict(), CHECKPOINT)
     save_inference_state()
     print(f"saved best weights to {CHECKPOINT}")

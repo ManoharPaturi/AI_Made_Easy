@@ -271,6 +271,10 @@ Goal: about 750+ blocks, every family validated at design time, generating runna
   - Experiments groups pipeline runs
   - web page for pipelines
   - `aime pipeline run|status`, plus MCP tools
+- **Status:** shipped. Stages that work inside a network (fine-tune, distill, prune, quantize, evaluate, ensemble) apply to supervised PyTorch designs: the stage imports the design's generated training script and uses its hooks, so stage folders are ordinary, deployable run folders. Running a pipeline again reuses every finished stage whose fingerprint (stage, settings, design, data fingerprint, inputs) is unchanged, which is how it resumes. The pipeline budget is checked per training stage, and an ensemble's members add up. Not in this phase (moved to a later release):
+  - quantization-aware training (post-training dynamic int8 quantization ships) and discriminative per-layer learning rates (freeze / unfreeze schedules and a learning-rate scale ship)
+  - stacking ensembles (averaging and voting ship) and distilling from non-PyTorch teachers
+  - composite blocks that show an embedded design inline on the canvas (designs are referenced as files, samples or `embedded:<key>`)
 
 ## Phase 9 — Release 3.0.0
 - Project schema v3 migration (port roles, multi-ports, family / task fields) in `core/migrate.py`, with old projects loading unchanged.

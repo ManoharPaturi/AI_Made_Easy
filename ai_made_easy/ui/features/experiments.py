@@ -79,12 +79,15 @@ class ExperimentsPage(QtWidgets.QWidget):
     model_deploy_requested = QtCore.Signal(str, int)          # name, version
     model_stage_requested = QtCore.Signal(str, int, str)      # name, version, stage
     model_delete_requested = QtCore.Signal(str, int)          # name, version
+    stop_pipeline_requested = QtCore.Signal(str)               # pipeline_id
+    resume_pipeline_requested = QtCore.Signal(str)             # pipeline_id
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setObjectName("dockBody")
         self._records: list[RunRecord] = []
         self._sweeps: list = []
+        self._pipelines: list = []
         layout = QtWidgets.QVBoxLayout(self)
         layout.setContentsMargins(10, 8, 10, 8)
         layout.setSpacing(6)
@@ -92,6 +95,7 @@ class ExperimentsPage(QtWidgets.QWidget):
         self.tabs.setDocumentMode(True)
         self.tabs.addTab(self._build_runs(), "Runs")
         self.tabs.addTab(self._build_sweeps(), "Sweeps")
+        self.tabs.addTab(self._build_pipelines(), "Pipelines")
         self.tabs.addTab(self._build_models(), "Models")
         layout.addWidget(self.tabs)
 
@@ -337,6 +341,112 @@ class ExperimentsPage(QtWidgets.QWidget):
         table.setSortingEnabled(True)
         table.resizeColumnsToContents()
         self._update_sweep_buttons()
+
+    # ---------------------------------------------------------- pipelines tab
+    def _build_pipelines(self) -> QtWidgets.QWidget:
+        page = QtWidgets.QWidget()
+        box = QtWidgets.QVBoxLayout(page)
+        box.setContentsMargins(0, 6, 0, 0)
+        bar = QtWidgets.QHBoxLayout()
+        hint = QtWidgets.QLabel("Run a pipeline design with Train; finished, unchanged stages "
+                                "are reused when it runs again.")
+        hint.setObjectName("blockMeta")
+        bar.addWidget(hint)
+        bar.addStretch(1)
+        self.stop_pipeline_btn = QtWidgets.QPushButton("Stop")
+        self.stop_pipeline_btn.setIcon(icons.icon("stop"))
+        self.resume_pipeline_btn = QtWidgets.QPushButton("Resume")
+        self.resume_pipeline_btn.setToolTip("Run again from the last finished stage")
+        bar.addWidget(self.stop_pipeline_btn)
+        bar.addWidget(self.resume_pipeline_btn)
+        box.addLayout(bar)
+        split = QtWidgets.QSplitter(QtCore.Qt.Orientation.Vertical)
+        self.pipelines_table = _readonly_table(["Pipeline", "Status", "Stages", "Started"])
+        self.pipelines_table.setSelectionMode(
+            QtWidgets.QAbstractItemView.SelectionMode.SingleSelection)
+        self.pipelines_table.itemSelectionChanged.connect(self._show_stages)
+        self.stages_table = _readonly_table(["Stage", "State", "Result", "Time", "Run / output"])
+        self.stages_table.setSortingEnabled(False)
+        split.addWidget(self.pipelines_table)
+        split.addWidget(self.stages_table)
+        split.setSizes([200, 320])
+        box.addWidget(split, 1)
+        self.stop_pipeline_btn.clicked.connect(
+            lambda: self._emit_pipeline(self.stop_pipeline_requested))
+        self.resume_pipeline_btn.clicked.connect(
+            lambda: self._emit_pipeline(self.resume_pipeline_requested))
+        self._update_pipeline_buttons()
+        return page
+
+    def _emit_pipeline(self, signal) -> None:  # noqa: ANN001
+        record = self.selected_pipeline()
+        if record is not None:
+            signal.emit(record.pipeline_id)
+
+    def selected_pipeline(self):
+        rows = {i.row() for i in self.pipelines_table.selectedIndexes()}
+        if len(rows) != 1:
+            return None
+        item = self.pipelines_table.item(rows.pop(), 0)
+        pid = item.data(QtCore.Qt.ItemDataRole.UserRole) if item else None
+        return next((p for p in self._pipelines if p.pipeline_id == pid), None)
+
+    def _update_pipeline_buttons(self) -> None:
+        record = self.selected_pipeline()
+        self.stop_pipeline_btn.setEnabled(bool(record and record.state == "running"))
+        self.resume_pipeline_btn.setEnabled(bool(record and record.state in ("failed",
+                                                                            "stopped")))
+
+    def show_pipeline(self, pipeline_id: str) -> None:
+        self.tabs.setCurrentIndex(2)
+        for row in range(self.pipelines_table.rowCount()):
+            item = self.pipelines_table.item(row, 0)
+            if item and item.data(QtCore.Qt.ItemDataRole.UserRole) == pipeline_id:
+                self.pipelines_table.selectRow(row)
+
+    def set_pipelines(self, records: list) -> None:
+        current = self.selected_pipeline()
+        current_id = current.pipeline_id if current else (
+            records[0].pipeline_id if records else None)
+        self._pipelines = records
+        table = self.pipelines_table
+        table.setSortingEnabled(False)
+        table.setRowCount(len(records))
+        for row, rec in enumerate(records):
+            done = sum(s["state"] in ("finished", "cached") for s in rec.stages.values())
+            first = _Item(rec.name, rec.created_at)
+            first.setData(QtCore.Qt.ItemDataRole.UserRole, rec.pipeline_id)
+            first.setToolTip(rec.pipeline_id + (f"\nresumes {rec.resumed_from}"
+                                                if rec.resumed_from else ""))
+            cells = [first, _Item(rec.state), _Item(f"{done}/{len(rec.stages)}", done),
+                     _Item(_when(rec.created_at), rec.created_at)]
+            for col, item in enumerate(cells):
+                table.setItem(row, col, item)
+            if rec.pipeline_id == current_id:
+                table.selectRow(row)
+        table.setSortingEnabled(True)
+        table.resizeColumnsToContents()
+        self._show_stages()
+
+    def _show_stages(self) -> None:
+        record = self.selected_pipeline()
+        rows = [record.stages[i] for i in record.order] if record else []
+        table = self.stages_table
+        table.setRowCount(len(rows))
+        for row, stage in enumerate(rows):
+            metrics = " · ".join(f"{k} {_fmt(v)}" for k, v in list(stage["metrics"].items())[:4]
+                                 if not k.endswith("_std"))
+            took = (stage["finished_at"] - stage["started_at"]
+                    if stage.get("finished_at") and stage.get("started_at") else None)
+            where = stage["run_id"] or (stage.get("output") or {}).get("path", "")
+            state = "reused" if stage["state"] == "cached" else stage["state"]
+            cells = [_Item(f"{stage['label']}  ({stage['id']})"), _Item(state),
+                     _Item(metrics or stage["message"]), _Item(_duration(took)), _Item(where)]
+            cells[2].setToolTip(stage["message"])
+            for col, item in enumerate(cells):
+                table.setItem(row, col, item)
+        table.resizeColumnsToContents()
+        self._update_pipeline_buttons()
 
     # ------------------------------------------------------------- models tab
     def _build_models(self) -> QtWidgets.QWidget:

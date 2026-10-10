@@ -366,3 +366,30 @@ export interface AutoMLStarted {
   metric: string;
   direction: string;
 }
+
+export interface PipelineStage {
+  id: string;
+  kind: string;
+  label: string;
+  state: string;
+  run_id: string;
+  metrics: Record<string, number>;
+  message: string;
+  output: Record<string, string>;
+  inputs: string[];
+  started_at: number | null;
+  finished_at: number | null;
+}
+
+export interface PipelineRecord {
+  pipeline_id: string;
+  name: string;
+  project: string;
+  state: string;
+  created_at: number;
+  finished_at: number | null;
+  order: string[];
+  stages: Record<string, PipelineStage>;
+  resumed_from: string;
+  message: string;
+}

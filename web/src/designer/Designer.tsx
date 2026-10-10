@@ -7,6 +7,7 @@ import { type DragEvent, useCallback, useEffect, useMemo, useRef, useState } fro
 
 import { api, streamRun } from "../api";
 import { LineChart, metricSeries } from "../components/LineChart";
+import { PipelinePanel } from "../components/Pipeline";
 import { edgeId, shapeLabel } from "../project";
 import { useStore } from "../state";
 import type { Explanation, RunEvent } from "../types";
@@ -243,7 +244,8 @@ function Why() {
 }
 
 export function Designer() {
-  const { addBlock, setSelected } = useStore();
+  const { addBlock, setSelected, nodes } = useStore();
+  const isPipeline = nodes.some((n) => String(n.data.typeId).startsWith("pipeline."));
   const [bottom, setBottom] = useState("problems");
   const flowRef = useRef<{ add: (t: string) => void }>({ add: () => undefined });
   return (
@@ -262,7 +264,7 @@ export function Designer() {
               ))}
             </div>
             <div className="tab-body">{bottom === "problems" ? <Problems />
-              : bottom === "why" ? <Why /> : <Training />}</div>
+              : bottom === "why" ? <Why /> : isPipeline ? <PipelinePanel /> : <Training />}</div>
           </section>
         </div>
         <Inspector />

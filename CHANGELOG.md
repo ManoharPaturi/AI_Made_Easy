@@ -3,6 +3,17 @@
 ## Unreleased (3.0 in progress — see docs/ROADMAP_3.0.md)
 
 ### Added
+- Multi-stage pipelines (`core/pipelines`): Train, Cross-validate, Fine-tune (freeze /
+  unfreeze, learning-rate scale), Distill (temperature, alpha), Ensemble (average / vote),
+  Prune (global magnitude pruning with fine-tuning), Quantize (dynamic int8), Evaluate
+  (test metrics, expected calibration error, reliability table), Export (serving package)
+  and Register stages wired on the canvas. Every compute stage is a child run whose folder
+  is deployable; running a pipeline again reuses finished, unchanged stages (fingerprints
+  of stage, settings, design, data and inputs), so an interrupted pipeline resumes. Rules
+  check wiring, stage designs, teacher / student and ensemble compatibility, fine-tune
+  architectures, export formats and the budget. Train runs pipelines on desktop and web;
+  Experiments ▸ Pipelines shows each stage's timeline. `aime pipeline run|status|list|
+  resume`, `/api/pipelines`, MCP tools, two samples.
 - Task-first wizard and AutoML (`core/recipes`, `core/automl.py`). New from Task (desktop,
   Ctrl+Shift+N) and New (web): pick one of 29 tasks, point at a table or dataset folder
   (format, target, classes and the fitting tasks are detected: CSV / Parquet / Excel, text
@@ -176,6 +187,9 @@
   800MF–3.2GF, ShuffleNetV2, MNASNet, ViT-B/32, ViT-L/16, Swin(V2), MaxViT.
 
 ### Fixed
+- Standardization divided columns that are constant in the training data by ~1e-8, so
+  any other value at test time exploded (digits: test loss ~100,000); constant columns are
+  now left unscaled, as in scikit-learn.
 - A training script that stopped with an error message (`SystemExit("...")`, e.g. a data
   shape mismatch) was recorded as a finished run; it is now a failed run with the message.
 - Networks reading a table now check their Input width against the preprocessed row

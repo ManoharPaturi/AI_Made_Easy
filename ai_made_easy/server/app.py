@@ -362,6 +362,33 @@ def create_app(*, token: str | None = None, projects_dir: str | Path | None = No
         except KeyError as exc:
             raise HTTPException(404, str(exc)) from exc
 
+    # -------------------------------------------------------------- pipelines
+    @app.post("/api/pipelines", dependencies=guard)
+    def start_pipeline(payload: dict = Body(...)) -> dict:  # noqa: B008
+        return api.start_pipeline(_graph_body(payload), project=str(payload.get("project") or ""))
+
+    @app.get("/api/pipelines", dependencies=guard)
+    def pipelines(project: str | None = None) -> dict:
+        return api.list_pipelines(project or None)
+
+    @app.get("/api/pipelines/{pipeline_id}", dependencies=guard)
+    def pipeline(pipeline_id: str) -> dict:
+        try:
+            return api.get_pipeline(pipeline_id)
+        except KeyError as exc:
+            raise HTTPException(404, str(exc)) from exc
+
+    @app.post("/api/pipelines/{pipeline_id}/stop", dependencies=guard)
+    def stop_pipeline(pipeline_id: str) -> dict:
+        return api.stop_pipeline(pipeline_id)
+
+    @app.post("/api/pipelines/{pipeline_id}/resume", dependencies=guard)
+    def resume_pipeline(pipeline_id: str) -> dict:
+        try:
+            return api.resume_pipeline(pipeline_id)
+        except KeyError as exc:
+            raise HTTPException(404, str(exc)) from exc
+
     # -------------------------------------------------------------- sweeps
     @app.post("/api/sweeps/params", dependencies=guard)
     def sweep_params(payload: dict = Body(...)) -> dict:  # noqa: B008
