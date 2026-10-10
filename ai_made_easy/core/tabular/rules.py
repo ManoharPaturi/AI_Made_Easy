@@ -10,6 +10,18 @@ FIX = "Use the data's categories"
 HUGE_CARDINALITY = 10_000
 
 
+def input_width(ctx: LintContext) -> list:
+    """Any network reading a table: the Input must hold the preprocessed row."""
+    head = ctx.chain[0] if ctx.chain else None
+    if head is None or head.type_id != "core.input" or head.instance_id not in ctx.shapes:
+        return []
+    layout = layout_of(ctx.graph)
+    if layout is None or list(ctx.shapes[head.instance_id]) == [layout.width]:
+        return []
+    return [_issue("error", f"the preprocessed table has {layout.width} features: "
+                            f"Set the Input shape to '{layout.width}'", head.instance_id)]
+
+
 def tabular_rules(ctx: LintContext) -> list:
     blocks = ctx.nodes_of(*TAB_BLOCKS)
     if not blocks:
@@ -23,12 +35,6 @@ def tabular_rules(ctx: LintContext) -> list:
                           node.instance_id))
     layout = layout_of(ctx.graph)
     if layout is not None:
-        head = ctx.chain[0] if ctx.chain else None
-        if head is not None and head.instance_id in ctx.shapes and \
-                list(ctx.shapes[head.instance_id]) != [layout.width]:
-            out.append(_issue("error", f"the preprocessed table has {layout.width} features: "
-                                       f"Set the Input shape to '{layout.width}'",
-                              head.instance_id))
         for node in cat_blocks:
             p = node.resolved_params()
             have = (tuple(ints(p["categorical"])), tuple(ints(p["cardinalities"])))
@@ -65,4 +71,5 @@ def fix_categories(graph, node) -> bool:  # noqa: ANN001
     return True
 
 
+register_rule(input_width)
 register_rule(tabular_rules)

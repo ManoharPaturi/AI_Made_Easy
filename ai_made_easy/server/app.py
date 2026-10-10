@@ -316,6 +316,52 @@ def create_app(*, token: str | None = None, projects_dir: str | Path | None = No
             except RuntimeError:
                 pass
 
+    # -------------------------------------------------------------- wizard / AutoML
+    @app.get("/api/wizard/tasks", dependencies=guard)
+    def wizard_tasks() -> dict:
+        return api.wizard_tasks()
+
+    @app.post("/api/wizard/detect", dependencies=guard)
+    def wizard_detect(payload: dict = Body(...)) -> dict:  # noqa: B008
+        return api.detect_data(str(payload.get("path") or ""), str(payload.get("target") or ""),
+                               str(payload.get("task") or ""))
+
+    @app.post("/api/wizard/recommend", dependencies=guard)
+    def wizard_recommend(payload: dict = Body(...)) -> dict:  # noqa: B008
+        return api.recommend_recipes(
+            str(payload.get("task") or ""), facts=payload.get("facts") or None,
+            path=payload.get("path") or None, target=str(payload.get("target") or ""),
+            budget=payload.get("budget") or None, modality=str(payload.get("modality") or ""),
+            limit=payload.get("limit"))
+
+    @app.post("/api/wizard/build", dependencies=guard)
+    def wizard_build(payload: dict = Body(...)) -> dict:  # noqa: B008
+        return {"graph": api.build_recipe(
+            str(payload.get("recipe") or ""), str(payload.get("task") or ""),
+            facts=payload.get("facts") or None, path=payload.get("path") or None,
+            target=str(payload.get("target") or ""), knobs=payload.get("knobs") or None,
+            budget=payload.get("budget") or None)}
+
+    @app.get("/api/recipes", dependencies=guard)
+    def recipes(task: str | None = None) -> dict:
+        return api.list_recipes(task or None)
+
+    @app.post("/api/explain", dependencies=guard)
+    def explain(payload: dict = Body(...)) -> dict:  # noqa: B008
+        return api.explain_design(_graph_body(payload))
+
+    @app.post("/api/automl", dependencies=guard)
+    def start_automl(payload: dict = Body(...)) -> dict:  # noqa: B008
+        return api.start_automl(dict(payload.get("spec") or {}),
+                                project=str(payload.get("project") or ""))
+
+    @app.get("/api/automl/{sweep_id}", dependencies=guard)
+    def automl_leaderboard(sweep_id: str) -> dict:
+        try:
+            return api.automl_leaderboard(sweep_id)
+        except KeyError as exc:
+            raise HTTPException(404, str(exc)) from exc
+
     # -------------------------------------------------------------- sweeps
     @app.post("/api/sweeps/params", dependencies=guard)
     def sweep_params(payload: dict = Body(...)) -> dict:  # noqa: B008

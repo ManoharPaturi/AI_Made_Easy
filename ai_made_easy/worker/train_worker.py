@@ -150,7 +150,10 @@ def main() -> int:
         _emit({"type": "done", "returncode": 0}, real_stdout)
         return 0
     except SystemExit as exc:
-        code = exc.code if isinstance(exc.code, int) else 0
+        # Python's rule: None -> 0, an int -> itself, anything else (a message) -> 1
+        code = 0 if exc.code is None else exc.code if isinstance(exc.code, int) else 1
+        if not isinstance(exc.code, (int, type(None))):
+            _emit({"type": "error", "traceback": str(exc.code)}, real_stdout)
         _emit({"type": "done", "returncode": code}, real_stdout)
         return code
     except BaseException:
