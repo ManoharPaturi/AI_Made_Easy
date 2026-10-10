@@ -21,6 +21,7 @@ Usage:
   aime recipes [--task TASK]          # design recipes per task
   aime new --task binary --data churn.csv -o churn.json [--recipe ID] [--list]
   aime automl --task binary --data churn.csv -n 12 --epochs 20 -o best.json
+  aime pipeline run pipeline.json | status ID | list | resume ID
 """
 from __future__ import annotations
 
@@ -150,6 +151,11 @@ def main(argv: list[str] | None = None) -> int:
     p_aml.add_argument("--no-prune", action="store_true", help="never stop trials early")
     p_aml.add_argument("--seed", type=int, default=0)
     p_aml.add_argument("-o", "--out", default="", help="write the best design here")
+    p_pipe = sub.add_parser("pipeline", help="run multi-stage pipelines")
+    p_pipe.add_argument("action", choices=("run", "status", "list", "resume"))
+    p_pipe.add_argument("target", nargs="?", default="",
+                        help="pipeline project .json (run) or pipeline id (status, resume)")
+    p_pipe.add_argument("--no-wait", action="store_true", help="start and return the id")
     p_llm = sub.add_parser("llm", help="generate an LLM workflow script")
     p_llm.add_argument("project", help="path to project .json")
     p_llm.add_argument("-o", "--out", default="exports", help="output directory")
@@ -177,6 +183,8 @@ def main(argv: list[str] | None = None) -> int:
         return _data_command(args)
     if args.command in ("recipes", "new", "automl"):
         return _wizard_command(args)
+    if args.command == "pipeline":
+        return _pipeline_command(args)
     if args.command == "web":
         try:
             from ai_made_easy.server.app import main as serve_web
@@ -486,6 +494,55 @@ def _wizard_command(args) -> int:  # noqa: ANN001
             json.dump(api.sweep_best_graph(sweep_id), fh, indent=2)
         print(args.out)
     return 0 if record["state"] == "finished" and record["best"] else 1
+
+
+def _pipeline_command(args) -> int:  # noqa: ANN001
+    import time as _time
+    from pathlib import Path
+
+    from ai_made_easy.core import api
+
+    try:
+        if args.action == "list":
+            for row in api.list_pipelines()["pipelines"]:
+                done = sum(s["state"] in ("finished", "cached") for s in row["stages"].values())
+                print(f"{row['pipeline_id']:<28} {row['state']:<9} {done}/{len(row['stages'])} "
+                      f"stages  {row['name']}")
+            return 0
+        if not args.target:
+            print("error: give a pipeline .json (run) or a pipeline id", file=sys.stderr)
+            return 1
+        if args.action == "status":
+            print(json.dumps({k: v for k, v in api.get_pipeline(args.target).items()
+                              if k != "graph"}, indent=2, default=str))
+            return 0
+        if args.action == "run":
+            path = Path(args.target)
+            graph = json.loads(path.read_text())
+            started = api.start_pipeline(graph, base=str(path.resolve().parent))
+        else:
+            started = api.resume_pipeline(args.target)
+    except (api.ApiError, KeyError, OSError, ValueError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    pipeline_id = started["pipeline_id"]
+    print(json.dumps({"type": "pipeline_started", **started}), flush=True)
+    if args.no_wait:
+        return 0
+    reported: dict[str, str] = {}
+    while True:
+        record = api.get_pipeline(pipeline_id)
+        for sid in record["order"]:
+            stage = record["stages"][sid]
+            if stage["state"] != reported.get(sid) and stage["state"] != "pending":
+                reported[sid] = stage["state"]
+                print(json.dumps({"type": "stage", "id": sid, "state": stage["state"],
+                                  "metrics": stage["metrics"], "message": stage["message"]},
+                                 default=str), flush=True)
+        if record["state"] in ("finished", "failed", "stopped"):
+            print(json.dumps({"type": "pipeline_" + record["state"]}), flush=True)
+            return 0 if record["state"] == "finished" else 1
+        _time.sleep(0.5)
 
 
 def _import_command(args) -> int:  # noqa: ANN001

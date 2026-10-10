@@ -114,6 +114,13 @@ def load_predictor(folder: str | Path = ".", device: str = "cpu") -> nn.Module:
     model = {{ spec.class_name }}()
     model.load_state_dict(torch.load(Path(folder) / CHECKPOINT, map_location=device))
     model.eval()
+    if QUANTIZE == "dynamic_int8":       # set by a pipeline's Quantize stage (CPU serving)
+        engines = torch.backends.quantized.supported_engines
+        if torch.backends.quantized.engine == "none" or torch.backends.quantized.engine \
+                not in engines:
+            torch.backends.quantized.engine = next(e for e in ("fbgemm", "x86", "qnnpack")
+                                                   if e in engines)
+        model = torch.ao.quantization.quantize_dynamic(model, {nn.Linear}, dtype=torch.qint8)
     _PREDICTOR = model.to(device)
     return _PREDICTOR
 

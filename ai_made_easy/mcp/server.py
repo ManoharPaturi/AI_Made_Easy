@@ -281,6 +281,37 @@ def automl_leaderboard(sweep_id: str) -> str:
 
 
 @mcp.tool()
+def start_pipeline(graph: dict[str, Any], project: str = "") -> str:
+    """Run a pipeline design (Train → Fine-tune / Distill / Prune / Quantize → Evaluate →
+    Export / Register stages). Finished, unchanged stages from earlier attempts are
+    reused. Returns a pipeline_id; poll get_pipeline."""
+    try:
+        return json.dumps(api.start_pipeline(graph, project))
+    except api.ApiError as exc:
+        return _err(exc)
+
+
+@mcp.tool()
+def get_pipeline(pipeline_id: str) -> str:
+    """A pipeline's state and every stage: state, child run id, metrics and outputs."""
+    try:
+        record = api.get_pipeline(pipeline_id)
+        record.pop("graph", None)
+        return json.dumps(record, default=str)
+    except KeyError as exc:
+        return _err(exc)
+
+
+@mcp.tool()
+def resume_pipeline(pipeline_id: str) -> str:
+    """Run a stopped or failed pipeline again from its last finished stage."""
+    try:
+        return json.dumps(api.resume_pipeline(pipeline_id))
+    except (api.ApiError, KeyError) as exc:
+        return _err(exc)
+
+
+@mcp.tool()
 def deploy_run(run_id: str, out_dir: str, formats: list[str] | None = None) -> str:
     """Build a model-server package (FastAPI app, Dockerfile, pinned requirements,
     optional ONNX / TorchScript / Core ML exports) from a finished training run."""

@@ -1,0 +1,386 @@
+{
+ "name": "digits_pipeline",
+ "meta": {
+  "title": "Pipeline \u2014 Distill, Quantize, Register",
+  "description": "Trains a large digits classifier, distills it into a small student, quantizes the student to 8-bit weights, checks its accuracy and calibration, and registers it for staging.",
+  "designs": {
+   "teacher": {
+    "name": "digits_teacher",
+    "nodes": [
+     {
+      "id": "input",
+      "type": "core.input",
+      "params": {
+       "shape": "64"
+      },
+      "position": [
+       0,
+       0
+      ]
+     },
+     {
+      "id": "d0",
+      "type": "core.dense",
+      "params": {
+       "units": 256
+      },
+      "position": [
+       0,
+       90
+      ]
+     },
+     {
+      "id": "r0",
+      "type": "core.relu",
+      "params": {},
+      "position": [
+       0,
+       180
+      ]
+     },
+     {
+      "id": "d1",
+      "type": "core.dense",
+      "params": {
+       "units": 128
+      },
+      "position": [
+       0,
+       270
+      ]
+     },
+     {
+      "id": "r1",
+      "type": "core.relu",
+      "params": {},
+      "position": [
+       0,
+       360
+      ]
+     },
+     {
+      "id": "head",
+      "type": "core.dense",
+      "params": {
+       "units": 10
+      },
+      "position": [
+       0,
+       450
+      ]
+     },
+     {
+      "id": "output",
+      "type": "core.output",
+      "params": {},
+      "position": [
+       0,
+       540
+      ]
+     },
+     {
+      "id": "data",
+      "type": "data.sklearn",
+      "params": {
+       "dataset": "digits"
+      },
+      "position": [
+       320,
+       560
+      ]
+     },
+     {
+      "id": "norm",
+      "type": "prep.normalize",
+      "params": {
+       "mode": "fit"
+      },
+      "position": [
+       320,
+       640
+      ]
+     },
+     {
+      "id": "loss",
+      "type": "train.loss_cross_entropy",
+      "params": {},
+      "position": [
+       320,
+       720
+      ]
+     },
+     {
+      "id": "opt",
+      "type": "train.adam",
+      "params": {
+       "lr": 0.003
+      },
+      "position": [
+       320,
+       800
+      ]
+     },
+     {
+      "id": "trainer",
+      "type": "train.trainer",
+      "params": {
+       "epochs": 15,
+       "batch_size": 64
+      },
+      "position": [
+       320,
+       880
+      ]
+     },
+     {
+      "id": "acc",
+      "type": "eval.accuracy",
+      "params": {},
+      "position": [
+       320,
+       960
+      ]
+     }
+    ],
+    "edges": [
+     {
+      "from": "input/out",
+      "to": "d0/in"
+     },
+     {
+      "from": "d0/out",
+      "to": "r0/in"
+     },
+     {
+      "from": "r0/out",
+      "to": "d1/in"
+     },
+     {
+      "from": "d1/out",
+      "to": "r1/in"
+     },
+     {
+      "from": "r1/out",
+      "to": "head/in"
+     },
+     {
+      "from": "head/out",
+      "to": "output/in"
+     }
+    ]
+   },
+   "student": {
+    "name": "digits_student",
+    "nodes": [
+     {
+      "id": "input",
+      "type": "core.input",
+      "params": {
+       "shape": "64"
+      },
+      "position": [
+       0,
+       0
+      ]
+     },
+     {
+      "id": "d0",
+      "type": "core.dense",
+      "params": {
+       "units": 32
+      },
+      "position": [
+       0,
+       90
+      ]
+     },
+     {
+      "id": "r0",
+      "type": "core.relu",
+      "params": {},
+      "position": [
+       0,
+       180
+      ]
+     },
+     {
+      "id": "head",
+      "type": "core.dense",
+      "params": {
+       "units": 10
+      },
+      "position": [
+       0,
+       270
+      ]
+     },
+     {
+      "id": "output",
+      "type": "core.output",
+      "params": {},
+      "position": [
+       0,
+       360
+      ]
+     },
+     {
+      "id": "data",
+      "type": "data.sklearn",
+      "params": {
+       "dataset": "digits"
+      },
+      "position": [
+       320,
+       400
+      ]
+     },
+     {
+      "id": "norm",
+      "type": "prep.normalize",
+      "params": {
+       "mode": "fit"
+      },
+      "position": [
+       320,
+       480
+      ]
+     },
+     {
+      "id": "loss",
+      "type": "train.loss_cross_entropy",
+      "params": {},
+      "position": [
+       320,
+       560
+      ]
+     },
+     {
+      "id": "opt",
+      "type": "train.adam",
+      "params": {
+       "lr": 0.003
+      },
+      "position": [
+       320,
+       640
+      ]
+     },
+     {
+      "id": "trainer",
+      "type": "train.trainer",
+      "params": {
+       "epochs": 15,
+       "batch_size": 64
+      },
+      "position": [
+       320,
+       720
+      ]
+     },
+     {
+      "id": "acc",
+      "type": "eval.accuracy",
+      "params": {},
+      "position": [
+       320,
+       800
+      ]
+     }
+    ],
+    "edges": [
+     {
+      "from": "input/out",
+      "to": "d0/in"
+     },
+     {
+      "from": "d0/out",
+      "to": "r0/in"
+     },
+     {
+      "from": "r0/out",
+      "to": "head/in"
+     },
+     {
+      "from": "head/out",
+      "to": "output/in"
+     }
+    ]
+   }
+  }
+ },
+ "nodes": [
+  {
+   "id": "train",
+   "type": "pipeline.train",
+   "params": {
+    "design": "embedded:teacher"
+   },
+   "position": [
+    0,
+    0
+   ]
+  },
+  {
+   "id": "distill",
+   "type": "pipeline.distill",
+   "params": {
+    "student": "embedded:student",
+    "temperature": 4.0,
+    "alpha": 0.5
+   },
+   "position": [
+    280,
+    0
+   ]
+  },
+  {
+   "id": "quantize",
+   "type": "pipeline.quantize",
+   "params": {},
+   "position": [
+    560,
+    0
+   ]
+  },
+  {
+   "id": "evaluate",
+   "type": "pipeline.evaluate",
+   "params": {},
+   "position": [
+    840,
+    0
+   ]
+  },
+  {
+   "id": "register",
+   "type": "pipeline.deploy",
+   "params": {
+    "name": "digits-student",
+    "stage": "staging"
+   },
+   "position": [
+    1120,
+    0
+   ]
+  }
+ ],
+ "edges": [
+  {
+   "from": "train/out",
+   "to": "distill/in"
+  },
+  {
+   "from": "distill/out",
+   "to": "quantize/in"
+  },
+  {
+   "from": "quantize/out",
+   "to": "evaluate/in"
+  },
+  {
+   "from": "evaluate/out",
+   "to": "register/in"
+  }
+ ],
+ "schema_version": 1
+}

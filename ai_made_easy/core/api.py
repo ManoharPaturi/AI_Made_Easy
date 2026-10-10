@@ -499,6 +499,76 @@ def automl_leaderboard(sweep_id: str) -> dict:
             "trials": leaderboard(record)}
 
 
+# ------------------------------------------------------------------ pipelines
+
+_pipelines: dict = {}
+_pipeline_store = None
+
+
+def pipeline_store():
+    global _pipeline_store
+    from ai_made_easy.core.pipelines.runner import PipelineStore
+
+    if _pipeline_store is None or _pipeline_store.root != PipelineStore().root:
+        _pipeline_store = PipelineStore()
+    return _pipeline_store
+
+
+def start_pipeline(graph: dict | Graph, project: str = "", base: str | None = None,
+                   listener=None) -> dict:  # noqa: ANN001
+    """Run a pipeline's stages in order (finished, unchanged stages are reused)."""
+    from ai_made_easy.core.pipelines.runner import PipelineError, PipelineRunner
+
+    try:
+        runner = PipelineRunner(manager(), pipeline_store(), _graph(graph), project, base,
+                                listener)
+    except PipelineError as exc:
+        raise ApiError(str(exc)) from exc
+    _pipelines[runner.pipeline_id] = runner
+    runner.start()
+    return {"pipeline_id": runner.pipeline_id, "stages": runner.record.order}
+
+
+def get_pipeline(pipeline_id: str) -> dict:
+    return pipeline_store().get(pipeline_id).to_dict()
+
+
+def list_pipelines(project: str | None = None) -> dict:
+    rows = []
+    for rec in pipeline_store().list(project):
+        row = rec.to_dict()
+        row.pop("graph", None)
+        rows.append(row)
+    return {"count": len(rows), "pipelines": rows}
+
+
+def stop_pipeline(pipeline_id: str) -> dict:
+    runner = _pipelines.get(pipeline_id)
+    if runner is None:
+        raise ApiError("that pipeline is not running in this process")
+    runner.stop()
+    return {"pipeline_id": pipeline_id, "stopping": True}
+
+
+def resume_pipeline(pipeline_id: str, base: str | None = None, listener=None) -> dict:  # noqa: ANN001
+    """Run a pipeline again from its last finished stage."""
+    from ai_made_easy.core.pipelines.runner import PipelineError, resume
+
+    try:
+        runner = resume(manager(), pipeline_store(), pipeline_id, base, listener)
+    except PipelineError as exc:
+        raise ApiError(str(exc)) from exc
+    _pipelines[runner.pipeline_id] = runner
+    return {"pipeline_id": runner.pipeline_id, "resumed_from": pipeline_id}
+
+
+def wait_pipeline(pipeline_id: str, timeout: float = 3600.0) -> dict:
+    runner = _pipelines.get(pipeline_id)
+    if runner is not None:
+        runner.wait(timeout)
+    return get_pipeline(pipeline_id)
+
+
 def model_registry():
     from ai_made_easy.core.deploy import ModelRegistry
 

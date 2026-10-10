@@ -71,6 +71,13 @@ TARGET_SCALING = {{ target_scaling }}
 {% endif %}
 CHECKPOINT = "{{ spec.name }}_best.pt"
 CLASS_NAMES = None
+# pipeline hooks (fine-tune, distill, prune and quantize stages set these)
+LR_SCALE = 1.0          # multiplies the optimizer's learning rates
+INIT_HOOK = None        # f(model): load weights / freeze layers before training
+EPOCH_HOOK = None       # f(epoch, model): e.g. unfreeze after some epochs
+LOSS_HOOK = None        # f(loss, out, xb, model) -> loss: e.g. knowledge distillation
+BEFORE_SAVE = None      # f(model): e.g. make pruning permanent
+QUANTIZE = ""           # "dynamic_int8": quantize Linear layers when serving
 {% for helper in torch_helpers %}
 
 
@@ -423,6 +430,8 @@ def fit(model: nn.Module, train_loader, val_loader, device, log: bool = True):
     kl_scale = 1.0 / max(len(train_loader.dataset), 1)   # ELBO per training example
 {% endif %}
     optimizer = {{ optimizer_expr }}
+    for group in optimizer.param_groups:
+        group["lr"] *= LR_SCALE
 {% if scheduler_expr %}
     scheduler = {{ scheduler_expr }}
 {% endif %}
@@ -435,6 +444,8 @@ def fit(model: nn.Module, train_loader, val_loader, device, log: bool = True):
     best_loss, best_state, bad_epochs = float("inf"), None, 0
     reset_peak_memory(device)
     for epoch in range(1, EPOCHS + 1):
+        if EPOCH_HOOK is not None:
+            EPOCH_HOOK(epoch, model)
         model.train()
         started, running, seen = time.time(), 0.0, 0
         optimizer.zero_grad(set_to_none=True)
@@ -447,6 +458,8 @@ def fit(model: nn.Module, train_loader, val_loader, device, log: bool = True):
             with torch.autocast(device_type=device.type, dtype=amp_dtype, enabled=use_amp):
                 out, target = adapt(model(xb), yb)
                 loss = loss_fn(out, target)
+                if LOSS_HOOK is not None:
+                    loss = LOSS_HOOK(loss, out, xb, model)
 {% if prob and prob.kl %}
                 loss = loss + kl_scale * kl_penalty(model)
 {% endif %}
@@ -523,10 +536,14 @@ def cross_validate(device: torch.device) -> None:
         scores.append(metrics)
         print(f"fold {k + 1}/{K_FOLDS}: " + " ".join(
             f"{m}={v:.4f}" for m, v in metrics.items() if isinstance(v, float)))
+    summary = {}
     for m in scores[0]:
         if isinstance(scores[0][m], float):
             vals = np.asarray([s[m] for s in scores])
             print(f"cv {m}: {vals.mean():.4f} ± {vals.std(ddof=1):.4f}")
+            summary[m] = float(vals.mean())
+            summary[f"{m}_std"] = float(vals.std(ddof=1))
+    Path("metrics.json").write_text(json.dumps({**summary, "folds": K_FOLDS}, indent=1))
 {% endif %}
 {% if spec.is_classification %}
 
@@ -610,8 +627,12 @@ def main() -> None:
     print(f"samples: train={len(train_loader.dataset)} val={len(val_loader.dataset)} "
           f"test={len(test_loader.dataset)}")
     model = {{ spec.class_name }}().to(device)
+    if INIT_HOOK is not None:
+        INIT_HOOK(model)
     print(f"parameters: {sum(p.numel() for p in model.parameters() if p.requires_grad):,}")
     model, loss_fn = fit(model, train_loader, val_loader, device)
+    if BEFORE_SAVE is not None:
+        BEFORE_SAVE(model)
     torch.save(model.state_dict(), CHECKPOINT)
     save_inference_state()
     print(f"saved best weights to {CHECKPOINT}")
