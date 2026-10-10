@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 
 import { api } from "./api";
 import { Modal } from "./components/Modal";
+import { NewProjectWizard } from "./components/Wizard";
 import { Designer } from "./designer/Designer";
 import { DataPage } from "./pages/DataPage";
 import { ExperimentsPage } from "./pages/ExperimentsPage";
@@ -116,6 +117,7 @@ export function App() {
   const { name, setName, project, notify, toast, theme, toggleTheme, version, validation, nodes,
           dataIssues } = useStore();
   const [page, setPage] = useState<Page>("design");
+  const [experimentsTab, setExperimentsTab] = useState("runs");
   const [design, setDesign] = useState("");
   useEffect(() => {
     if (!nodes.length) return setDesign("");
@@ -124,7 +126,7 @@ export function App() {
       .catch(() => setDesign(""));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [validation]);
-  const [dialog, setDialog] = useState<"" | "open" | "import">("");
+  const [dialog, setDialog] = useState<"" | "open" | "import" | "new">("");
 
   const save = async () => {
     try {
@@ -168,6 +170,8 @@ export function App() {
         <div className="spacer" />
         <input className="project-name" value={name} onChange={(e) => setName(e.target.value)}
                aria-label="Project name" />
+        <button onClick={() => setDialog("new")} data-testid="new-project"
+                title="Start from a task: recipes ranked for your data and budget, or AutoML">New</button>
         <button onClick={() => setDialog("open")}>Open</button>
         <button onClick={save} title="Save on the server (Ctrl+S)">Save</button>
         <button onClick={download} title="Download the project JSON">Download</button>
@@ -177,7 +181,7 @@ export function App() {
       </header>
       {page === "design" && <Designer />}
       {page === "data" && <DataPage />}
-      {page === "experiments" && <ExperimentsPage />}
+      {page === "experiments" && <ExperimentsPage initialTab={experimentsTab} />}
       {page === "models" && <ModelsPage />}
       <footer className="statusbar">
         <span className={errors ? "sev-error" : warnings ? "sev-warning" : "sev-ok"} data-testid="status">
@@ -190,6 +194,9 @@ export function App() {
       </footer>
       {dialog === "open" && <OpenDialog onClose={() => setDialog("")} />}
       {dialog === "import" && <ImportDialog onClose={() => setDialog("")} />}
+      {dialog === "new" && <NewProjectWizard onClose={() => setDialog("")}
+        onCreated={() => { setDialog(""); setPage("design"); }}
+        onAutoml={() => { setDialog(""); setExperimentsTab("sweeps"); setPage("experiments"); }} />}
       {toast && <div className={`toast ${toast.error ? "error" : ""}`} role="status">{toast.text}</div>}
     </div>
   );

@@ -9,7 +9,7 @@ import { api, streamRun } from "../api";
 import { LineChart, metricSeries } from "../components/LineChart";
 import { edgeId, shapeLabel } from "../project";
 import { useStore } from "../state";
-import type { RunEvent } from "../types";
+import type { Explanation, RunEvent } from "../types";
 import { BlockNode } from "./BlockNode";
 import { Inspector } from "./Inspector";
 import { DRAG_TYPE, Library } from "./Library";
@@ -214,6 +214,34 @@ function Training() {
   );
 }
 
+/** Why each block is in the design: the recipe's notes, else the block's description. */
+function Why() {
+  const { project, validation, selected, selectNode, nodes } = useStore();
+  const [why, setWhy] = useState<Explanation | null>(null);
+  useEffect(() => {
+    if (!nodes.length) return setWhy(null);
+    api.explain(project()).then(setWhy).catch(() => setWhy(null));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [validation]);
+  if (!why) return <div className="muted">Add blocks to see why each one is there.</div>;
+  const r = why.recipe;
+  return (
+    <div data-testid="why">
+      {r ? <p style={{ margin: "0 0 6px" }}><b>{r.title}</b> recipe ({r.tier}){r.description && ` — ${r.description}`}
+        {r.adapted?.length ? <span className="dim"> Adapted to your data: {r.adapted.join("; ")}.</span> : null}</p>
+        : <p className="muted" style={{ margin: "0 0 6px" }}>Not built from a recipe: showing each block's
+          description. Use New to start from a recipe.</p>}
+      {why.task && <p className="dim" style={{ margin: "0 0 6px" }}>Task: {why.task.label} — {why.task.description}</p>}
+      {why.blocks.map((b) => (
+        <div key={b.id} className={`why-block ${selected === b.id ? "current" : ""}`}
+             onClick={() => selectNode(b.id)}>
+          <b>{b.name}</b> <span className="muted">{b.id}</span>
+          <div className={b.source === "recipe" ? "" : "muted"}>{b.why}</div>
+        </div>))}
+    </div>
+  );
+}
+
 export function Designer() {
   const { addBlock, setSelected } = useStore();
   const [bottom, setBottom] = useState("problems");
@@ -227,13 +255,14 @@ export function Designer() {
           <Canvas />
           <section className="panel bottom-panel">
             <div className="tabs">
-              {["problems", "training"].map((t) => (
+              {["problems", "training", "why"].map((t) => (
                 <button key={t} className={bottom === t ? "active" : ""} onClick={() => setBottom(t)}>
                   {t[0].toUpperCase() + t.slice(1)}
                 </button>
               ))}
             </div>
-            <div className="tab-body">{bottom === "problems" ? <Problems /> : <Training />}</div>
+            <div className="tab-body">{bottom === "problems" ? <Problems />
+              : bottom === "why" ? <Why /> : <Training />}</div>
           </section>
         </div>
         <Inspector />

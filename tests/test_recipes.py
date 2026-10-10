@@ -237,7 +237,8 @@ def test_input_width_rule_for_any_network(tmp_path):
 def test_api_and_cli(tmp_path):
     path = churn_csv(tmp_path)
     tasks = {t["id"]: t for t in api.wizard_tasks()["tasks"]}
-    assert tasks["multiclass"]["modalities"] == ["tabular", "image"]
+    assert tasks["multiclass"]["demo_modalities"] == ["tabular", "image"]
+    assert {"text", "audio"} <= set(tasks["binary"]["modalities"])
     assert tasks["binary"]["automl"] and not tasks["probabilistic_inference"]["automl"]
     out = api.recommend_recipes("binary", path=str(path), limit=2)
     assert out["facts"]["target"] == "label" and len(out["suggestions"]) == 2

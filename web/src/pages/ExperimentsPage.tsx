@@ -286,7 +286,8 @@ function Sweeps() {
   const apply = async (id: string) => {
     try {
       load((await api.bestGraph(id)).graph);
-      notify("Applied the best trial's parameters to the design");
+      notify(sweeps.find((s) => s.sweep_id === id)?.spec.automl
+        ? "Opened the best AutoML design" : "Applied the best trial's parameters to the design");
     } catch (e) {
       notify(String((e as Error).message), true);
     }
@@ -307,12 +308,15 @@ function Sweeps() {
                 onClick={() => setOpen(s.sweep_id)} style={{ cursor: "pointer" }}>
               <td>{s.name} <span className="muted">{s.sweep_id}</span></td>
               <td><StatusChip status={s.state} /></td>
-              <td>{s.spec.metric} ({s.spec.direction || "auto"})</td><td>{s.spec.strategy}</td>
+              <td>{s.spec.metric} ({s.spec.direction || "auto"})</td>
+              <td>{s.spec.automl ? <span className="chip run" title={(s.spec.candidates ?? []).join(", ")}>
+                AutoML · {s.spec.candidates?.length ?? 0} recipes</span> : s.spec.strategy}</td>
               <td className="num">{s.trials.length}/{s.spec.max_trials}</td>
               <td className="num">{metric(s.best?.score)}</td>
               <td>{s.state === "running"
                 ? <button onClick={(e) => { e.stopPropagation(); api.stopSweep(s.sweep_id).then(refresh); }}>Stop</button>
-                : s.best && <button onClick={(e) => { e.stopPropagation(); apply(s.sweep_id); }}>Apply best</button>}</td>
+                : s.best && <button onClick={(e) => { e.stopPropagation(); apply(s.sweep_id); }}>
+                  {s.spec.automl ? "Open best design" : "Apply best"}</button>}</td>
             </tr>
           ))}
         </tbody>
@@ -338,9 +342,9 @@ function Sweeps() {
   );
 }
 
-export function ExperimentsPage() {
+export function ExperimentsPage({ initialTab = "runs" }: { initialTab?: string }) {
   const { name } = useStore();
-  const [tab, setTab] = useState("runs");
+  const [tab, setTab] = useState(initialTab);
   const [scoped, setScoped] = useState(true);
   return (
     <div className="page" data-testid="experiments-page">

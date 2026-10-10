@@ -413,8 +413,8 @@ def wizard_tasks() -> dict:
             continue
         kinds = sorted({k for r in recipes for k in r.data_kinds if k != "demo"})
         rows.append({**t.to_dict(), "family_label": get_family(t.family).label,
-                     "modalities": modalities_for(t.id) or sorted({r.modality
-                                                                  for r in recipes}),
+                     "modalities": list(dict.fromkeys(r.modality for r in recipes)),
+                     "demo_modalities": modalities_for(t.id),
                      "data_kinds": kinds, "recipes": len(recipes),
                      "automl": t.id in TASK_METRICS,
                      "metric": TASK_METRICS.get(t.id, ("", ""))[0]})

@@ -1,6 +1,7 @@
 // Typed client for the AI Made Easy server. Every call goes to /api; errors carry the
 // server's user-facing message.
 import type {
+  AutoMLStarted, DataFacts, Explanation, RecipeInfo, RecipeSuggestion, WizardTask,
   BlockDef, BudgetReport, TableLayout, RunSamples, DataProfile, DeviceProfile, FamilyInfo, TaskInfo, ModelVersion, Project, RunEvent, RunRecord, SplitPreview, Summary,
   SweepParam, SweepRecord, Validation,
 } from "./types";
@@ -95,6 +96,21 @@ export const api = {
   sweep: (id: string) => get<SweepRecord>(`/sweeps/${id}`),
   stopSweep: (id: string) => post<Record<string, unknown>>(`/sweeps/${id}/stop`),
   bestGraph: (id: string) => get<{ graph: Project }>(`/sweeps/${id}/best`),
+
+  wizardTasks: () => get<{ tasks: WizardTask[] }>("/wizard/tasks"),
+  detect: (path: string, target = "", task = "") =>
+    post<DataFacts>("/wizard/detect", { path, target, task }),
+  recommend: (body: { task: string; facts?: DataFacts | null; budget?: Record<string, unknown>;
+                      modality?: string }) =>
+    post<{ facts: DataFacts; suggestions: RecipeSuggestion[] }>("/wizard/recommend", body),
+  buildRecipe: (body: { recipe: string; task: string; facts?: DataFacts | null;
+                        knobs?: Record<string, unknown>; budget?: Record<string, unknown> }) =>
+    post<{ graph: Project }>("/wizard/build", body),
+  recipes: (task?: string) =>
+    get<{ recipes: RecipeInfo[] }>(`/recipes${task ? `?task=${encodeURIComponent(task)}` : ""}`),
+  explain: (graph: Project) => post<Explanation>("/explain", { graph }),
+  startAutoml: (spec: Record<string, unknown>, project = "") =>
+    post<AutoMLStarted>("/automl", { spec, project }),
 
   formats: (runId: string) =>
     get<{ formats: { id: string; label: string }[] }>(`/runs/${runId}/formats`),
