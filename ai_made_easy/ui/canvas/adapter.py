@@ -219,6 +219,11 @@ class CanvasController:
             for key, value in inst.params.items():
                 node.set_property(prop_name(key), value)
             canvas_nodes[inst.instance_id] = node
+        # the canvas gives nodes its own ids: re-key the recipe's per-block notes
+        recipe = self.meta.get("recipe")
+        if isinstance(recipe, dict) and isinstance(recipe.get("why"), dict):
+            recipe["why"] = {canvas_nodes[k].id: v for k, v in recipe["why"].items()
+                             if k in canvas_nodes}
         for edge in graph.edges:
             src = canvas_nodes[edge.source_id]
             dst = canvas_nodes[edge.target_id]

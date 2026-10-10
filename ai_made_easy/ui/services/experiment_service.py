@@ -68,6 +68,26 @@ class ExperimentService(QtCore.QObject):
         self.changed.emit()
         return runner.sweep_id
 
+    def start_automl(self, spec: dict, project: str = "") -> str | None:
+        """Search recipes and their settings (an AutoML sweep record)."""
+        from ai_made_easy.core import automl
+
+        if self.is_running():
+            self.log.error("a sweep is already running")
+            return None
+        try:
+            runner = automl.start(self.manager, self.sweeps, spec, project=project)
+        except (automl.AutoMLError, ValueError, TypeError) as exc:
+            self.log.error(f"could not start AutoML: {exc}")
+            return None
+        self.runner = runner
+        self._last_trials = -1
+        self._timer.start()
+        self.log.info(f"AutoML {runner.sweep_id} started — {len(runner.recipes)} recipes, "
+                      f"up to {runner.spec.max_trials} trials on {runner.spec.metric}")
+        self.changed.emit()
+        return runner.sweep_id
+
     def stop_sweep(self) -> None:
         if self.is_running():
             self.runner.stop()

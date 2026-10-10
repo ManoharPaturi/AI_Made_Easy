@@ -76,7 +76,8 @@ class PropertyInspector(QtWidgets.QWidget):
         return self._node_id
 
     def show_node(self, node_id: str, block, params: dict, issues: list,
-                  shape: list | None = None, param_count: int | None = None) -> None:
+                  shape: list | None = None, param_count: int | None = None,
+                  why: str = "") -> None:
         """Render the inspector for one block (``block``: BlockDefinition)."""
         self._loading = True
         self._node_id = node_id
@@ -98,6 +99,11 @@ class PropertyInspector(QtWidgets.QWidget):
             desc.setObjectName("blockDesc")
             desc.setWordWrap(True)
             layout.addWidget(desc)
+        if why:
+            note = QtWidgets.QLabel(f"Why here: {why}")
+            note.setObjectName("blockWhy")
+            note.setWordWrap(True)
+            layout.addWidget(note)
 
         self._status_host = QtWidgets.QWidget()
         self._status_layout = QtWidgets.QVBoxLayout(self._status_host)

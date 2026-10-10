@@ -25,6 +25,9 @@ class ActionSpec:
 CATALOG: list[ActionSpec] = [
     # ---- File ----
     ActionSpec("file.new", "&New Project", "&File", "act_new", "Ctrl+N", icon="new"),
+    ActionSpec("file.new_from_task", "New from &Task…", "&File", "act_new_from_task",
+               "Ctrl+Shift+N", "Pick a task and your data: recipes ranked for the data and "
+               "budget, or AutoML"),
     ActionSpec("file.open", "&Open Project…", "&File", "act_open", "Ctrl+O", icon="open"),
     ActionSpec("file.examples", "Open &Example…", "&File", "act_samples", "Ctrl+Shift+O",
                "Open a ready-made example project", separator_after=True),
@@ -68,6 +71,8 @@ CATALOG: list[ActionSpec] = [
     # ---- Model ----
     ActionSpec("model.validate", "&Validate", "&Model", "act_validate", "Ctrl+Shift+V",
                "Run all checks now", icon="check"),
+    ActionSpec("model.explain", "E&xplain This Design", "&Model", "act_explain", "",
+               "Why each block is in the design"),
     ActionSpec("model.expand", "&Expand Architecture", "&Model", "act_expand", "Ctrl+E",
                "Replace the selected architecture block with its layers", icon="expand"),
     ActionSpec("model.save_selection", "Save Selection as &Block…", "&Model",
