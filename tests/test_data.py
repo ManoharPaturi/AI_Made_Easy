@@ -171,6 +171,10 @@ def test_split_preview_matches_generated_script(tmp_path, stratify):
     path, frame = _table(tmp_path)
     graph = _csv_design(path, extra=[("prep.split", {"val_fraction": 0.2, "test_fraction": 0.1,
                                                      "stratify": stratify, "seed": 3})])
+    from ai_made_easy.core.tabular.layout import layout_of
+
+    inputs = [n for n in graph.nodes.values() if n.type_id == "core.input"]
+    inputs[0].params["shape"] = str(layout_of(graph).width)     # the one-hot encoded row
     workdir = tmp_path / "out"
     workdir.mkdir()
     script = export_training(graph, "pytorch", workdir).read_text()
