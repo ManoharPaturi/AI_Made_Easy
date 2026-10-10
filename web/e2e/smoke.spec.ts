@@ -146,3 +146,24 @@ test("graph, tabular, recommender and reinforcement-learning samples", async ({ 
   await page.getByPlaceholder(/Search/).fill("transformer");
   await expect(page.getByTestId("lib-tab.ft_transformer")).toBeVisible();
 });
+
+test("new-project wizard: task, demo data, recipes, explanation", async ({ page }) => {
+  await page.getByTestId("new-project").click();
+  await page.getByTestId("task-multiclass").click();
+  await page.getByTestId("wizard-next").click();
+  await page.getByTestId("wizard-modality").selectOption("image");
+  await page.getByTestId("wizard-next").click();
+  await page.getByTestId("wizard-next").click();
+  await expect(page.getByTestId("recipe-image_transfer")).toBeVisible();
+  await expect(page.getByTestId("recipe-tabular_mlp")).toHaveCount(0);
+  await page.getByTestId("recipe-image_cnn").click();
+  await page.locator("#knob-stages").fill("3");
+  await page.getByTestId("create-design").click();
+  await expect(page.getByTestId("status")).toHaveText("No problems");
+  await expect(page.getByTestId("design-kind")).toHaveText(
+    "Neural network · Multi-class classification");
+  await expect(page.locator(".block-node", { hasText: "Conv2D" })).toHaveCount(3);
+  await page.getByRole("button", { name: "Why" }).click();
+  await expect(page.getByTestId("why")).toContainText("Small CNN recipe");
+  await expect(page.getByTestId("why")).toContainText("3×3 filters find local patterns");
+});

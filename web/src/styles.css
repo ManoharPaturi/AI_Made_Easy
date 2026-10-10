@@ -151,6 +151,9 @@ tbody tr:hover td { background: var(--hover); }
 .issue { display: flex; gap: 8px; padding: 6px 4px; border-bottom: 1px solid var(--border-soft);
          cursor: pointer; align-items: flex-start; }
 .issue:hover { background: var(--hover); }
+.issue.selected { background: var(--accent-soft); }
+.why-block { padding: 5px 4px; border-bottom: 1px solid var(--border-soft); cursor: pointer; }
+.why-block.current { background: var(--accent-soft); }
 .sev-error { color: var(--error); }
 .sev-warning { color: var(--warning); }
 .sev-info { color: var(--text-dim); }
@@ -221,8 +224,10 @@ pre.code { margin: 0; font: 12px/1.5 "SF Mono", Menlo, Consolas, monospace; whit
                   place-items: center; z-index: 40; }
 .modal { background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
          padding: 18px; width: min(640px, 92vw); max-height: 86vh; overflow: auto; }
+.modal.wide { width: min(900px, 94vw); }
 .modal h3 { margin-top: 0; }
-.modal .actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
+.modal .actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px;
+                  flex-wrap: wrap; }
 .empty { color: var(--text-muted); padding: 24px; text-align: center; }
 
 /* ---- summary: cost tiles + resource budget */

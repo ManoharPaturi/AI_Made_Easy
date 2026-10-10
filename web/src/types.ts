@@ -193,7 +193,8 @@ export interface SweepRecord {
   sweep_id: string;
   name: string;
   spec: { dimensions: SweepDimension[]; metric: string; direction: string; strategy: string;
-          max_trials: number; skip_over_budget?: boolean };
+          max_trials: number; skip_over_budget?: boolean; automl?: { task: string };
+          candidates?: string[] };
   project: string;
   state: string;
   created_at: number;
@@ -280,4 +281,88 @@ export interface TableLayout {
   values?: number[][];
   fits?: boolean;
   learned?: boolean;
+}
+
+export interface WizardTask extends TaskInfo {
+  family_label: string;
+  modalities: string[];
+  demo_modalities: string[];
+  data_kinds: string[];
+  recipes: number;
+  automl: boolean;
+  metric: string;
+}
+
+export interface DataFacts {
+  kind: string;
+  source: string;
+  rows: number;
+  target: string;
+  features: string[];
+  categorical: string[];
+  classes: string[];
+  n_classes: number;
+  image_size: number;
+  channels: number;
+  tasks: string[];
+  details: string[];
+  warnings: string[];
+  error: string;
+  summary: string;
+  [key: string]: unknown;
+}
+
+export interface RecipeKnob {
+  name: string;
+  kind: "float" | "int" | "choice";
+  default: number | string;
+  low: number | null;
+  high: number | null;
+  log: boolean;
+  values: (number | string)[];
+  help: string;
+}
+
+export interface RecipeInfo {
+  id: string;
+  title: string;
+  tasks: string[];
+  tier: string;
+  tier_label: string;
+  modality: string;
+  description: string;
+  knobs: RecipeKnob[];
+  extra: string;
+  missing: string[];
+  downloads: string;
+  family: string;
+  strengths: string;
+}
+
+export interface RecipeSuggestion {
+  recipe: RecipeInfo;
+  task: string;
+  score: number;
+  reasons: string[];
+  cautions: string[];
+  errors: string[];
+  over_budget: string[];
+  ready: boolean;
+  estimate: { params?: number; flops?: number; train_memory_gb?: number; latency_ms?: number | null };
+  graph: Project | null;
+}
+
+export interface Explanation {
+  recipe: { id: string; title: string; tier: string; task: string; description?: string;
+            strengths?: string; knobs?: Record<string, unknown>; adapted?: string[] } | null;
+  task: { id: string; label: string; description: string } | null;
+  blocks: { id: string; type: string; name: string; category: string; why: string;
+            source: "recipe" | "block" }[];
+}
+
+export interface AutoMLStarted {
+  sweep_id: string;
+  candidates: string[];
+  metric: string;
+  direction: string;
 }

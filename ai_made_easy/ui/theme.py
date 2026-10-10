@@ -159,6 +159,7 @@ QLabel#blockTitle {{ font-size: 15px; font-weight: 600; }}
 QLabel#blockMeta {{ color: {t['TEXT_DIM']}; font-size: 12px; }}
 QLabel#errorText {{ color: {t['ERROR']}; font-size: 12px; }}
 QLabel#blockDesc {{ color: {t['TEXT_DIM']}; }}
+QLabel#blockWhy {{ color: {t['TEXT']}; border-left: 2px solid {t['ACCENT']}; padding: 2px 0 2px 8px; }}
 QLabel#paramName {{ color: {t['TEXT_DIM']}; }}
 QLabel#emptyState {{ color: {t['TEXT_MUTED']}; padding: 24px; }}
 QLabel#badge {{ background: {t['RAISED']}; color: {t['TEXT_DIM']};

@@ -205,6 +205,82 @@ def get_sweep(sweep_id: str) -> str:
 
 
 @mcp.tool()
+def wizard_tasks() -> str:
+    """Tasks the new-project wizard supports: their data modalities, the data kinds
+    their recipes read and whether AutoML can search them."""
+    return json.dumps(api.wizard_tasks(), default=str)
+
+
+@mcp.tool()
+def detect_data(path: str, target: str = "", task: str = "") -> str:
+    """Inspect a table file or dataset folder: format, rows, target, classes,
+    features and the tasks it fits (best first)."""
+    try:
+        return json.dumps(api.detect_data(path, target, task), default=str)
+    except api.ApiError as exc:
+        return _err(exc)
+
+
+@mcp.tool()
+def recommend_recipes(task: str, path: str = "", target: str = "",
+                      budget: dict[str, Any] | None = None, modality: str = "",
+                      limit: int = 5) -> str:
+    """Rank design recipes for a task on the data at path (empty: demo data) and an
+    optional budget ({"device", "max_train_memory_gb", "max_latency_ms",
+    "max_params_m"}). Each suggestion has reasons, cautions, a validated graph and
+    cost estimates; open the graph or pass a recipe id to build_recipe."""
+    try:
+        return json.dumps(api.recommend_recipes(task, path=path or None, target=target,
+                                                budget=budget, modality=modality,
+                                                limit=limit), default=str)
+    except api.ApiError as exc:
+        return _err(exc)
+
+
+@mcp.tool()
+def build_recipe(recipe: str, task: str = "", path: str = "", target: str = "",
+                 knobs: dict[str, Any] | None = None) -> str:
+    """Build one recipe's design (optionally with settings such as {"lr": 0.001,
+    "width": 128}) for the data at path; returns the graph."""
+    try:
+        return json.dumps(api.build_recipe(recipe, task, path=path or None, target=target,
+                                           knobs=knobs), default=str)
+    except api.ApiError as exc:
+        return _err(exc)
+
+
+@mcp.tool()
+def explain_design(graph: dict[str, Any]) -> str:
+    """Why every block is in a design: the recipe's notes, else the block's own
+    description, plus the recipe and task it implements."""
+    return json.dumps(api.explain_design(graph), default=str)
+
+
+@mcp.tool()
+def start_automl(task: str, path: str = "", target: str = "", max_trials: int = 12,
+                 epochs: int = 0, recipes: list[str] | None = None,
+                 budget: dict[str, Any] | None = None) -> str:
+    """AutoML: train every candidate recipe for the task once, then tune recipes and
+    their settings with TPE, pruning weak trials early and skipping designs over the
+    budget. Returns a sweep_id; poll automl_leaderboard."""
+    spec = {"task": task, "path": path or None, "target": target, "max_trials": max_trials,
+            "epochs": epochs, "recipes": recipes or [], "budget": budget or {}}
+    try:
+        return json.dumps(api.start_automl({k: v for k, v in spec.items() if v is not None}))
+    except api.ApiError as exc:
+        return _err(exc)
+
+
+@mcp.tool()
+def automl_leaderboard(sweep_id: str) -> str:
+    """An AutoML search's trials, best first, with their recipe, settings and score."""
+    try:
+        return json.dumps(api.automl_leaderboard(sweep_id), default=str)
+    except KeyError as exc:
+        return _err(exc)
+
+
+@mcp.tool()
 def deploy_run(run_id: str, out_dir: str, formats: list[str] | None = None) -> str:
     """Build a model-server package (FastAPI app, Dockerfile, pinned requirements,
     optional ONNX / TorchScript / Core ML exports) from a finished training run."""

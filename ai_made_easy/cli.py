@@ -18,6 +18,9 @@ Usage:
   aime import onnx model.onnx -o project.json      (also: keras model.keras)
   aime sweep <project.json> -p opt.lr=log:1e-4:1e-1 -p d1.units=int:16:128 \
              -p opt.nesterov=choice:true,false --metric accuracy --strategy tpe -n 20
+  aime recipes [--task TASK]          # design recipes per task
+  aime new --task binary --data churn.csv -o churn.json [--recipe ID] [--list]
+  aime automl --task binary --data churn.csv -n 12 --epochs 20 -o best.json
 """
 from __future__ import annotations
 
@@ -114,6 +117,39 @@ def main(argv: list[str] | None = None) -> int:
     p_bud.add_argument("--device", default=None, help="device profile id (see --list)")
     p_bud.add_argument("--list", action="store_true", help="list device profiles")
     p_bud.add_argument("--json", action="store_true", help="print JSON")
+    p_rec = sub.add_parser("recipes", help="list design recipes")
+    p_rec.add_argument("--task", default=None, help="only recipes for this task")
+
+    def wizard_args(p: argparse.ArgumentParser) -> None:
+        p.add_argument("--task", required=True, help="task id (see `aime recipes`)")
+        p.add_argument("--data", default="", help="a table file or dataset folder "
+                                                  "(default: each recipe's demo data)")
+        p.add_argument("--target", default="", help="target column of a table")
+        p.add_argument("--modality", default="", help="tabular, image, text, audio, ... "
+                                                      "(demo data only)")
+        p.add_argument("--device", default="", help="budget: device profile id")
+        p.add_argument("--max-memory-gb", type=float, default=0.0,
+                       help="budget: training memory")
+        p.add_argument("--max-params-m", type=float, default=0.0,
+                       help="budget: parameters (millions)")
+        p.add_argument("--max-latency-ms", type=float, default=0.0,
+                       help="budget: inference latency on the device")
+
+    p_new = sub.add_parser("new", help="create a project from the best recipe for a task")
+    wizard_args(p_new)
+    p_new.add_argument("--recipe", default="", help="use this recipe instead of the best")
+    p_new.add_argument("--list", action="store_true", help="rank the recipes and exit")
+    p_new.add_argument("-o", "--out", default="", help="project .json to write")
+    p_aml = sub.add_parser("automl", help="search recipes and settings for a task")
+    wizard_args(p_aml)
+    p_aml.add_argument("-n", "--trials", type=int, default=12)
+    p_aml.add_argument("--epochs", type=int, default=0, help="epochs per trial (0: default)")
+    p_aml.add_argument("--recipes", default="", help="comma-separated candidate recipes")
+    p_aml.add_argument("--metric", default="", help="metric to optimise (default: the task's)")
+    p_aml.add_argument("--no-tune", action="store_true", help="every recipe once, defaults")
+    p_aml.add_argument("--no-prune", action="store_true", help="never stop trials early")
+    p_aml.add_argument("--seed", type=int, default=0)
+    p_aml.add_argument("-o", "--out", default="", help="write the best design here")
     p_llm = sub.add_parser("llm", help="generate an LLM workflow script")
     p_llm.add_argument("project", help="path to project .json")
     p_llm.add_argument("-o", "--out", default="exports", help="output directory")
@@ -139,6 +175,8 @@ def main(argv: list[str] | None = None) -> int:
         return _import_command(args)
     if args.command == "data":
         return _data_command(args)
+    if args.command in ("recipes", "new", "automl"):
+        return _wizard_command(args)
     if args.command == "web":
         try:
             from ai_made_easy.server.app import main as serve_web
@@ -368,6 +406,86 @@ def _sweep_command(args, graph) -> int:  # noqa: ANN001
                   flush=True)
             return 0 if record["state"] == "finished" and record["best"] else 1
         _time.sleep(0.5)
+
+
+def _budget_args(args) -> dict:  # noqa: ANN001
+    budget = {"device": args.device, "max_train_memory_gb": args.max_memory_gb,
+              "max_params_m": args.max_params_m, "max_latency_ms": args.max_latency_ms}
+    return {k: v for k, v in budget.items() if v}
+
+
+def _wizard_command(args) -> int:  # noqa: ANN001
+    import time as _time
+
+    from ai_made_easy.core import api
+
+    try:
+        if args.command == "recipes":
+            for r in api.list_recipes(args.task)["recipes"]:
+                missing = f"  [needs {', '.join(r['missing'])}]" if r["missing"] else ""
+                print(f"{r['id']:<26} {r['tier']:<10} {r['modality']:<12} "
+                      f"{','.join(r['tasks'])}{missing}")
+            return 0
+        budget = _budget_args(args)
+        if args.command == "new":
+            if args.recipe:
+                graph = api.build_recipe(args.recipe, args.task, path=args.data or None,
+                                         target=args.target, budget=budget)
+            else:
+                ranked = api.recommend_recipes(args.task, path=args.data or None,
+                                               target=args.target, budget=budget,
+                                               modality=args.modality)
+                print(f"data: {ranked['facts']['summary']}", file=sys.stderr)
+                rows = ranked["suggestions"]
+                for i, sug in enumerate(rows):
+                    r = sug["recipe"]
+                    mark = "ready" if sug["ready"] else "not ready"
+                    print(f"{i + 1:>2}. {r['title']:<28} {r['tier']:<10} {mark:<9} "
+                          f"{'; '.join(sug['reasons'] + sug['cautions'] + sug['errors'])[:110]}",
+                          file=sys.stderr)
+                if args.list:
+                    return 0
+                best = next((s for s in rows if s["ready"]), None)
+                if best is None:
+                    print("error: no recipe is ready for this task and data", file=sys.stderr)
+                    return 1
+                graph = best["graph"]
+                print(f"using {best['recipe']['title']}", file=sys.stderr)
+            text = json.dumps(graph, indent=2)
+            if args.out:
+                with open(args.out, "w") as fh:
+                    fh.write(text + "\n")
+                print(args.out)
+            else:
+                print(text)
+            return 0
+        spec = {"task": args.task, "path": args.data or None, "target": args.target,
+                "modality": args.modality, "max_trials": args.trials, "epochs": args.epochs,
+                "recipes": [r for r in args.recipes.split(",") if r.strip()],
+                "metric": args.metric, "tune": not args.no_tune, "prune": not args.no_prune,
+                "budget": budget, "seed": args.seed}
+        started = api.start_automl({k: v for k, v in spec.items() if v is not None})
+    except (api.ApiError, KeyError, ValueError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    sweep_id = started["sweep_id"]
+    print(json.dumps({"type": "automl_started", **started}), flush=True)
+    reported = 0
+    while True:
+        record = api.get_sweep(sweep_id)
+        done = [t for t in record["trials"] if t["state"] not in ("pending", "running")]
+        for t in done[reported:]:
+            print(json.dumps({"type": "trial", **t}), flush=True)
+        reported = len(done)
+        if record["state"] in ("finished", "stopped", "failed"):
+            break
+        _time.sleep(0.5)
+    print(json.dumps({"type": "automl_" + record["state"], "best": record["best"]}), flush=True)
+    if record["best"] and args.out:
+        with open(args.out, "w") as fh:
+            json.dump(api.sweep_best_graph(sweep_id), fh, indent=2)
+        print(args.out)
+    return 0 if record["state"] == "finished" and record["best"] else 1
 
 
 def _import_command(args) -> int:  # noqa: ANN001

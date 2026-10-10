@@ -3,6 +3,20 @@
 ## Unreleased (3.0 in progress — see docs/ROADMAP_3.0.md)
 
 ### Added
+- Task-first wizard and AutoML (`core/recipes`, `core/automl.py`). New from Task (desktop,
+  Ctrl+Shift+N) and New (web): pick one of 29 tasks, point at a table or dataset folder
+  (format, target, classes and the fitting tasks are detected: CSV / Parquet / Excel, text
+  tables, time series, interactions, edge lists, class folders of images / text / audio,
+  COCO, YOLO, VOC, images + masks) or use demo data, set a budget, and get recipes ranked
+  for the data size and budget with reasons, cautions and cost estimates. Recipes cover
+  every task (MLP, Tabular ResNet, FT-Transformer, random forest, gradient boosting,
+  linear baselines, CNNs, ResNet transfer learning, text and audio classifiers, plus
+  designs for vision, forecasting, speech, generative, sequence, graph, recommender, RL
+  and probabilistic tasks); each is fitted to the data by the safe Quick Fixes and notes
+  why every block is there (Why tab, Explain This Design, Properties). AutoML trains every
+  candidate once, then tunes recipes and their settings with TPE, prunes weak trials by
+  the median rule and skips designs over the budget; results appear with the sweeps.
+  `aime new`, `aime automl`, `aime recipes`, `/api/wizard/*`, `/api/automl`, MCP tools.
 - Graph neural networks (`core/gnn`, PyTorch Geometric, `graph` extra): GCN, GAT / GATv2,
   GraphSAGE, GIN, GraphConv, EdgeConv and graph transformer layers; global, attention,
   TopK and SAG pooling; a Link Predictor. Node classification, graph classification and
@@ -162,6 +176,11 @@
   800MF–3.2GF, ShuffleNetV2, MNASNet, ViT-B/32, ViT-L/16, Swin(V2), MaxViT.
 
 ### Fixed
+- A training script that stopped with an error message (`SystemExit("...")`, e.g. a data
+  shape mismatch) was recorded as a finished run; it is now a failed run with the message.
+- Networks reading a table now check their Input width against the preprocessed row
+  (one-hot columns included) for every model, not only the tabular blocks.
+- The desktop canvas keeps a recipe's per-block notes when it renames blocks on load.
 - Desktop training runs now record measured peak memory and step time (they
   were only recorded for runs started from the CLI, web or MCP).
 - The "softmax before a logit loss" lint no longer fires on tasks that do not

@@ -399,7 +399,7 @@ class AppContext(QtCore.QObject):
         if self.properties.node_id != node_id:
             issues, shape, count = self._node_facts(node_id)
             self.properties.show_node(node_id, block, self.canvas.params_of(node_id),
-                                      issues, shape, count)
+                                      issues, shape, count, why=self._why(node_id))
             self.inspector_tabs.setCurrentWidget(self.properties)
 
     def _refresh_properties(self) -> None:
@@ -428,6 +428,11 @@ class AppContext(QtCore.QObject):
             self.properties.show_node(node_id, graph.nodes[node_id].definition(),
                                       self.canvas.params_of(node_id),
                                       *self._node_facts(node_id))
+
+    def _why(self, node_id: str) -> str:
+        """The recipe's note on why this block is in the design ("" when none)."""
+        recipe = (getattr(self.canvas, "meta", None) or {}).get("recipe") or {}
+        return str((recipe.get("why") or {}).get(node_id, ""))
 
     def _node_facts(self, node_id: str):
         issues = [i for i in self.validation_store.issues if i.node_id == node_id]
@@ -975,6 +980,61 @@ class AppContext(QtCore.QObject):
     def act_new(self, *_):
         if self._confirm_discard():
             self.project_service.new_project()
+
+    def act_new_from_task(self, *_):
+        from ai_made_easy.ui.features.wizard import NewProjectWizard
+
+        dialog = NewProjectWizard(self.window, start_dir=self._last_dir(),
+                                  project=self.project_store.name)
+        if dialog.exec() != QtWidgets.QDialog.DialogCode.Accepted:
+            return
+        if dialog.automl_spec is not None:
+            if self.experiment_service.start_automl(dialog.automl_spec,
+                                                    self.project_store.name):
+                self.act_experiments()
+            return
+        if dialog.result_graph is not None and self._confirm_discard():
+            graph = dialog.result_graph
+            if self.open_imported(graph):
+                recipe = (graph.get("meta") or {}).get("recipe") or {}
+                self.status_message.emit(f"Created a {recipe.get('title', 'recipe')} design — "
+                                         "Model › Explain This Design says why each block "
+                                         "is there")
+
+    def act_explain(self, *_):
+        from html import escape
+
+        from ai_made_easy.core.recipes import explain
+
+        info = explain(self.canvas.to_ir())
+        recipe, task = info["recipe"], info["task"]
+        parts = []
+        if recipe:
+            parts.append(f"<p><b>{escape(recipe['title'])}</b> recipe ({escape(recipe['tier'])})"
+                         f" — {escape(recipe.get('description') or '')}</p>")
+            if recipe.get("adapted"):
+                parts.append("<p>Adapted to your data: "
+                             f"{escape('; '.join(recipe['adapted']))}.</p>")
+        else:
+            parts.append("<p>Not built from a recipe: each block's own description is "
+                         "shown. File › New from Task starts from a recipe.</p>")
+        if task:
+            parts.append(f"<p><i>Task: {escape(task['label'])} — "
+                         f"{escape(task['description'])}</i></p>")
+        parts.append("<table cellspacing='4'>" + "".join(
+            f"<tr><td valign='top'><b>{escape(b['name'])}</b></td>"
+            f"<td>{escape(b['why'])}</td></tr>" for b in info["blocks"]) + "</table>")
+        box = QtWidgets.QDialog(self.window)
+        box.setWindowTitle("Explain This Design")
+        box.resize(720, 560)
+        layout = QtWidgets.QVBoxLayout(box)
+        text = QtWidgets.QTextBrowser()
+        text.setHtml("".join(parts))
+        layout.addWidget(text)
+        close = QtWidgets.QPushButton("Close")
+        close.clicked.connect(box.accept)
+        layout.addWidget(close, 0, QtCore.Qt.AlignmentFlag.AlignRight)
+        box.exec()
 
     def act_open(self, *_):
         if not self._confirm_discard():

@@ -225,6 +225,28 @@ gradient accumulation. The PyTorch training template prints a `resources:`
 line after the first epoch (peak memory, step time); the worker turns it into
 a `resources` event stored on the run record for calibration.
 
+## Recipes, the wizard and AutoML
+
+`core/recipes/` holds parameterized design templates. A `Recipe` declares the tasks it
+trains, a tier (small / medium / large / pretrained), the data kinds it reads, its knobs
+(learning rate, width, depth, ...) and its optional requirements; its builder turns
+`DataFacts` and knob values into a `Draft` (nodes, wires and a note on why each block is
+there). `facts.detect(path)` reads a table or dataset folder. `build()` constructs the
+graph, writes knobs that target sample nodes, applies the budget, then `autofit()` applies
+the safe Quick Fixes (input width, sizes the data dictates, categories, memory) until none
+is left; the recipe, its settings and the notes go to `graph.meta["recipe"]`, which
+`explain()` reads. `recommend()` builds every recipe for the task and data kind and ranks
+them by data size fit, installed requirements, validation errors and budget checks.
+`tabular.py` and `media.py` define recipes from scratch; `starters.py` builds recipes from
+the shipped samples and swaps in a dataset block for the user's data.
+
+`core/automl.py` runs an AutoML search as a sweep (`AutoMLRunner` subclasses
+`SweepRunner`, overriding the trial graph and the wait): a baseline round trains every
+candidate recipe with its defaults, then TPE proposes a recipe and its conditional
+settings; the median rule stops trials that fall behind at the same epoch. Records are
+sweep records with `spec["automl"]`, so the Experiments page, `best_graph()` and the CLI
+handle them like sweeps.
+
 ## Runs, sweeps and deployment
 
 ```

@@ -176,14 +176,15 @@ def test_ft_transformer_learns_category_interactions(tmp_path):
 
 
 @needs_torch
-@pytest.mark.parametrize("layers,epochs,limit", [
-    ([("tab.resnet", {"d": 64}), ("core.dense", {"units": 1})], 25, 8.0),
-    ([("tab.tabnet", {}), ("core.dense", {"units": 1})], 25, 15.8),
+@pytest.mark.parametrize("layers,epochs,lr,limit", [
+    ([("tab.resnet", {"d": 64}), ("core.dense", {"units": 1})], 25, 0.003, 8.0),
+    # TabNet's sparse masks learn slowly: lr 0.01 reaches ~10.9 locally
+    ([("tab.tabnet", {}), ("core.dense", {"units": 1})], 25, 0.01, 13.5),
 ], ids=["resnet", "tabnet"])
-def test_regression_beats_the_mean(layers, epochs, limit, tmp_path):
+def test_regression_beats_the_mean(layers, epochs, lr, limit, tmp_path):
     data = chain("16", layers, [
         n("data", "data.synthetic_table", task="regression"), n("norm", "prep.normalize"),
-        n("loss", "train.loss_mse"), n("opt", "train.adam", lr=0.003),
+        n("loss", "train.loss_mse"), n("opt", "train.adam", lr=lr),
         n("tr", "train.trainer", epochs=epochs, batch_size=128)])
     assert Graph.from_dict(data).validate() == []
     run, script = _run(data, tmp_path)

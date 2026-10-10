@@ -208,7 +208,7 @@ class TrialRow:
     number: int
     values: dict[str, Any]
     run_id: str = ""
-    # pending | running | finished | failed | invalid | over_budget | stopped
+    # pending | running | finished | failed | invalid | over_budget | stopped | pruned
     state: str = "pending"
     score: float | None = None
     message: str = ""
@@ -355,7 +355,9 @@ class SweepRunner:
                 def tell(score, _trial=trial, _study=study):
                     import optuna
 
-                    if score is None:
+                    if score == "pruned":
+                        _study.tell(_trial, state=optuna.trial.TrialState.PRUNED)
+                    elif score is None:
                         _study.tell(_trial, state=optuna.trial.TrialState.FAIL)
                     else:
                         _study.tell(_trial, score)
@@ -369,6 +371,14 @@ class SweepRunner:
                         break
                 seen.add(sig)
                 yield values, None
+
+    def _trial_graph(self, values: dict) -> Graph:
+        """The design a trial trains (the base graph with the trial's values)."""
+        return Graph.from_dict(apply_values(self.graph_dict, values))
+
+    def _await(self, row: TrialRow) -> dict:
+        """Wait for the trial's run (AutoML watches the epochs and may prune it)."""
+        return self.manager.wait(row.run_id, timeout=24 * 3600)
 
     def _score(self, run_id: str) -> float | None:
         rec = self.manager.history.get(run_id)
@@ -409,7 +419,15 @@ class SweepRunner:
                 if self._stop.is_set():
                     break
                 row = TrialRow(number=number, values=values)
-                trial_graph = Graph.from_dict(apply_values(self.graph_dict, values))
+                try:
+                    trial_graph = self._trial_graph(values)
+                except Exception as exc:  # noqa: BLE001 — recorded on the trial
+                    row.state, row.message = "invalid", str(exc)
+                    self._save_trial(row)
+                    if tell:
+                        tell(None)
+                    self._emit({"type": "trial", **asdict(row)})
+                    continue
                 errors = [i for i in trial_graph.validate() if i.severity == "error"]
                 if errors:
                     row.state, row.message = "invalid", errors[0].message
@@ -441,15 +459,17 @@ class SweepRunner:
                 row.state = "running"
                 self._save_trial(row)
                 self._emit({"type": "trial", **asdict(row)})
-                status = self.manager.wait(row.run_id, timeout=24 * 3600)
+                status = self._await(row)
                 self._current_run = None
-                row.state = status["state"] if status["state"] in FINAL_STATES else "failed"
+                if row.state != "pruned":
+                    row.state = status["state"] if status["state"] in FINAL_STATES \
+                        else "failed"
                 row.score = self._score(row.run_id) if row.state == "finished" else None
                 if row.state == "finished" and row.score is None:
                     row.message = f"the run did not report {self.spec.metric!r}"
                 self._save_trial(row)
                 if tell:
-                    tell(row.score)
+                    tell("pruned" if row.state == "pruned" else row.score)
                 self._emit({"type": "trial", **asdict(row)})
             self.record.state = "stopped" if self._stop.is_set() else "finished"
         except Exception as exc:  # noqa: BLE001
@@ -461,7 +481,12 @@ class SweepRunner:
 
 
 def best_graph(record: SweepRecord) -> dict:
-    """The sweep's base graph with the best trial's values applied."""
+    """The sweep's base graph with the best trial's values applied (AutoML: the best
+    trial's recipe built with its settings)."""
     if not record.best:
         raise SweepError("the sweep has no successful trial yet")
+    if "automl" in record.spec:
+        from ai_made_easy.core.automl import trial_design
+
+        return trial_design(record.spec["automl"], record.best["values"]).to_dict()
     return apply_values(record.graph, record.best["values"])

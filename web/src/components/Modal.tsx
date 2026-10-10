@@ -1,7 +1,7 @@
 import { type ReactNode, useEffect } from "react";
 
-export function Modal({ title, onClose, children, actions }: {
-  title: string; onClose: () => void; children: ReactNode; actions?: ReactNode;
+export function Modal({ title, onClose, children, actions, wide = false }: {
+  title: string; onClose: () => void; children: ReactNode; actions?: ReactNode; wide?: boolean;
 }) {
   useEffect(() => {
     const key = (e: KeyboardEvent) => e.key === "Escape" && onClose();
@@ -10,7 +10,7 @@ export function Modal({ title, onClose, children, actions }: {
   }, [onClose]);
   return (
     <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="modal" role="dialog" aria-label={title}>
+      <div className={`modal${wide ? " wide" : ""}`} role="dialog" aria-label={title}>
         <h3>{title}</h3>
         {children}
         <div className="actions">

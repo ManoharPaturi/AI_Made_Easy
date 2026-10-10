@@ -248,6 +248,10 @@ Goal: about 750+ blocks, every family validated at design time, generating runna
   - early-stopping trials (Optuna pruner fed by epoch events)
   - budget-filtered; the leaderboard is reused from the Experiments page
 - "Explain this design" panel: why each block was chosen, from recipe metadata.
+- **Status:** shipped. 43 recipes cover all 29 tasks; the wizard asks for the kind of data (tabular / image / ...) when a task has demo recipes for several. Recipes for the remaining families are built from the shipped samples, with the user's dataset swapped in where a reader exists (COCO / YOLO / VOC, mask folders, series, corpora, text pairs, graphs, interactions). AutoML runs a baseline round (every candidate with its defaults) before TPE; probabilistic-model tasks have recipes but no AutoML metric yet. Not in this phase (moved to a later release):
+  - pretrained text and audio encoders as recipes (Hugging Face models download weights; the from-scratch recipes ship)
+  - user data for the generative, density, probabilistic-model and state-space recipes (they train on their demo datasets; swap the dataset block by hand)
+  - multi-objective AutoML (accuracy vs. latency Pareto fronts); the budget is a hard filter
 
 ## Phase 8 — Multi-stage pipelines
 - **Family `pipeline.*`.** Stage blocks on the canvas connected in order. Each references a design (embedded or a project file).

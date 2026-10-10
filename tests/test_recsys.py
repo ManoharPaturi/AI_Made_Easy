@@ -130,17 +130,18 @@ def _infer(folder: Path, script: Path, items: list) -> list:
 
 
 @needs_torch
-@pytest.mark.parametrize("model,width,objective", [
-    ("rec.mf", 2, "bpr"), ("rec.ncf", 2, "bce"), ("rec.two_tower", 2, "bpr"),
-    ("rec.dlrm", 10, "bpr"),
+@pytest.mark.parametrize("model,width,objective,epochs", [
+    ("rec.mf", 2, "bpr", 12), ("rec.ncf", 2, "bce", 12),
+    ("rec.two_tower", 2, "bpr", 20),          # the towers learn more slowly: ~1.3x at 12 epochs
+    ("rec.dlrm", 10, "bpr", 12),
 ])
-def test_models_beat_popularity(model, width, objective, tmp_path):
+def test_models_beat_popularity(model, width, objective, epochs, tmp_path):
     data = design(width, model, extra=[n("o", "rec.objective", objective=objective),
                                        n("opt", "train.adam", lr=0.01),
-                                       n("tr", "train.trainer", epochs=12, batch_size=512)])
+                                       n("tr", "train.trainer", epochs=epochs, batch_size=512)])
     run, script = _run(data, tmp_path)
     metrics = json.loads((run / "metrics.json").read_text())
-    assert metrics["ndcg_at_10"] > 1.15 * metrics["popular_ndcg_at_10"]
+    assert metrics["ndcg_at_10"] > 1.2 * metrics["popular_ndcg_at_10"]
     out = _infer(run, script, [{"user": "3", "k": 3}, {"user": "stranger", "k": 2},
                                {"user": "3", "items": ["1", "2"]}])
     assert len(out[0]["items"]) == 3 and out[0]["known"]
