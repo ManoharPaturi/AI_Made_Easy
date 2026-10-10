@@ -167,3 +167,17 @@ test("new-project wizard: task, demo data, recipes, explanation", async ({ page 
   await expect(page.getByTestId("why")).toContainText("Small CNN recipe");
   await expect(page.getByTestId("why")).toContainText("3×3 filters find local patterns");
 });
+
+test("pipeline samples open with the pipeline panel", async ({ page }) => {
+  for (const sample of ["pipeline_distill_quantize.json", "pipeline_finetune_prune_ensemble.json"]) {
+    await page.getByRole("button", { name: "Open" }).click();
+    await page.getByTestId(`sample-${sample}`).click();
+    await expect(page.getByTestId("design-kind")).toHaveText("Pipeline");
+    await expect(page.getByTestId("status")).toHaveText("No problems");
+  }
+  await page.getByRole("button", { name: "Training", exact: true }).click();
+  await expect(page.getByTestId("run-pipeline")).toBeEnabled();
+  await page.getByRole("button", { name: "Experiments" }).click();
+  await page.getByRole("button", { name: "Pipelines" }).click();
+  await expect(page.getByTestId("experiments-page")).toContainText(/No pipelines yet|Pipeline/);
+});

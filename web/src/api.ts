@@ -1,6 +1,7 @@
 // Typed client for the AI Made Easy server. Every call goes to /api; errors carry the
 // server's user-facing message.
 import type {
+  PipelineRecord,
   AutoMLStarted, DataFacts, Explanation, RecipeInfo, RecipeSuggestion, WizardTask,
   BlockDef, BudgetReport, TableLayout, RunSamples, DataProfile, DeviceProfile, FamilyInfo, TaskInfo, ModelVersion, Project, RunEvent, RunRecord, SplitPreview, Summary,
   SweepParam, SweepRecord, Validation,
@@ -96,6 +97,14 @@ export const api = {
   sweep: (id: string) => get<SweepRecord>(`/sweeps/${id}`),
   stopSweep: (id: string) => post<Record<string, unknown>>(`/sweeps/${id}/stop`),
   bestGraph: (id: string) => get<{ graph: Project }>(`/sweeps/${id}/best`),
+
+  startPipeline: (graph: Project, project = "") =>
+    post<{ pipeline_id: string; stages: string[] }>("/pipelines", { graph, project }),
+  pipelines: () => get<{ pipelines: PipelineRecord[] }>("/pipelines"),
+  pipeline: (id: string) => get<PipelineRecord>(`/pipelines/${id}`),
+  stopPipeline: (id: string) => post<Record<string, unknown>>(`/pipelines/${id}/stop`),
+  resumePipeline: (id: string) =>
+    post<{ pipeline_id: string; resumed_from: string }>(`/pipelines/${id}/resume`),
 
   wizardTasks: () => get<{ tasks: WizardTask[] }>("/wizard/tasks"),
   detect: (path: string, target = "", task = "") =>
