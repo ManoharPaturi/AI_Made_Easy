@@ -83,13 +83,46 @@ class PretrainedBackbone(nn.Module):
 class HFTextEncoder(nn.Module):
     """Hugging Face transformer encoder over token ids (0 = padding)."""
 
-    def __init__(self, model_id: str, pooling: str = "cls", freeze: bool = True) -> None:
-        super().__init__()
-        from transformers import AutoModel
+    PRESETS = {  # repo: (model class, config class, config kwargs for random init)
+        "bert-base-uncased": ("BertModel", "BertConfig", {}),
+        "bert-large-uncased": ("BertModel", "BertConfig",
+                               {"hidden_size": 1024, "num_hidden_layers": 24,
+                                "num_attention_heads": 16, "intermediate_size": 4096}),
+        "distilbert-base-uncased": ("DistilBertModel", "DistilBertConfig", {}),
+        "roberta-base": ("RobertaModel", "RobertaConfig",
+                         {"max_position_embeddings": 514, "type_vocab_size": 1,
+                          "layer_norm_eps": 1e-5, "pad_token_id": 1}),
+        "sentence-transformers/all-MiniLM-L6-v2": (
+            "BertModel", "BertConfig", {"hidden_size": 384, "num_hidden_layers": 6,
+                                        "num_attention_heads": 12, "intermediate_size": 1536}),
+        "albert-base-v2": ("AlbertModel", "AlbertConfig", {"hidden_size": 768,
+                                                            "num_attention_heads": 12,
+                                                            "intermediate_size": 3072}),
+        "google/electra-small-discriminator": (
+            "ElectraModel", "ElectraConfig", {"hidden_size": 256, "num_attention_heads": 4,
+                                              "intermediate_size": 1024}),
+        "microsoft/deberta-v3-small": (
+            "DebertaV2Model", "DebertaV2Config",
+            {"hidden_size": 768, "num_hidden_layers": 6, "num_attention_heads": 12,
+             "intermediate_size": 3072, "relative_attention": True, "position_buckets": 256,
+             "norm_rel_ebd": "layer_norm", "share_att_key": True,
+             "pos_att_type": ["p2c", "c2p"], "type_vocab_size": 0,
+             "position_biased_input": False, "layer_norm_eps": 1e-7}),
+    }
 
-        self.encoder = AutoModel.from_pretrained(model_id)
+    def __init__(self, model_id: str, pooling: str = "cls", freeze: bool = True,
+                 pretrained: bool = True) -> None:
+        super().__init__()
+        import transformers
+
+        if pretrained and not skip_pretrained():
+            self.encoder = transformers.AutoModel.from_pretrained(model_id)
+        else:   # the same architecture without downloading weights (random, or loaded later)
+            model_cls, config_cls, kwargs = self.PRESETS[model_id]
+            self.encoder = getattr(transformers, model_cls)(
+                getattr(transformers, config_cls)(**kwargs))
         self.pooling = pooling
-        if freeze:
+        if freeze and pretrained:
             for p in self.encoder.parameters():
                 p.requires_grad = False
 

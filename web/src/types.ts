@@ -347,6 +347,8 @@ export interface RecipeSuggestion {
   cautions: string[];
   errors: string[];
   over_budget: string[];
+  downloads: { node: string; model: string; download_mb: number; license: string;
+               params_m: number; label: string }[];
   ready: boolean;
   estimate: { params?: number; flops?: number; train_memory_gb?: number; latency_ms?: number | null };
   graph: Project | null;

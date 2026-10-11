@@ -81,7 +81,7 @@ VARIANTS: dict[str, list[dict]] = {
 
 # defaults that would download weights are replaced for offline verification
 DEFAULT_OVERRIDES = {"core.pretrained_backbone": {"weights": "none"},
-                     "core.hf_text_encoder": None,
+                     "core.hf_text_encoder": {"weights": "none"},
                      **{t: {"weights": "none"} for t in (
                          "vision.detector", "vision.instance_segmenter",
                          "vision.keypoint_detector", "vision.hf_detector", "vision.segmenter",

@@ -38,7 +38,21 @@
   labels, for graph classification. A folder with node and edge tables is detected as
   one graph or, with a graph id, as many graphs.
 
+- **Pretrained recipes:** text classification on a Hugging Face encoder (DistilBERT,
+  MiniLM, ELECTRA, BERT, RoBERTa, DeBERTa-v3), audio classification on wav2vec 2.0 /
+  HuBERT / WavLM, and image classification on timm models or DINOv2. Each comes as a
+  linear probe (frozen encoder) and a fine-tune. The wizard shows what each download is,
+  its size and its licence, from the model zoo, and offers pretrained recipes only when
+  they fit the budget.
+- The Pretrained Text Encoder block gets a `weights` setting (`none` builds the same
+  architecture with random weights, offline) and parameter and FLOP estimates; budgets
+  now treat frozen timm and Hugging Face encoders as frozen. New `text` extra.
+- A model-zoo catalog of the Hugging Face encoders (`core/zoo/hf_encoders.json`):
+  feature width, parameters, download size and licence.
+
 ### Fixed
+- A folder of audio clips preselected keyword spotting in the wizard, a task no recipe
+  could train on a folder; it now preselects multi-class (or binary) classification.
 - The graph recipes keep the node table's id and label columns instead of assuming `id`
   and `label`.
 - Clustering and anomaly-detection scripts no longer stop when the table has no label

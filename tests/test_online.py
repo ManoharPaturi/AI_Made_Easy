@@ -55,3 +55,32 @@ def test_pretrained_block_downloads_and_runs(type_id):
     with torch.no_grad():
         out = a(x)
     assert tuple(out.shape[1:]) == tuple(shapes["out"])
+
+
+# ---------------------------------------------------------------- pretrained recipes
+
+@pytest.mark.parametrize("recipe, knobs, fixture", [
+    ("text_encoder_finetune", {"model": "sentence-transformers/all-MiniLM-L6-v2",
+                               "max_length": 64, "epochs": 2}, "_reviews"),
+    ("audio_encoder_finetune", {"epochs": 2}, "_clips"),
+    ("timm_finetune", {"image_size": 96, "epochs": 2}, "_photos"),
+])
+def test_pretrained_recipe_fine_tunes_real_weights(recipe, knobs, fixture, tmp_path):
+    """One real fine-tune per modality: the checkpoint downloads, trains and evaluates."""
+    import test_pretrained_recipes as fixtures
+
+    from ai_made_easy.core import recipes, zoo
+
+    rid = recipes.get_recipe(recipe)
+    missing = rid.missing()
+    if missing:
+        pytest.skip(f"{recipe}: needs {missing}")
+    data = getattr(fixtures, fixture)(tmp_path / ("reviews.csv" if fixture == "_reviews"
+                                                  else "data"))
+    graph = recipes.build(rid, "binary", recipes.detect(data), knobs=knobs)
+    assert zoo.downloads(graph), "the recipe should download a pretrained checkpoint"
+    for node in graph.nodes.values():
+        if node.type_id == "train.trainer":
+            node.params["batch_size"] = 4
+    metrics = fixtures._train(graph, tmp_path / "run")
+    assert metrics["accuracy"] >= 0.5

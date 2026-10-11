@@ -171,6 +171,10 @@ test("new-project wizard: task, demo data, recipes, explanation", async ({ page 
   await page.getByTestId("wizard-next").click();
   await page.getByTestId("wizard-next").click();
   await expect(page.getByTestId("recipe-image_transfer")).toBeVisible();
+  await expect(page.getByTestId("recipe-image_transfer").getByTestId("download"))
+    .toHaveText("⬇ downloads resnet18 · ~47 MB · BSD-3-Clause (torchvision) licence");
+  await expect(page.getByTestId("recipe-dinov2_probe").getByTestId("download"))
+    .toContainText("facebook/dinov2-small · ~88 MB · apache-2.0 licence");
   await expect(page.getByTestId("recipe-tabular_mlp")).toHaveCount(0);
   await page.getByTestId("recipe-image_cnn").click();
   await page.locator("#knob-stages").fill("3");

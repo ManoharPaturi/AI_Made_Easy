@@ -2,6 +2,8 @@
 text encoders, usable frozen (feature extraction) or fine-tuned."""
 from __future__ import annotations
 
+from dataclasses import replace
+
 from ai_made_easy.core.blocks._dsl import P, nn_block
 from ai_made_easy.core.codegen import KerasUnsupported
 from ai_made_easy.core.registry import get_registry
@@ -15,13 +17,11 @@ reg = get_registry()
 BACKBONES = {row["name"]: (row["feature_dim"], row["keras"], row["min_side"], row["fixed_side"])
              for row in catalog("torchvision_image")}
 
-# model id: hidden size
-TEXT_ENCODERS = {
-    "bert-base-uncased": 768, "distilbert-base-uncased": 768, "roberta-base": 768,
-    "sentence-transformers/all-MiniLM-L6-v2": 384, "albert-base-v2": 768,
-    "google/electra-small-discriminator": 256, "microsoft/deberta-v3-small": 768,
-    "bert-large-uncased": 1024,
-}
+# model id: hidden size (the Hugging Face encoder catalog)
+TEXT_ENCODERS = {row["name"]: row["feature_dim"] for row in catalog("hf_encoders")
+                 if row["modality"] == "text"}
+TEXT_PARAMS_M = {row["name"]: row["params_m"] for row in catalog("hf_encoders")
+                 if row["modality"] == "text"}
 
 
 def _backbone_shape(in_shapes, params):
@@ -67,6 +67,12 @@ reg.register(nn_block(
 ))
 
 
+def _text_cost(in_shapes, params) -> tuple[int, int]:
+    """(parameters, FLOPs): about 2 FLOPs per parameter per token."""
+    n = int(TEXT_PARAMS_M[params["model_id"]] * 1e6)
+    return n, 2 * n * int(in_shapes[0][0])
+
+
 def _text_shape(in_shapes, params):
     s = in_shapes[0]
     if len(s) != 1:
@@ -77,15 +83,19 @@ def _text_shape(in_shapes, params):
     return [hidden] if params["pooling"] != "none" else [s[0], hidden]
 
 
-reg.register(nn_block(
+reg.register(replace(nn_block(
     "core.hf_text_encoder", "Pretrained Text Encoder", "Pretrained Models", family="model",
     params=(P("model_id", "enum", "distilbert-base-uncased", options=tuple(TEXT_ENCODERS)),
             P("pooling", "enum", "cls", options=("cls", "mean", "none"),
               help="cls/mean → [hidden]; none → per-token [L, hidden]"),
-            P("freeze", "bool", True)),
+            P("freeze", "bool", True),
+            P("weights", "enum", "pretrained", options=("pretrained", "none"),
+              help="none: the same architecture with random weights (no download)")),
     shape=_text_shape, layout="ir", input_dtype="int",
+    param_fn=lambda s, p: int(TEXT_PARAMS_M[p["model_id"]] * 1e6),
     torch=lambda c: (f"HFTextEncoder(\"{c['model_id']}\", pooling=\"{c['pooling']}\", "
-                     f"freeze={bool(c['freeze'])})"),
-    torch_helpers=("HFTextEncoder",),
+                     f"freeze={bool(c['freeze'])}, "
+                     f"pretrained={c.get('weights', 'pretrained') == 'pretrained'})"),
+    torch_helpers=("skip_pretrained", "HFTextEncoder"),
     desc="Hugging Face transformer encoder over token ids (pair with a Hugging Face Tokenize).",
-))
+), requires=("transformers",), extra="text", meta={"cost": _text_cost}))

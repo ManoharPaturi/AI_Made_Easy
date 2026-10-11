@@ -76,6 +76,12 @@ Gaps that most limit users today, in order:
   - offers pretrained recipes only when the budget fits
 - **Tests:** offline tests run with `weights="none"`. The nightly job runs one real
   fine-tune per modality.
+- **Status:** done. Eight recipes: a linear probe and a fine-tune each for a Hugging Face
+  text encoder, a wav2vec 2.0 / HuBERT / WavLM speech encoder, timm image models and
+  DINOv2 (59 recipes). Recipe cards list each checkpoint's download size and licence
+  (new `hf_encoders` zoo catalog). With a budget, pretrained recipes that do not fit are
+  left out. The text encoder gained `weights = none` and cost estimates, and frozen
+  encoders no longer count as trainable in budgets.
 
 ## Phase 4 — Advanced pipelines
 - **Fine-tune:** discriminative learning rates (per layer group, geometric decay) next to

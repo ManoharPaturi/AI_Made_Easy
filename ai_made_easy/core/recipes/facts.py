@@ -350,8 +350,8 @@ def _class_folders(root: Path) -> DataFacts:
                  in IMAGE_SUFFIXES]
         facts.image_size, facts.channels = _image_shape(files)
         facts.channels = facts.channels or 3
-    facts.tasks = ["keyword_spotting", "multiclass"] if modality == "audio" else \
-        ["binary" if len(classes) == 2 else "multiclass", "multiclass"]
+    # a folder of clips trains a classifier (keyword spotting reads generated speech)
+    facts.tasks = ["binary" if len(classes) == 2 else "multiclass", "multiclass"]
     if modality == "image":
         facts.tasks += GENERATIVE
     facts.tasks = list(dict.fromkeys(facts.tasks))

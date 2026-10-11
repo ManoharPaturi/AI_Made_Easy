@@ -339,6 +339,7 @@ class NewProjectWizard(QtWidgets.QDialog):
             state = "ready" if row["ready"] else "not ready"
             lines = [f"{i + 1}. {r['title']}   [{r['tier_label']} · {state}]", r["description"]]
             lines += [f"  ✓ {x}" for x in row["reasons"]]
+            lines += [f"  ⬇ downloads {d['label']}" for d in row.get("downloads", [])]
             lines += [f"  ! {x}" for x in row["cautions"] + [f"over budget: {o}"
                                                              for o in row["over_budget"]]]
             lines += [f"  ✗ {x}" for x in row["errors"]]

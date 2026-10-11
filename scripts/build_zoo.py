@@ -3,7 +3,8 @@
 Each torchvision backbone is instantiated without weights, its classifier is removed
 exactly like the generated ``PretrainedBackbone`` helper does, and a forward pass
 measures the feature width. Parameter counts, ImageNet accuracy and minimum input
-size come from the torchvision weight metadata.
+size come from the torchvision weight metadata. The Hugging Face encoder catalog is a
+fixed table from the model cards (sizes and licences; nothing is downloaded).
 
 Usage: python scripts/build_zoo.py
 """
@@ -147,6 +148,36 @@ def head_entry(name: str, task: str, side: int) -> dict:
             "license": "BSD-3-Clause (torchvision)", "source": "torchvision"}
 
 
+# Hugging Face encoders the text / audio / image blocks load: model id -> (modality, feature
+# width, parameters in M, checkpoint download in MB, license), from the model cards
+HF_ENCODERS = {
+    "distilbert-base-uncased": ("text", 768, 66.4, 268, "apache-2.0"),
+    "bert-base-uncased": ("text", 768, 109.5, 440, "apache-2.0"),
+    "bert-large-uncased": ("text", 1024, 335.1, 1340, "apache-2.0"),
+    "roberta-base": ("text", 768, 124.6, 499, "mit"),
+    "sentence-transformers/all-MiniLM-L6-v2": ("text", 384, 22.7, 91, "apache-2.0"),
+    "albert-base-v2": ("text", 768, 11.7, 47, "apache-2.0"),
+    "google/electra-small-discriminator": ("text", 256, 13.5, 54, "apache-2.0"),
+    "microsoft/deberta-v3-small": ("text", 768, 141.3, 286, "mit"),
+    "facebook/wav2vec2-base": ("audio", 768, 94.4, 380, "apache-2.0"),
+    "facebook/hubert-base-ls960": ("audio", 768, 94.4, 378, "apache-2.0"),
+    "microsoft/wavlm-base-plus": ("audio", 768, 94.4, 378, "see the model card"),
+    "openai/whisper-tiny": ("audio", 384, 37.8, 151, "apache-2.0"),
+    "openai/whisper-base": ("audio", 512, 72.6, 290, "apache-2.0"),
+    "facebook/dinov2-small": ("image", 384, 22.1, 88, "apache-2.0"),
+    "facebook/dinov2-base": ("image", 768, 86.6, 346, "apache-2.0"),
+    "openai/clip-vit-base-patch32": ("image", 768, 87.8, 605, "mit"),
+    "google/siglip-base-patch16-224": ("image", 768, 92.9, 813, "apache-2.0"),
+}
+
+
+def hf_entry(model_id: str) -> dict:
+    modality, width, params_m, download_mb, license_ = HF_ENCODERS[model_id]
+    return {"name": model_id, "modality": modality, "feature_dim": width,
+            "params_m": params_m, "download_mb": download_mb, "license": license_,
+            "source": "huggingface"}
+
+
 def _write(name: str, rows: list[dict]) -> None:
     (OUT / f"{name}.json").write_text(json.dumps(rows, indent=1) + "\n")
     print(f"wrote {len(rows)} entries to {OUT / (name + '.json')}")
@@ -163,6 +194,7 @@ def main() -> None:
         _write("timm_image", [timm_entry(n) for n in TIMM])
     except ImportError:
         print("timm is not installed: skipping timm_image.json")
+    _write("hf_encoders", [hf_entry(m) for m in HF_ENCODERS])
     _write("torchvision_detection", [head_entry(n, t, s) for n, (t, s) in DETECTION.items()])
     _write("torchvision_segmentation",
            [head_entry(n, "semantic_segmentation", s) for n, s in SEGMENTATION.items()])

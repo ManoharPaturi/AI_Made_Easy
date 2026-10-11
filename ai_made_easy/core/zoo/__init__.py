@@ -29,3 +29,42 @@ def entry(name: str, model: str) -> dict:
 
 def catalogs() -> list[str]:
     return sorted(p.stem for p in ZOO.glob("*.json"))
+
+
+MB_PER_M_PARAMS = 4.0          # float32 checkpoints: about 4 MB per million parameters
+# block -> (weights param, value that downloads, catalog, param naming the model)
+DOWNLOADS = {
+    "core.pretrained_backbone": ("weights", "imagenet", "torchvision_image", "architecture"),
+    "vision.timm_backbone": ("weights", "imagenet", "timm_image", "model"),
+    "vision.hf_image_encoder": ("weights", "pretrained", "hf_encoders", "model_id"),
+    "audio.hf_encoder": ("weights", "pretrained", "hf_encoders", "model_id"),
+    "core.hf_text_encoder": ("weights", "pretrained", "hf_encoders", "model_id"),
+}
+
+
+def download(type_id: str, params: dict) -> dict | None:
+    """What a block downloads on first use: model, size in MB and license (None when it
+    downloads nothing or the model is not catalogued)."""
+    spec = DOWNLOADS.get(type_id)
+    if spec is None:
+        return None
+    key, value, name, model_key = spec
+    if str(params.get(key, value)) != value:
+        return None
+    try:
+        row = entry(name, str(params.get(model_key)))
+    except KeyError:
+        return None
+    size = row.get("download_mb") or round(float(row["params_m"]) * MB_PER_M_PARAMS)
+    return {"model": row["name"], "download_mb": int(size), "license": row["license"],
+            "params_m": row["params_m"]}
+
+
+def downloads(graph) -> list[dict]:  # noqa: ANN001 — core.graph.Graph
+    """Every pretrained checkpoint a design downloads, in design order."""
+    out = []
+    for node in graph.nodes.values():
+        info = download(node.type_id, node.resolved_params())
+        if info is not None:
+            out.append({"node": node.instance_id, **info})
+    return out

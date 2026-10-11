@@ -171,6 +171,8 @@ function RecipeStep({ rows, chosen, choose, knobs, setKnobs }: {
             </div>
             <div className="muted">{r.recipe.description}</div>
             {r.reasons.map((x) => <div key={x} className="dim">✓ {x}</div>)}
+            {r.downloads.map((d) => (
+              <div key={d.node} className="dim" data-testid="download">⬇ downloads {d.label}</div>))}
             {[...r.cautions, ...r.over_budget.map((o) => `over budget: ${o}`)].map((x) => (
               <div key={x} className="sev-warning">! {x}</div>))}
             {r.errors.map((x) => <div key={x} className="sev-error">✗ {x}</div>)}

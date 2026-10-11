@@ -76,7 +76,7 @@ AI Made Easy has 530 blocks in 8 families. A design's family follows from its bl
 - *Optimizer* (12): ASGD, Adadelta, Adafactor, Adagrad, Adam, AdamW, Adamax, NAdam, RAdam, RMSprop, Rprop, SGD
 - *Pooling* (21): AdaptiveAvgPool1D, AdaptiveAvgPool2D, AdaptiveAvgPool3D, AdaptiveMaxPool1D, AdaptiveMaxPool2D, AdaptiveMaxPool3D, AvgPool1D, AvgPool2D, AvgPool3D, GlobalAvgPool1D, GlobalAvgPool2D, GlobalAvgPool3D, GlobalMaxPool1D, GlobalMaxPool2D, GlobalMaxPool3D, LPPool2D, Max Over Time, MaxPool1D, MaxPool2D, MaxPool3D, Mean Over Time
 - *Preprocessing* (13): Class Balancing, Clip Outliers, Data Loader, Drop Columns, Impute Missing Values, Log Transform, Min-Max Scale, One-Hot Encode, Ordinal Encode, Robust Scale, Standardize (z-score), Train / Val / Test Split, Variance Filter
-- *Pretrained Models* (5) *(needs `audio`, `vision-tasks`)*: Hugging Face Image Encoder, Pretrained Image Backbone, Pretrained Text Encoder, Speech Encoder (wav2vec 2.0 / HuBERT / Whisper), timm Image Backbone
+- *Pretrained Models* (5) *(needs `audio`, `text`, `vision-tasks`)*: Hugging Face Image Encoder, Pretrained Image Backbone, Pretrained Text Encoder, Speech Encoder (wav2vec 2.0 / HuBERT / Whisper), timm Image Backbone
 - *Recommenders* (5): DLRM, Matrix Factorization, Neural Collaborative Filtering, Recommender Objective, Two-Tower Retrieval
 - *Recurrent* (4): GRU, LSTM, Select Timestep, SimpleRNN
 - *Regularization* (7): AlphaDropout, Dropout, Dropout1D, Dropout2D, Dropout3D, GaussianDropout, GaussianNoise

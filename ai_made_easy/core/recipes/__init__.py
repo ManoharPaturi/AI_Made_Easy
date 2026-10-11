@@ -213,7 +213,7 @@ def _load() -> None:
         return
     _LOADED = True
     import ai_made_easy.core.blocks  # noqa: F401 — families register their tasks
-    from ai_made_easy.core.recipes import media, starters, tabular  # noqa: F401
+    from ai_made_easy.core.recipes import media, pretrained, starters, tabular  # noqa: F401
     from ai_made_easy.core.registry import get_registry
 
     get_registry()
@@ -321,6 +321,7 @@ class Suggestion:
     errors: list[str] = field(default_factory=list)
     estimate: dict = field(default_factory=dict)
     over_budget: list[str] = field(default_factory=list)
+    downloads: list[dict] = field(default_factory=list)   # pretrained checkpoints (core.zoo)
 
     @property
     def ready(self) -> bool:
@@ -330,7 +331,7 @@ class Suggestion:
         out = {"recipe": self.recipe.to_dict(), "task": self.task, "score": round(self.score, 3),
                "reasons": self.reasons, "cautions": self.cautions, "errors": self.errors,
                "estimate": self.estimate, "over_budget": self.over_budget,
-               "ready": self.ready}
+               "downloads": self.downloads, "ready": self.ready}
         if graph:
             out["graph"] = self.graph
         return out
@@ -367,6 +368,7 @@ def recommend(task: str, facts: DataFacts | None = None, budget: dict | None = N
               modality: str | None = None, knobs: dict[str, dict] | None = None,
               limit: int | None = None) -> list[Suggestion]:
     """Recipes for ``task`` ranked for the data and the budget, best first."""
+    from ai_made_easy.core import zoo
     from ai_made_easy.core.tasks import get_task
 
     _load()           # families register their tasks with the blocks
@@ -387,8 +389,6 @@ def recommend(task: str, facts: DataFacts | None = None, budget: dict | None = N
             sug.cautions.append(f"needs {', '.join(missing)}: pip install "
                                 f"'ai-made-easy[{recipe.extra}]'" if recipe.extra else
                                 f"needs {', '.join(missing)}")
-        if recipe.downloads:
-            sug.cautions.append(f"downloads {recipe.downloads} on first use")
         try:
             graph = build(recipe, task, facts, (knobs or {}).get(recipe.id), budget)
         except Exception as exc:  # noqa: BLE001 — a recipe that cannot build is reported
@@ -397,10 +397,16 @@ def recommend(task: str, facts: DataFacts | None = None, budget: dict | None = N
             out.append(sug)
             continue
         sug.graph = graph.to_dict()
+        sug.downloads = [{**item, "label": download_label(item)}
+                         for item in zoo.downloads(graph)]
+        if recipe.downloads and not sug.downloads:
+            sug.cautions.append(f"downloads {recipe.downloads} on first use")
         if not missing:
             sug.errors = [i.message for i in graph.validate() if i.severity == "error"]
             sug.score -= 10 * bool(sug.errors)
         sug.estimate, sug.over_budget = _estimate(graph)
+        if budget and sug.over_budget and recipe.tier == "pretrained":
+            continue        # pretrained encoders are only offered when they fit the budget
         sug.score -= 4 * len(sug.over_budget)
         if budget and sug.estimate and not sug.over_budget:
             sug.reasons.append("fits the budget")
@@ -410,6 +416,13 @@ def recommend(task: str, facts: DataFacts | None = None, budget: dict | None = N
         out.append(sug)
     out.sort(key=lambda s: (-s.score, TIERS.index(s.recipe.tier), s.recipe.id))
     return out[:limit] if limit else out
+
+
+def download_label(item: dict) -> str:
+    """'facebook/dinov2-small · ~88 MB · apache-2.0 licence', shown on the recipe."""
+    mb = int(item["download_mb"])
+    size = f"{mb / 1000:.1f} GB" if mb >= 1000 else f"{mb} MB"
+    return f"{item['model']} · ~{size} · {item['license']} licence"
 
 
 # ===================================================================== explaining
