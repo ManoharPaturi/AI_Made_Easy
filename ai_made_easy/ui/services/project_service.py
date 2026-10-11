@@ -73,7 +73,9 @@ class ProjectService:
 
     def _write(self, path: Path) -> bool:
         try:
-            path.write_text(json.dumps(self.snapshot().to_dict(), indent=2))
+            from ai_made_easy.core.migrate import stamp
+
+            path.write_text(json.dumps(stamp(self.snapshot().to_dict()), indent=2))
         except Exception as exc:
             self.log.error(f"failed to save {path}: {exc}")
             return False

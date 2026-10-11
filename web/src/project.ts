@@ -27,7 +27,7 @@ export function fromProject(project: Project): { nodes: FlowNode[]; edges: Edge[
 }
 
 export function toProject(name: string, nodes: FlowNode[], edges: Edge[],
-                          meta: Record<string, unknown> = {}, schemaVersion = 2): Project {
+                          meta: Record<string, unknown> = {}, schemaVersion = 3): Project {
   return {
     schema_version: schemaVersion,
     name: name || "untitled",

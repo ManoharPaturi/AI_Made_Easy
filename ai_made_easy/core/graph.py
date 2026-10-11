@@ -526,8 +526,10 @@ class Graph:
     # ----------------------------------------------------------------- JSON
 
     def to_dict(self) -> dict[str, Any]:
+        from ai_made_easy.core.migrate import CURRENT_SCHEMA
+
         return {
-            "schema_version": 2,
+            "schema_version": CURRENT_SCHEMA,
             "name": self.name,
             "nodes": [
                 {

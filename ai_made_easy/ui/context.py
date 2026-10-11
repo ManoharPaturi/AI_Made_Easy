@@ -1111,6 +1111,7 @@ class AppContext(QtCore.QObject):
 
     def act_export_bundle(self, *_):
         from ai_made_easy.core.bundle import write_bundle
+        from ai_made_easy.core.migrate import stamp
 
         path, _ = QtWidgets.QFileDialog.getSaveFileName(
             self.window, "Export Project Archive",
@@ -1123,7 +1124,7 @@ class AppContext(QtCore.QObject):
         buf.open(QtCore.QIODevice.OpenModeFlag.WriteOnly)
         thumb.save(buf, "PNG")
         try:
-            out = write_bundle(Path(path), self.project_service.snapshot().to_dict(),
+            out = write_bundle(Path(path), stamp(self.project_service.snapshot().to_dict()),
                                name=self.project_store.name, thumbnail_png=bytes(buf.data()),
                                workdir=self._run_workdir())
             self.log_bus.info(f"project archive saved → {out} "

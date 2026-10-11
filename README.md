@@ -2,8 +2,9 @@
 
 [![CI](https://github.com/ManoharPaturi/AI_Made_Easy/actions/workflows/ci.yml/badge.svg)](https://github.com/ManoharPaturi/AI_Made_Easy/actions/workflows/ci.yml)
 
-**Visual model builder for practitioners.** Design neural networks and classic
-machine-learning pipelines by connecting blocks, with validation as you build.
+**Visual model builder for practitioners.** Design neural networks, classic
+machine-learning pipelines, probabilistic models and multi-stage training pipelines by
+connecting blocks, with validation as you build.
 Inspect your data, train, compare experiments and tune hyperparameters, then
 deploy the result as a web service. The app exports clean, runnable
 **PyTorch**, **Keras 3** and **scikit-learn** code, so you never write
@@ -20,7 +21,8 @@ boilerplate. It runs on the desktop or in the browser.
   to predict and where your data is, detects its format, target and classes, and ranks
   ready-to-train recipes for your data size and hardware budget, each explaining why
   every block is there. Or let **AutoML** try the recipes and tune them for you.
-- **510+ blocks** across every major library: `torch.nn` layers, Keras 3
+- **529 blocks in 8 families** ([docs/FAMILIES.md](docs/FAMILIES.md) lists every
+  family, task, block and design rule) across every major library: `torch.nn` layers, Keras 3
   equivalents, torchvision / `keras.applications` / timm pretrained backbones,
   Hugging Face text and image encoders, scikit-learn, XGBoost, LightGBM and CatBoost,
   plus datasets, preprocessing, augmentation, losses, optimizers, schedulers
@@ -149,6 +151,10 @@ desktop app. Hosting, authentication and the REST API are covered in
 
 ![Web designer](docs/images/web_designer.png)
 
+| New from a task | Graphical model with its CPD table | A train → distill → quantize pipeline |
+|---|---|---|
+| ![Wizard](docs/images/web_wizard.png) | ![CPD editor](docs/images/web_probabilistic.png) | ![Pipeline](docs/images/web_pipeline.png) |
+
 ## Block library
 
 | Section | Blocks | Contents |
@@ -164,6 +170,11 @@ desktop app. Hosting, authentication and the REST API are covered in
 | LLM | 15 | Model, tokenizer, prompts, LoRA / QLoRA fine-tuning, embeddings, vector store, retrieval, RAG |
 
 Save any selection of blocks as a reusable custom block (**Model ▸ Save Selection as Block**).
+Every block, grouped by family, and the rules that check each family:
+[docs/FAMILIES.md](docs/FAMILIES.md).
+
+Project files are plain JSON (schema 3, recording the design's family and task). Projects
+saved by 1.x and 2.0 open unchanged.
 
 ## Command line
 
@@ -212,15 +223,17 @@ environment with the frameworks installed (`$AIME_PYTHON`, or `python3` on the
 ```bash
 pip install -e ".[all,dev]"
 ruff check ai_made_easy scripts tests
-pytest                                  # ~850 tests, includes real training runs
+pytest                                  # ~1,400 tests, includes real training runs
 cd web && npm ci && npm run build && npx playwright test   # web UI
 UPDATE_GOLDEN=1 pytest tests/test_golden.py
 python scripts/build_examples.py        # regenerate example projects
 python scripts/verify_codegen.py --keras
+python scripts/gen_families.py          # regenerate docs/FAMILIES.md
+AIME_ONLINE=1 pytest tests/test_online.py   # downloads real pretrained weights (nightly CI)
 ```
 
 Architecture and design rules: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
-Web version: [docs/WEB.md](docs/WEB.md). Roadmap: [docs/ROADMAP_2.0.md](docs/ROADMAP_2.0.md).
+Web version: [docs/WEB.md](docs/WEB.md). Roadmap: [docs/ROADMAP_3.0.md](docs/ROADMAP_3.0.md).
 Release notes: [CHANGELOG.md](CHANGELOG.md).
 
 ## License

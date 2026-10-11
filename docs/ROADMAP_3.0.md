@@ -287,6 +287,17 @@ Goal: about 750+ blocks, every family validated at design time, generating runna
   - new `docs/FAMILIES.md` with every block family and its rules
   - CHANGELOG, screenshots
 - Version 3.0.0; check the PyInstaller bundle and Docker image (CPU) with the new extras.
+- **Status:** shipped as 3.0.0.
+  - Schema 3 needed no rewrite: roles and multi-input ports belong to block definitions. Every 1.x / 2.0 sample opens unchanged and validates, and saved files record `family` and `task`.
+  - CI has extra jobs for vision, audio, probabilistic, and graph + RL. Generative models need no extra (pure PyTorch) and run in the main job.
+  - A nightly workflow installs `[all]` and runs `AIME_ONLINE=1` tests, which download each pretrained block's real weights.
+  - Web parity was already complete (CPD editor, live sample grids, box / mask results, pipeline timeline, budget panel), each with a Playwright test. The Open dialog now shows each project's family and task.
+  - `docs/FAMILIES.md` is generated from the registries and checked by a test.
+  - The Docker image installs every family's extras except `llm`, and CI checks that no block is missing a library.
+  - Not in this release:
+    - the "about 750+ blocks" goal: 3.0 ships 529, up from 345 in 2.0
+    - a `generative` extra (diffusers LoRA fine-tuning of Stable Diffusion); the generative family is pure PyTorch
+    - new desktop screenshots (the README gains web screenshots of the wizard, the CPD editor and a pipeline)
 
 ---
 

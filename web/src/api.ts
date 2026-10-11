@@ -1,7 +1,7 @@
 // Typed client for the AI Made Easy server. Every call goes to /api; errors carry the
 // server's user-facing message.
 import type {
-  PipelineRecord,
+  PipelineRecord, SavedProject,
   AutoMLStarted, DataFacts, Explanation, RecipeInfo, RecipeSuggestion, WizardTask,
   BlockDef, BudgetReport, TableLayout, RunSamples, DataProfile, DeviceProfile, FamilyInfo, TaskInfo, ModelVersion, Project, RunEvent, RunRecord, SplitPreview, Summary,
   SweepParam, SweepRecord, Validation,
@@ -69,7 +69,7 @@ export const api = {
   expand: (graph: Project, nodeId: string) =>
     post<{ graph: Project }>("/expand", { graph, node_id: nodeId }),
 
-  projects: () => get<{ projects: { name: string; modified: number }[] }>("/projects"),
+  projects: () => get<{ projects: SavedProject[] }>("/projects"),
   project: (name: string) => get<Project>(`/projects/${encodeURIComponent(name)}`),
   saveProject: (name: string, graph: Project) =>
     request<{ saved: string }>("PUT", `/projects/${encodeURIComponent(name)}`, graph),
