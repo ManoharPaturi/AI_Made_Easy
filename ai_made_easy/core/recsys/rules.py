@@ -22,6 +22,22 @@ def _csv_counts(path: str, mtime: float, user: str, item: str, rating: str) -> d
     return out
 
 
+@lru_cache(maxsize=8)
+def _side_width(path: str, mtime: float, column: str) -> int | None:
+    """Numeric feature columns of a user / item table (None when the key is missing)."""
+    import pandas as pd
+
+    head = pd.read_csv(path, sep="\t" if path.lower().endswith(".tsv") else ",", nrows=50)
+    if column not in head.columns:
+        return None
+    return len(head.select_dtypes("number").columns.drop(column, errors="ignore"))
+
+
+def _resolve(raw: str) -> Path:
+    path = Path(raw).expanduser()
+    return path if path.is_absolute() else Path.cwd() / path
+
+
 def data_facts(node) -> dict:  # noqa: ANN001
     """Users, items, dense features per side and whether there are ratings."""
     if node is None:
@@ -29,17 +45,33 @@ def data_facts(node) -> dict:  # noqa: ANN001
     p = node.resolved_params()
     if node.type_id == "data.synthetic_interactions":
         return {"users": int(p["n_users"]), "items": int(p["n_items"]),
-                "features": int(p["features"]), "ratings": p["feedback"] == "ratings"}
-    path = Path(str(p["path"])).expanduser()
-    if not path.is_absolute():
-        path = Path.cwd() / path
+                "features": 2 * int(p["features"]), "ratings": p["feedback"] == "ratings"}
+    path = _resolve(str(p["path"]))
     if not path.is_file():
         return {}
     try:
-        return _csv_counts(str(path), path.stat().st_mtime, str(p["user_column"]),
-                           str(p["item_column"]), str(p["rating_column"] or ""))
+        facts = dict(_csv_counts(str(path), path.stat().st_mtime, str(p["user_column"]),
+                                 str(p["item_column"]), str(p["rating_column"] or "")))
     except Exception:  # noqa: BLE001 — unreadable files are reported when training
         return {}
+    for side in ("user", "item"):
+        raw = str(p.get(f"{side}_features") or "").strip()
+        if not raw or "features" not in facts:
+            continue
+        table = _resolve(raw)
+        width = None
+        if table.is_file():
+            try:
+                width = _side_width(str(table), table.stat().st_mtime, str(p[f"{side}_column"]))
+            except Exception:  # noqa: BLE001
+                width = None
+        if width is None:
+            facts.setdefault("side_errors", []).append(
+                f"{side} features: {table.name} is missing or has no {p[f'{side}_column']!r} "
+                "column")
+        else:
+            facts["features"] += width
+    return facts
 
 
 def recsys_rules(ctx: LintContext) -> list:
@@ -62,6 +94,8 @@ def recsys_rules(ctx: LintContext) -> list:
         p = data.resolved_params()
         out.append(_issue("error", f"columns {p['user_column']!r} / {p['item_column']!r} are not "
                                    f"in the file: {facts['columns'][:8]}", data.instance_id))
+    for message in facts.get("side_errors", []):
+        out.append(_issue("error", message, data.instance_id))
     p = model.resolved_params()
     for key, label in (("users", "n_users"), ("items", "n_items")):
         if key in facts and int(p[label]) < facts[key]:
@@ -74,13 +108,13 @@ def recsys_rules(ctx: LintContext) -> list:
     head = ctx.chain[0] if ctx.chain else None
     width = ctx.shapes.get(head.instance_id, [0])[0] if head is not None else 0
     if "features" in facts:
-        full = 2 + 2 * facts["features"]
+        full = 2 + facts["features"]
         if width not in (2, full):
             out.append(_issue("error", f"rows are [user, item] or [user, item, features] "
                                        f"({full} values): Set the Input shape to '2'",
                               head.instance_id))
         elif model.type_id == "rec.dlrm" and width == 2 and facts["features"]:
-            out.append(_issue("info", f"DLRM can read the {2 * facts['features']} user / item "
+            out.append(_issue("info", f"DLRM can read the {facts['features']} user / item "
                                       f"features: Set the Input shape to '{full}'",
                               head.instance_id))
         elif model.type_id != "rec.dlrm" and width > 2:

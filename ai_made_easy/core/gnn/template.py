@@ -457,7 +457,7 @@ def _dataset(graph: Graph) -> dict:
                 "p_in": 0.05, "p_out": 0.005, "feature_dim": 16, "feature_signal": 0.5,
                 "seed": 0, "val_fraction": 0.1, "test_fraction": 0.2}
     out = {"block": node.type_id, **dict(node.resolved_params())}
-    for key in ("nodes_path", "edges_path"):
+    for key in ("nodes_path", "edges_path", "graphs_path"):
         raw = out.get(key)
         if raw and not str(raw).startswith("~") and not Path(str(raw)).is_absolute():
             candidate = Path.cwd() / str(raw)
@@ -474,6 +474,8 @@ def _comment(d: dict) -> str:
         return f"{d['n_graphs']} generated graphs with a planted motif"
     if block in ("data.planetoid", "data.tudataset"):
         return f"{d['name']} benchmark"
+    if block == "data.graphs_csv":
+        return f"graphs in {d['graphs_path']} ({d['nodes_path']} + {d['edges_path']})"
     return f"{d['nodes_path']} + {d['edges_path']}"
 
 
@@ -514,7 +516,7 @@ def context(graph: Graph, framework: str) -> dict:
     sched, sched_params = _picked(graph, cat.SCHEDULER_IDS)
     model_code = generate(graph, "pytorch")
     name = sanitize_identifier(graph.name)
-    extra = ("pandas",) if dataset["block"] == "data.graph_csv" else ()
+    extra = ("pandas",) if dataset["block"] in ("data.graph_csv", "data.graphs_csv") else ()
     return {
         "title": graph.name, "filename": f"{name}_train_pytorch.py", "name": name,
         "kind": kind, "task_label": TASK_LABELS[kind], "notes": notes, "link": link,

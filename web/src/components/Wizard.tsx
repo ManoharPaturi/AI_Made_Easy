@@ -98,8 +98,9 @@ function DataStep({ task, facts, setFacts, modality, setModality }: {
           <div className="field"><label htmlFor="wiz-path">File or folder on the server</label>
             <input id="wiz-path" data-testid="wizard-path" placeholder="/data/churn.csv or /data/images/"
                    value={path} onChange={(e) => setPath(e.target.value)} />
-            <div className="help">A table (.csv, .tsv, .parquet, .xlsx), a folder with one sub-folder per
-              class, or a COCO / YOLO / VOC / images + masks folder.
+            <div className="help">A table (.csv, .tsv, .parquet, .xlsx), a folder of images (with or
+              without one sub-folder per class), a COCO / YOLO / VOC / images + masks folder, or node +
+              edge tables (add a graph table for many graphs).
               {task.data_kinds.length > 0 && ` This task reads: ${task.data_kinds.join(", ").replace(/_/g, " ")}.`}
             </div></div>
           <div className="field"><label htmlFor="wiz-target">Target column (tables, optional)</label>

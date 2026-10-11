@@ -107,6 +107,53 @@ def graph_csv(d: dict) -> dict:
     return out
 
 
+def graphs_csv(d: dict) -> tuple[list, list]:
+    """Many small graphs from node / edge / graph tables keyed by a graph id."""
+    import pandas as pd
+
+    gid, nid = d["graph_column"], d["id_column"]
+    nodes = pd.read_csv(Path(d["nodes_path"]).expanduser())
+    edges = pd.read_csv(Path(d["edges_path"]).expanduser())
+    table = pd.read_csv(Path(d["graphs_path"]).expanduser())
+    needed = ((nodes, "node", (gid, nid)), (table, "graph", (gid, d["label_column"])),
+              (edges, "edge", (gid, d["source_column"], d["target_column"])))
+    for frame, name, cols in needed:
+        missing = [c for c in cols if c not in frame.columns]
+        if missing:
+            raise SystemExit(f"the {name} table has no column(s) {missing}: {list(frame.columns)}")
+    wanted = [c.strip() for c in str(d.get("feature_columns") or "").split(",") if c.strip()]
+    cols = wanted or [c for c in nodes.select_dtypes("number").columns if c not in (gid, nid)]
+    if not cols:
+        raise SystemExit("the node table has no numeric feature columns")
+    classes = sorted(table[d["label_column"]].astype(str).unique().tolist())
+    lookup = {c: i for i, c in enumerate(classes)}
+    labels = dict(zip(table[gid].astype(str), table[d["label_column"]].astype(str).map(lookup)))
+    node_groups = {k: g for k, g in nodes.groupby(nodes[gid].astype(str), sort=False)}
+    edge_groups = {k: g for k, g in edges.groupby(edges[gid].astype(str), sort=False)}
+    graphs, skipped = [], 0
+    for key, label in labels.items():
+        group = node_groups.get(key)
+        if group is None:
+            skipped += 1
+            continue
+        index = {v: i for i, v in enumerate(group[nid].tolist())}
+        e = edge_groups.get(key)
+        if e is None:
+            pairs = np.zeros((2, 0), np.int64)
+        else:
+            src, dst = e[d["source_column"]].map(index), e[d["target_column"]].map(index)
+            keep = src.notna() & dst.notna()
+            pairs = np.stack([src[keep].astype(int).to_numpy(), dst[keep].astype(int).to_numpy()])
+        graphs.append({"x": group[cols].to_numpy(np.float32), "edge_index": _undirected(pairs),
+                       "y": int(label)})
+    if skipped:
+        print(f"warning: {skipped} graphs have no nodes and are skipped")
+    if not graphs:
+        raise SystemExit("no graph in the graph table has nodes")
+    order = np.random.default_rng(0).permutation(len(graphs))
+    return [graphs[i] for i in order], classes
+
+
 def planetoid(d: dict) -> dict:
     from torch_geometric.datasets import Planetoid
 
@@ -136,6 +183,8 @@ def load_graph_data(d: dict):
         return synthetic_graphs(d)
     if block == "data.graph_csv":
         return graph_csv(d)
+    if block == "data.graphs_csv":
+        return graphs_csv(d)
     if block == "data.planetoid":
         return planetoid(d)
     if block == "data.tudataset":

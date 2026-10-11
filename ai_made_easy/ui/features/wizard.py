@@ -181,9 +181,10 @@ class NewProjectWizard(QtWidgets.QDialog):
         self.detect_btn.clicked.connect(self._detect)
         form.addRow("", self.detect_btn)
         layout.addWidget(self.own_box)
-        hint = QtWidgets.QLabel("Tables (.csv, .tsv, .parquet, .xlsx), a folder with one "
-                                "sub-folder per class, or COCO / YOLO / VOC / images + masks "
-                                "folders.")
+        hint = QtWidgets.QLabel("Tables (.csv, .tsv, .parquet, .xlsx), a folder of images "
+                                "(with or without one sub-folder per class), COCO / YOLO / "
+                                "VOC / images + masks folders, or node + edge tables (add a "
+                                "graph table for many graphs).")
         hint.setObjectName("blockMeta")
         hint.setWordWrap(True)
         layout.addWidget(hint)
