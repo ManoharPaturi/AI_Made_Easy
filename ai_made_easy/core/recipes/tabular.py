@@ -1,7 +1,9 @@
 """Recipes for tables: neural networks (MLP, Tabular ResNet, FT-Transformer) and
 scikit-learn models (random forest, gradient boosting, linear) for classification,
-regression, multi-label and distribution targets."""
+regression, multi-label and distribution targets, plus clustering and anomaly detection."""
 from __future__ import annotations
+
+from typing import Callable
 
 from ai_made_easy.core.recipes import Context, Draft, Knob, Recipe, register_recipe
 from ai_made_easy.core.recipes.facts import DataFacts
@@ -268,3 +270,96 @@ register_recipe(Recipe(
                          "a linear model: one weight per feature, easy to interpret")(ctx),
     data_kinds=NEURAL_KINDS, family="classic", rows=(0, 10**8), priority=-0.4,
     strengths="a quick, interpretable baseline"))
+
+
+# ------------------------------------------------------------------ clustering / anomalies
+
+def _labels(ctx: Context) -> bool:
+    """The table has a class-like column: it scores the result but is not trained on."""
+    return not ctx.facts.demo and bool(ctx.facts.classes)
+
+
+def _unsupervised(model: str, note: str, params: Callable[[Context], dict]):  # noqa: ANN202
+    def builder(ctx: Context) -> Draft:
+        name = model.split(".", 1)[1]
+        d = Draft(name, f"Tabular — {name}", note)
+        data_blocks(d, ctx)
+        data = next(n for n in d.nodes if n["id"] == "data")
+        if data["type"] == "data.csv" and not _labels(ctx):
+            data["params"]["target_column"] = ""   # no labels: every column is a feature
+            d.why["data"] = "your table: every column is a feature (no labels needed)"
+        elif data["type"] == "data.csv":
+            d.why["data"] = (f"your table; '{ctx.facts.target}' is not trained on, it only "
+                             "scores the result")
+        d.add(model, note, nid="model", **params(ctx))
+        if ctx.task == "clustering":
+            d.add("eval.silhouette", "silhouette: how much closer rows are to their own "
+                                     "cluster than to the next one (−1..1)", nid="silhouette")
+            if ctx.facts.demo or _labels(ctx):
+                d.add("eval.adjusted_rand", "adjusted Rand index: agreement between the "
+                                            "clusters and the known labels (1 is perfect)",
+                      nid="adjusted_rand")
+        return d
+    return builder
+
+
+def _clusters(ctx: Context) -> int:
+    """The k setting; with labelled data and k left at its default, one cluster per class."""
+    k = int(ctx["n_clusters"])
+    if k == CLUSTERS.default and _labels(ctx):
+        return max(ctx.facts.n_classes, 2)
+    return k
+
+
+CLUSTERS = Knob("n_clusters", "int", 3, 2, 100, help="Clusters to find")
+CONTAMINATION = Knob("contamination", "choice", "auto",
+                     values=("auto", "0.01", "0.05", "0.1", "0.2"),
+                     help="Expected share of anomalies")
+UNSUPERVISED_KINDS = ("demo", "table")
+register_recipe(Recipe(
+    "kmeans", "k-Means", ("clustering",), "small", "tabular",
+    "Splits the rows into k groups around centroids: fast, simple, and the usual first try.",
+    _unsupervised("ml.kmeans", "k-means: every row joins the nearest of k centroids",
+                  lambda ctx: {"n_clusters": _clusters(ctx)}),
+    data_kinds=UNSUPERVISED_KINDS, family="classic", priority=0.4, knobs=(CLUSTERS,),
+    strengths="fast on any size of table; you choose the number of groups"))
+register_recipe(Recipe(
+    "gaussian_mixture", "Gaussian Mixture", ("clustering",), "medium", "tabular",
+    "A mixture of Gaussians fitted with EM: clusters may be stretched and overlap, and every "
+    "row gets a probability per cluster.",
+    _unsupervised("ml.gaussian_mixture", "a Gaussian mixture: soft, elliptical clusters",
+                  lambda ctx: {"n_components": _clusters(ctx)}),
+    data_kinds=UNSUPERVISED_KINDS, family="classic", rows=(200, 10**6), knobs=(CLUSTERS,),
+    strengths="clusters of different shapes and sizes"))
+register_recipe(Recipe(
+    "hdbscan", "HDBSCAN", ("clustering",), "medium", "tabular",
+    "Density-based clustering: finds the number of clusters itself and leaves outliers "
+    "unassigned.",
+    _unsupervised("ml.hdbscan", "HDBSCAN: dense regions become clusters, sparse rows noise",
+                  lambda ctx: {"min_cluster_size": int(ctx["min_cluster_size"])}),
+    data_kinds=UNSUPERVISED_KINDS, family="classic", rows=(100, 10**6), priority=-0.2,
+    knobs=(Knob("min_cluster_size", "int", 5, 2, 1000, help="Smallest group that counts "
+                                                             "as a cluster"),),
+    strengths="no need to know the number of clusters"))
+register_recipe(Recipe(
+    "isolation_forest", "Isolation Forest", ("anomaly_detection",), "small", "tabular",
+    "Random trees isolate unusual rows in few splits: the standard first anomaly detector.",
+    _unsupervised("ml.isolation_forest", "an isolation forest: rows that are easy to "
+                                         "isolate are flagged",
+                  lambda ctx: {"n_estimators": int(ctx["n_estimators"]),
+                               "contamination": ctx["contamination"]}),
+    data_kinds=UNSUPERVISED_KINDS, family="classic", priority=0.4,
+    knobs=(Knob("n_estimators", "int", 100, 20, 2000, help="Trees"), CONTAMINATION),
+    strengths="fast, needs no labels and little tuning"))
+register_recipe(Recipe(
+    "local_outlier_factor", "Local Outlier Factor", ("anomaly_detection",), "medium",
+    "tabular", "Compares each row's density with its neighbours': finds rows that are "
+               "unusual for their region.",
+    _unsupervised("ml.local_outlier_factor", "local outlier factor: rows in sparser "
+                                             "regions than their neighbours are flagged",
+                  lambda ctx: {"n_neighbors": int(ctx["n_neighbors"]),
+                               "contamination": ctx["contamination"]}),
+    data_kinds=UNSUPERVISED_KINDS, family="classic", rows=(0, 200_000),
+    knobs=(Knob("n_neighbors", "int", 20, 2, 500, help="Neighbours compared"),
+           CONTAMINATION),
+    strengths="local anomalies that a global threshold misses"))

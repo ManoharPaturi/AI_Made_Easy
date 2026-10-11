@@ -369,6 +369,7 @@ def recommend(task: str, facts: DataFacts | None = None, budget: dict | None = N
     """Recipes for ``task`` ranked for the data and the budget, best first."""
     from ai_made_easy.core.tasks import get_task
 
+    _load()           # families register their tasks with the blocks
     get_task(task)  # raises KeyError for an unknown task
     facts = facts or demo_facts()
     out: list[Suggestion] = []

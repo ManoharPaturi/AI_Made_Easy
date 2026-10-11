@@ -79,8 +79,8 @@ def test_stamp_records_family_and_task():
     cases = {"iris_mlp.json": ("neural", "multiclass"),
              "student_network.json": ("pgm", "probabilistic_inference"),
              "shapes_detection.json": ("neural", "detection"),
-             "pipeline_distill_quantize.json": ("pipeline", None),
-             "classic_random_forest.json": ("classic", None)}
+             "pipeline_distill_quantize.json": ("pipeline", "multiclass"),
+             "classic_random_forest.json": ("classic", "binary")}
     for name, (family, task) in cases.items():
         data = stamp(api.read_sample(name))
         assert (data["schema_version"], data["family"], data["task"]) == (3, family, task)

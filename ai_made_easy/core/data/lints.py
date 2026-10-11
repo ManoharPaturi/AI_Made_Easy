@@ -24,6 +24,8 @@ from ai_made_easy.core.graph import Graph, ValidationIssue
 # dataset blocks whose data is on disk and gets profiled (task families add theirs)
 LOCAL_BLOCKS: set[str] = {*FOLDER_SUFFIXES, "data.csv", "data.text_csv", "data.timeseries_csv",
                           "data.numpy", "data.json"}
+# tasks trained without labels: a label column only evaluates them
+UNSUPERVISED = ("clustering", "anomaly_detection")
 # parameters naming the file / folder whose changes invalidate a cached profile
 PATH_KEYS = ("root", "path", "annotations", "labels_dir", "masks_dir", "images_dir")
 
@@ -97,10 +99,12 @@ def _pipeline(graph: Graph) -> dict:
 
     steps = {n.type_id: dict(n.resolved_params()) for n in graph.nodes.values()
              if n.type_id.startswith("prep.")}
+    from ai_made_easy.core.families import family_of
     from ai_made_easy.core.tasks import task_of as _task_of
 
     task = _task_of(graph)
-    return {"steps": steps, "task": task.id if task else ""}
+    return {"steps": steps, "task": task.id if task else "",
+            "classic": family_of(graph).id == "classic"}
 
 
 def task_of(graph: Graph) -> str:
@@ -110,6 +114,10 @@ def task_of(graph: Graph) -> str:
 def lint_profile(profile: DataProfile, node_id: str, graph: Graph) -> list[ValidationIssue]:
     pipe = _pipeline(graph)
     steps, task = pipe["steps"], pipe["task"]
+    unsupervised = task in UNSUPERVISED
+    # what decides the task: the estimator of a classic pipeline, else the loss
+    regress = "a regressor" if pipe["classic"] else "a regression loss"
+    classify = "a classifier" if pipe["classic"] else "a classification loss"
     dropped = {c.strip() for c in str((steps.get("prep.drop_columns") or {}).get("columns", ""))
                .split(",") if c.strip()}
     out: list[ValidationIssue] = []
@@ -120,6 +128,8 @@ def lint_profile(profile: DataProfile, node_id: str, graph: Graph) -> list[Valid
             continue
         if "class imbalance" in f.message and "prep.class_balance" in steps:
             continue
+        if unsupervised and "target column" in f.message:
+            continue  # labels are optional without supervision
         out.append(ValidationIssue("warning", f.message + (f" ({f.hint})" if f.hint else ""),
                                    node_id))
     if profile.kind == "table" and profile.type_id == "data.csv":
@@ -134,15 +144,28 @@ def lint_profile(profile: DataProfile, node_id: str, graph: Graph) -> list[Valid
         if target is not None and task:
             if task == "regression" and target.kind in ("categorical", "text", "boolean"):
                 out.append(ValidationIssue(
-                    "warning", f"target '{target.name}' is categorical but the loss is a "
-                               "regression loss — use a classification loss", node_id))
+                    "warning", f"target '{target.name}' is categorical but the design uses "
+                               f"{regress} — use {classify}", node_id))
             if task in ("multiclass", "binary") and target.kind == "numeric" \
                     and target.unique > 50 and str(target.dtype).startswith("float"):
                 out.append(ValidationIssue(
                     "warning", f"target '{target.name}' looks continuous ({target.unique:,} "
-                               "distinct values) but the loss is a classification loss — "
-                               "use a regression loss", node_id))
-            if task == "binary" and len(profile.classes) > 2:
+                               f"distinct values) but the design uses {classify} — use "
+                               f"{regress}", node_id))
+            if task == "clustering":
+                out.append(ValidationIssue(
+                    "info", f"clustering ignores '{target.name}' while it trains: the "
+                            "column only scores the clusters (Adjusted Rand / NMI)", node_id))
+            if task == "anomaly_detection":
+                values = target.unique
+                out.append(ValidationIssue(
+                    "info" if values == 2 else "warning",
+                    f"anomaly detection does not train on '{target.name}': its rarer value "
+                    "marks the anomalies when the detector is evaluated" if values == 2 else
+                    f"'{target.name}' has {values:,} values, so it cannot evaluate the "
+                    "detector: use 0 / 1 labels (anomaly or not), or clear the target column",
+                    node_id))
+            if task == "binary" and len(profile.classes) > 2 and not pipe["classic"]:
                 out.append(ValidationIssue(
                     "warning", f"binary loss but the target has {len(profile.classes)} "
                                "classes — use Cross-Entropy", node_id))

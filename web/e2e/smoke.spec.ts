@@ -181,11 +181,36 @@ test("new-project wizard: task, demo data, recipes, explanation", async ({ page 
   await expect(page.getByTestId("why")).toContainText("3×3 filters find local patterns");
 });
 
+test("wizard: classic clustering and the LLM tasks", async ({ page, request }) => {
+  await page.getByTestId("new-project").click();
+  await expect(page.getByTestId("task-retrieval_qa")).toBeVisible();
+  await page.getByTestId("task-clustering").click();
+  await page.getByTestId("wizard-next").click();
+  await page.getByTestId("wizard-next").click();
+  await page.getByTestId("wizard-next").click();
+  await expect(page.getByTestId("recipe-hdbscan")).toBeVisible();
+  await page.getByTestId("recipe-kmeans").click();
+  await page.getByTestId("create-design").click();
+  await expect(page.getByTestId("status")).toHaveText("No problems");
+  await expect(page.getByTestId("design-kind")).toHaveText(
+    "Classic ML pipeline · Clustering");
+  const sample = await (await request.get("/api/samples/classic_random_forest.json")).json();
+  expect((await request.put("/api/projects/e2e_classic", { data: sample })).ok()).toBeTruthy();
+  try {
+    await page.getByRole("button", { name: "Open" }).click();
+    const row = page.locator(".issue", { hasText: "e2e_classic" });
+    await expect(row.locator(".chip").nth(1)).toHaveText("Binary classification");
+  } finally {
+    await request.delete("/api/projects/e2e_classic");
+  }
+});
+
 test("pipeline samples open with the pipeline panel", async ({ page }) => {
   for (const sample of ["pipeline_distill_quantize.json", "pipeline_finetune_prune_ensemble.json"]) {
     await page.getByRole("button", { name: "Open" }).click();
     await page.getByTestId(`sample-${sample}`).click();
-    await expect(page.getByTestId("design-kind")).toHaveText("Pipeline");
+    await expect(page.getByTestId("design-kind")).toHaveText(
+      "Pipeline · Multi-class classification");
     await expect(page.getByTestId("status")).toHaveText("No problems");
   }
   await page.getByRole("button", { name: "Training", exact: true }).click();

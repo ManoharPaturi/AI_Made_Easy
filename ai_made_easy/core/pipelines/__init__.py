@@ -20,3 +20,5 @@ def _register_family() -> None:
 
 
 _register_family()
+
+from ai_made_easy.core.pipelines import tasks as _tasks  # noqa: E402, F401

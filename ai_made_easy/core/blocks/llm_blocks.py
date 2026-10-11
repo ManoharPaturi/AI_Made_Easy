@@ -195,3 +195,4 @@ _cfg("llm.output_parser", "Output Parser (JSON)", (
               help="Strict = the script fails loudly if the model's answer "
                    "isn't valid JSON"),
 ))
+from ai_made_easy.core import llm_tasks  # noqa: E402, F401 — registers the LLM tasks

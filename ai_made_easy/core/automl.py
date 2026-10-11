@@ -37,6 +37,7 @@ TASK_METRICS = {
     "density_estimation": ("nll", "min"), "vae_generation": ("val_loss", "min"),
     "gan_generation": ("val_loss", "min"), "diffusion_generation": ("val_loss", "min"),
     "language_modeling": ("val_loss", "min"), "sequence_to_sequence": ("val_loss", "min"),
+    "clustering": ("silhouette", "max"),
 }
 # knobs that set how long a trial trains: fixed by the search, never tuned
 LENGTH_KNOBS = ("epochs", "total_timesteps", "iterations", "draws", "max_iter",

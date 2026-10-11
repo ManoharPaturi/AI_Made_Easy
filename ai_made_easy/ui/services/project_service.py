@@ -19,6 +19,17 @@ def project_kind(data: dict) -> str:
     return family_of(data).label
 
 
+def recent_kind(path: str | Path) -> str:
+    """"Family · task" of a saved project for File ▸ Open Recent ("" if unreadable)."""
+    from ai_made_easy.core.migrate import kind_of
+
+    try:
+        kind = kind_of(json.loads(Path(path).read_text()))
+    except Exception:  # noqa: BLE001 — an unreadable file is still listed
+        return ""
+    return " · ".join(v for v in (kind["family"], kind["task"]) if v)
+
+
 class ProjectService:
     def __init__(self, store, graph_service, log, parent=None):
         self.store = store          # ProjectStore

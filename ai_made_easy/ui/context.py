@@ -42,6 +42,7 @@ from ai_made_easy.ui.services.project_service import (
     DEMO_SEED,
     ProjectService,
     project_kind,
+    recent_kind,
 )
 from ai_made_easy.ui.stores import LogBus, ProjectStore, RunStore, ValidationStore
 from ai_made_easy.ui.theme import ThemeService
@@ -276,7 +277,9 @@ class AppContext(QtCore.QObject):
         menu.clear()
         files = self.recent_files()
         for f in files:
-            action = menu.addAction(Path(f).name)
+            kind = recent_kind(f)
+            # text after a tab sits in the right-hand (shortcut) column
+            action = menu.addAction(f"{Path(f).name}\t{kind}" if kind else Path(f).name)
             action.setToolTip(f)
             action.triggered.connect(lambda _=False, f=f: self.open_path(f))
         if not files:
@@ -308,11 +311,12 @@ class AppContext(QtCore.QObject):
         self._publish_issues(ir)
         self._refresh_datasets(ir)
         kind = project_kind(ir.to_dict())
-        task = None
-        if kind == "Neural network":
-            from ai_made_easy.core.tasks import task_of
+        from ai_made_easy.core.tasks import task_of
 
+        try:
             task = task_of(ir)
+        except Exception:  # noqa: BLE001 — incomplete designs have no task yet
+            task = None
         self.kind_chip.set_state(f"{kind} · {task.label}" if task else kind)
         self.summary_page.set_kind(kind.split()[0] if kind != "Neural network" else "Neural net")
         try:

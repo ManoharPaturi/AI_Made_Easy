@@ -26,6 +26,8 @@ TARGET_NAMES = ("target", "label", "labels", "class", "y", "outcome", "species",
                 "price", "value")
 USER_NAMES = ("user", "user_id", "userid", "customer", "customer_id")
 ITEM_NAMES = ("item", "item_id", "itemid", "product", "product_id", "movie", "movie_id")
+# tasks every table fits: they need no labels (a label column only scores the result)
+UNSUPERVISED = ("clustering", "anomaly_detection")
 TIME_NAMES = ("date", "time", "timestamp", "datetime", "ds", "month", "day")
 
 
@@ -359,7 +361,7 @@ def _file(path: Path, target: str, task: str) -> DataFacts:
         facts.tasks = ["binary" if len(facts.classes) == 2 else "multiclass", "multiclass"]
     else:
         facts.tasks = ["regression", "gp_regression", "bayesian_modeling"]
-    facts.tasks = list(dict.fromkeys(facts.tasks))
+    facts.tasks = list(dict.fromkeys([*facts.tasks, *UNSUPERVISED]))
     return facts
 
 
