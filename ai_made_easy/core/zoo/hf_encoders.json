@@ -1,0 +1,155 @@
+[
+ {
+  "name": "distilbert-base-uncased",
+  "modality": "text",
+  "feature_dim": 768,
+  "params_m": 66.4,
+  "download_mb": 268,
+  "license": "apache-2.0",
+  "source": "huggingface"
+ },
+ {
+  "name": "bert-base-uncased",
+  "modality": "text",
+  "feature_dim": 768,
+  "params_m": 109.5,
+  "download_mb": 440,
+  "license": "apache-2.0",
+  "source": "huggingface"
+ },
+ {
+  "name": "bert-large-uncased",
+  "modality": "text",
+  "feature_dim": 1024,
+  "params_m": 335.1,
+  "download_mb": 1340,
+  "license": "apache-2.0",
+  "source": "huggingface"
+ },
+ {
+  "name": "roberta-base",
+  "modality": "text",
+  "feature_dim": 768,
+  "params_m": 124.6,
+  "download_mb": 499,
+  "license": "mit",
+  "source": "huggingface"
+ },
+ {
+  "name": "sentence-transformers/all-MiniLM-L6-v2",
+  "modality": "text",
+  "feature_dim": 384,
+  "params_m": 22.7,
+  "download_mb": 91,
+  "license": "apache-2.0",
+  "source": "huggingface"
+ },
+ {
+  "name": "albert-base-v2",
+  "modality": "text",
+  "feature_dim": 768,
+  "params_m": 11.7,
+  "download_mb": 47,
+  "license": "apache-2.0",
+  "source": "huggingface"
+ },
+ {
+  "name": "google/electra-small-discriminator",
+  "modality": "text",
+  "feature_dim": 256,
+  "params_m": 13.5,
+  "download_mb": 54,
+  "license": "apache-2.0",
+  "source": "huggingface"
+ },
+ {
+  "name": "microsoft/deberta-v3-small",
+  "modality": "text",
+  "feature_dim": 768,
+  "params_m": 141.3,
+  "download_mb": 286,
+  "license": "mit",
+  "source": "huggingface"
+ },
+ {
+  "name": "facebook/wav2vec2-base",
+  "modality": "audio",
+  "feature_dim": 768,
+  "params_m": 94.4,
+  "download_mb": 380,
+  "license": "apache-2.0",
+  "source": "huggingface"
+ },
+ {
+  "name": "facebook/hubert-base-ls960",
+  "modality": "audio",
+  "feature_dim": 768,
+  "params_m": 94.4,
+  "download_mb": 378,
+  "license": "apache-2.0",
+  "source": "huggingface"
+ },
+ {
+  "name": "microsoft/wavlm-base-plus",
+  "modality": "audio",
+  "feature_dim": 768,
+  "params_m": 94.4,
+  "download_mb": 378,
+  "license": "see the model card",
+  "source": "huggingface"
+ },
+ {
+  "name": "openai/whisper-tiny",
+  "modality": "audio",
+  "feature_dim": 384,
+  "params_m": 37.8,
+  "download_mb": 151,
+  "license": "apache-2.0",
+  "source": "huggingface"
+ },
+ {
+  "name": "openai/whisper-base",
+  "modality": "audio",
+  "feature_dim": 512,
+  "params_m": 72.6,
+  "download_mb": 290,
+  "license": "apache-2.0",
+  "source": "huggingface"
+ },
+ {
+  "name": "facebook/dinov2-small",
+  "modality": "image",
+  "feature_dim": 384,
+  "params_m": 22.1,
+  "download_mb": 88,
+  "license": "apache-2.0",
+  "source": "huggingface"
+ },
+ {
+  "name": "facebook/dinov2-base",
+  "modality": "image",
+  "feature_dim": 768,
+  "params_m": 86.6,
+  "download_mb": 346,
+  "license": "apache-2.0",
+  "source": "huggingface"
+ },
+ {
+  "name": "openai/clip-vit-base-patch32",
+  "modality": "image",
+  "feature_dim": 768,
+  "params_m": 87.8,
+  "download_mb": 605,
+  "license": "mit",
+  "source": "huggingface"
+ },
+ {
+  "name": "google/siglip-base-patch16-224",
+  "modality": "image",
+  "feature_dim": 768,
+  "params_m": 92.9,
+  "download_mb": 813,
+  "license": "apache-2.0",
+  "source": "huggingface"
+ }
+]

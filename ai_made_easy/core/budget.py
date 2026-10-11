@@ -296,6 +296,10 @@ def estimate(graph, device: str | Device | None = None) -> Estimate:  # noqa: AN
             # composite blocks (detectors, segmenters, U-Nets) report their own cost
             params, flops = cost(in_shapes, resolved)
             acts = int(flops * BACKBONE_ACTIVATIONS_PER_FLOP)
+            # a frozen pretrained encoder (timm, Hugging Face) neither learns nor keeps
+            # activations for backward
+            if "freeze" in resolved and resolved.get("weights", "pretrained") != "none":
+                trainable = not resolved["freeze"]
         else:
             flops = layer_flops(node.type_id, params, in_shapes, out_shape)
             acts = _saved_values(graph, node, resolved, in_shapes, out_shape)

@@ -6,12 +6,22 @@ block is swapped for one that reads it; the rest of the design is fitted by
 from __future__ import annotations
 
 import copy
+import keyword
+import re
 from typing import Callable
 
-from ai_made_easy.core.recipes import Context, Draft, Knob, Recipe, register_recipe
-from ai_made_easy.core.recipes.facts import DataFacts
+from ai_made_easy.core.recipes import (
+    Context,
+    Draft,
+    Knob,
+    Recipe,
+    RecipeError,
+    register_recipe,
+)
+from ai_made_easy.core.recipes.facts import DataFacts, density_columns
 
 Swap = Callable[[DataFacts], tuple[str, dict, str]]   # -> (type_id, params, why)
+Fit = Callable[[dict, DataFacts], None]               # sizes the sample's blocks to the data
 
 
 def _sample(name: str) -> dict:
@@ -67,17 +77,164 @@ def _pairs(facts: DataFacts) -> tuple[str, dict, str]:
 def _graph(facts: DataFacts) -> tuple[str, dict, str]:
     return ("data.graph_csv", {"nodes_path": facts.paths["nodes_path"],
                                "edges_path": facts.paths["edges_path"],
+                               "id_column": facts.columns.get("id", "id"),
+                               "label_column": facts.columns.get("label", ""),
                                "source_column": facts.columns["source"],
                                "target_column": facts.columns["target"]},
             "your graph: a node table and an edge list")
 
 
+def _graphs(facts: DataFacts) -> tuple[str, dict, str]:
+    return ("data.graphs_csv", {"nodes_path": facts.paths["nodes_path"],
+                                "edges_path": facts.paths["edges_path"],
+                                "graphs_path": facts.paths["graphs_path"],
+                                "graph_column": facts.columns["graph"],
+                                "id_column": facts.columns["id"],
+                                "label_column": facts.columns["label"],
+                                "source_column": facts.columns["source"],
+                                "target_column": facts.columns["target"]},
+            f"your {facts.rows:,} graphs: node and edge tables keyed by "
+            f"'{facts.columns['graph']}', labels in the graph table")
+
+
 def _interactions(facts: DataFacts) -> tuple[str, dict, str]:
+    sides = [s for s in ("user", "item") if f"{s}_features" in facts.paths]
     return ("data.interactions_csv", {"path": facts.source,
                                       "user_column": facts.columns["user"],
                                       "item_column": facts.columns["item"],
-                                      "rating_column": facts.columns.get("rating", "")},
-            "your user-item interactions")
+                                      "rating_column": facts.columns.get("rating", ""),
+                                      "user_features": facts.paths.get("user_features", ""),
+                                      "item_features": facts.paths.get("item_features", "")},
+            "your user-item interactions" + (f" with {' and '.join(sides)} features"
+                                             if sides else ""))
+
+
+def _images(facts: DataFacts) -> tuple[str, dict, str]:
+    classes = f", {facts.n_classes} classes" if facts.n_classes >= 2 else ""
+    return ("data.image_folder", {"root": facts.source, "grayscale": facts.channels == 1},
+            f"your {facts.rows:,} images{classes}, resized to the model's size")
+
+
+def _fit_images(graph: dict, facts: DataFacts) -> None:
+    """Colour or grey like the user's images; class-conditional only with class folders."""
+    channels = 1 if facts.channels == 1 else 3
+    types = {n["type"] for n in graph["nodes"]}
+    for node in graph["nodes"]:
+        p = node["params"]
+        if node["type"] == "core.input" and str(p.get("shape", "")).count(",") == 2:
+            p["shape"] = ", ".join([str(channels), *(d.strip() for d in
+                                                     str(p["shape"]).split(",")[1:])])
+        elif node["type"] == "gen.dcgan_generator":
+            p["channels"] = channels
+        elif node["type"] == "gen.diffusion_unet":
+            p["num_classes"] = facts.n_classes if facts.n_classes >= 2 else 0
+        elif node["type"] == "gen.noise_scheduler" and facts.n_classes < 2:
+            p["guidance"] = 1.0
+    if "gen.reparameterize" in types:   # the VAE decoder's last layer makes the pixels
+        last = [n for n in graph["nodes"] if n["type"] in ("core.conv_transpose2d",
+                                                           "core.conv2d")][-1]
+        last["params"]["out_channels"] = channels
+
+
+def _density(facts: DataFacts) -> tuple[str, dict, str]:
+    if facts.format not in ("csv", "tsv"):
+        raise RecipeError("flows read .csv / .tsv tables")
+    columns = density_columns(facts)
+    return ("data.csv", {"path": facts.source, "format": facts.format, "target_column": "",
+                         "feature_columns": ", ".join(columns)},
+            f"your table's {len(columns)} numeric columns: the flow learns their joint density")
+
+
+def _grouped(facts: DataFacts) -> tuple[str, dict, str]:
+    if facts.format not in ("csv", "tsv", "parquet"):
+        raise RecipeError("PyMC models read .csv / .tsv / .parquet tables")
+    if not facts.columns.get("group"):
+        raise RecipeError("a hierarchical model needs a group column (school, store, region, "
+                          "...): a column with a few repeated values")
+    return ("data.csv", {"path": facts.source, "format": facts.format, "target_column": "",
+                         "feature_columns": ""},
+            f"your table: '{facts.target}' per row, grouped by '{facts.columns['group']}'")
+
+
+def _fit_groups(graph: dict, facts: DataFacts) -> None:
+    """Point the model at the group, predictor and outcome columns; scale the priors."""
+    from ai_made_easy.core.data.profile import read_table
+
+    names = {n["params"].get("name") for n in graph["nodes"]}
+    group = facts.columns["group"]
+    predictor = next((c for c in facts.numeric if c != group and c.isidentifier()
+                      and not keyword.iskeyword(c) and c not in names), "")
+    if not predictor:
+        raise RecipeError("needs a numeric predictor column whose name is a Python identifier "
+                          "(letters, digits, _)")
+    logistic = any(n["type"] == "ppl.bernoulli" for n in graph["nodes"])
+    frame = read_table(facts.source, facts.format, nrows=20_000)
+    y = frame[facts.target]
+    if logistic and sorted(map(str, y.dropna().unique())) not in (["0", "1"], ["0.0", "1.0"]):
+        raise RecipeError(f"'{facts.target}' must hold 0 / 1 for a logistic model")
+    if not logistic and (facts.classes or str(y.dtype)[:3] not in ("int", "flo")):
+        raise RecipeError(f"'{facts.target}' is not numeric: use hierarchical logistic "
+                          "regression for a 0 / 1 outcome")
+    sd_x = float(frame[predictor].std() or 1.0)
+    sd_y = 1.0 if logistic else float(y.std() or 1.0)
+    priors = {"mu_a": {"mu": 0.0 if logistic else round(float(y.mean()), 3),
+                       "sigma": round((5.0 if logistic else 2 * sd_y), 3)},
+              "sigma_a": {"sigma": round(sd_y, 3)}, "sigma": {"sigma": round(sd_y, 3)},
+              "b": {"sigma": round((2.5 if logistic else 2 * sd_y) / sd_x, 4)}}
+    for node in graph["nodes"]:
+        p = node["params"]
+        if p.get("group") == "group":
+            p["group"] = group
+        if p.get("observed") == "y":
+            p["observed"] = facts.target
+        if node["type"] == "ppl.deterministic":
+            p["expression"] = re.sub(r"\bx\b", predictor, p["expression"])
+        p.update(priors.get(p.get("name"), {}))
+
+
+def _ssm(facts: DataFacts) -> tuple[str, dict, str]:
+    if facts.format != "csv":
+        raise RecipeError("state-space models read .csv series")
+    note = (f"; one series (the rows are not split by '{facts.columns['id']}')"
+            if facts.columns.get("id") else "")
+    return ("data.timeseries_csv", {"path": facts.source, "target_columns": facts.target,
+                                    "feature_columns": ""},
+            f"your series '{facts.target}', in file order{note}")
+
+
+def _fit_season(graph: dict, facts: DataFacts) -> None:
+    """The series' column, a horizon it can hold and its season length (none if unknown)."""
+    period = facts.period if facts.period >= 2 and facts.rows >= 3 * facts.period else 0
+    drop = set()
+    for node in graph["nodes"]:
+        p = node["params"]
+        if node["type"] == "ssm.model":
+            p["target_column"] = facts.target
+            p["horizon"] = max(1, min(int(p["horizon"]), facts.rows // 5))
+        elif node["type"] == "ssm.seasonal":
+            if period:
+                p["period"] = period
+            else:
+                drop.add(node["id"])
+        elif node["type"] == "ssm.arima":
+            p["season"] = period
+            if not period:
+                p.update(seasonal_p=0, seasonal_d=0, seasonal_q=0)
+    graph["nodes"] = [n for n in graph["nodes"] if n["id"] not in drop]
+    graph["edges"] = [e for e in graph["edges"]
+                      if e["from"].split("/")[0] not in drop and e["to"].split("/")[0] not in drop]
+
+
+def _regimes(facts: DataFacts) -> tuple[str, dict, str]:
+    return ("data.csv", {"path": facts.source, "format": facts.format or "csv",
+                         "target_column": "", "feature_columns": ""},
+            f"your series '{facts.target}': the HMM finds its hidden regimes")
+
+
+def _fit_regimes(graph: dict, facts: DataFacts) -> None:
+    for node in graph["nodes"]:
+        if node["type"] == "pgm.hmm":
+            node["params"]["observations"] = facts.target
 
 
 # ------------------------------------------------------------------ starter recipes
@@ -87,7 +244,7 @@ def starter(recipe_id: str, sample: str, task: str, tier: str, modality: str, ti
             knobs: tuple[Knob, ...] = (), edit: Callable[[dict], None] | None = None,
             requires: tuple[str, ...] = (), extra: str = "", strengths: str = "",
             demo_note: str = "", rows: tuple[int, int] = (0, 10**12),
-            priority: float = 0.0, family: str = "neural") -> Recipe:
+            priority: float = 0.0, family: str = "neural", fit: Fit | None = None) -> Recipe:
     swaps = swaps or {}
 
     def builder(ctx: Context) -> Draft:
@@ -102,6 +259,9 @@ def starter(recipe_id: str, sample: str, task: str, tier: str, modality: str, ti
                 type_id, params, why = swaps[ctx.facts.kind](ctx.facts)
                 data["type"], data["params"] = type_id, params
                 d.why[data["id"]] = why
+                if fit is not None:
+                    fit(graph, ctx.facts)
+                    d.nodes, d.edges = graph["nodes"], graph["edges"]
             else:
                 d.why[data["id"]] = demo_note or "demo data generated on the fly: replace " \
                                                  "it with your own dataset"
@@ -193,16 +353,17 @@ starter("ctc_lstm", "speech_recognition_ctc", "speech_recognition", "medium", "a
         "letter by letter.", knobs=TRAIN_KNOBS(3e-3, 40),
         strengths="learns to transcribe without aligned labels")
 # generative
+IMAGES = dict(swaps={"image_folder": _images}, fit=_fit_images)
 starter("vae", "shapes_vae", "vae_generation", "small", "image", "Variational autoencoder",
         "An encoder to a latent space and a decoder back: smooth, controllable generation.",
-        knobs=TRAIN_KNOBS(1e-3, 30), strengths="stable training, a meaningful latent space")
+        knobs=TRAIN_KNOBS(1e-3, 30), **IMAGES, strengths="stable training, a meaningful latent space")
 starter("dcgan", "shapes_gan", "gan_generation", "medium", "image", "DCGAN",
         "A generator and a critic trained against each other.",
-        knobs=(lr("optimizer.lr", 2e-4), epochs("trainer.epochs", 40)),
+        knobs=(lr("optimizer.lr", 2e-4), epochs("trainer.epochs", 40)), **IMAGES,
         strengths="sharp samples")
 starter("ddpm", "shapes_diffusion", "diffusion_generation", "large", "image",
         "Diffusion (DDPM)", "A U-Net learns to remove noise step by step.",
-        knobs=TRAIN_KNOBS(1e-3, 30), strengths="the highest-quality, most diverse samples")
+        knobs=TRAIN_KNOBS(1e-3, 30), **IMAGES, strengths="the highest-quality, most diverse samples")
 starter("tiny_gpt", "tiny_gpt", "language_modeling", "small", "text", "Tiny GPT",
         "A small causal transformer that writes text byte by byte.",
         swaps={"corpus": _corpus}, knobs=TRAIN_KNOBS(1e-3, 30),
@@ -214,10 +375,11 @@ starter("seq2seq_transformer", "reverse_seq2seq", "sequence_to_sequence", "mediu
 starter("realnvp", "flow_moons_realnvp", "density_estimation", "small", "tabular",
         "RealNVP flow", "Affine coupling layers: exact likelihoods and fast sampling.",
         knobs=(lr("opt.lr", 3e-3), epochs("trainer.epochs", 40)),
-        strengths="exact densities")
+        swaps={"table": _density}, strengths="exact densities")
 starter("spline_flow", "flow_checkerboard_spline", "density_estimation", "medium", "tabular",
         "Neural spline flow", "Rational-quadratic spline couplings for sharp, multi-modal "
         "densities.", knobs=(lr("opt.lr", 3e-3), epochs("trainer.epochs", 60)),
+        swaps={"table": _density},
         strengths="complex, multi-modal densities")
 # graphs, recommenders, RL
 GRAPH_EXTRA = dict(requires=("torch_geometric",), extra="graph")
@@ -228,6 +390,7 @@ starter("gcn", "graph_node_classification", "node_classification", "small", "gra
 starter("gin", "graph_classification_gin", "graph_classification", "medium", "graph", "GIN",
         "Graph isomorphism network with global pooling: one prediction per graph.",
         knobs=(lr("opt.lr", 1e-2), epochs("trainer.epochs", 60)), **GRAPH_EXTRA,
+        swaps={"graphs": _graphs},
         strengths="the most expressive simple message-passing network")
 starter("graphsage_links", "graph_link_prediction", "link_prediction", "small", "graph",
         "GraphSAGE link predictor", "Node embeddings scored pairwise: which edges are "
@@ -259,6 +422,8 @@ starter("sac", "rl_pendulum_sac", "reinforcement_learning", "medium", "environme
         **RL_EXTRA, strengths="sample-efficient continuous control")
 # probabilistic models
 PROB = dict(extra="probabilistic")
+GROUPS = dict(swaps={"table": _grouped}, fit=_fit_groups)
+SERIES = dict(swaps={"series": _ssm}, fit=_fit_season)
 starter("bayesian_network", "student_network", "probabilistic_inference", "small", "tabular",
         "Bayesian network", "Variables, their dependencies and probability tables; ask "
         "questions given evidence.", requires=("pgmpy",), family="pgm", **PROB,
@@ -270,18 +435,19 @@ starter("structure_learning", "structure_learning", "probabilistic_inference", "
 starter("hmm", "market_regimes_hmm", "regime_detection", "small", "timeseries",
         "Hidden Markov model", "Hidden regimes that switch over time.",
         requires=("hmmlearn",), family="pgm", **PROB,
+        swaps={"series": _regimes}, fit=_fit_regimes,
         knobs=(Knob("iterations", "int", 100, 10, 10_000, help="EM iterations",
                     target="hmm.iterations"),),
         strengths="finds hidden states in a sequence")
 starter("hierarchical_regression", "hierarchical_regression", "bayesian_modeling", "small",
         "tabular", "Hierarchical regression", "A Bayesian model with partial pooling across "
-        "groups, sampled with NUTS.", requires=("pymc",), family="ppl", **PROB,
+        "groups, sampled with NUTS.", requires=("pymc",), family="ppl", **PROB, **GROUPS,
         knobs=(Knob("draws", "int", 1000, 100, 100_000, help="Posterior draws",
                     target="sampler.draws"),),
         strengths="honest uncertainty with few rows per group")
 starter("hierarchical_logistic", "hierarchical_logistic", "bayesian_modeling", "medium",
         "tabular", "Hierarchical logistic regression", "Partial pooling for a yes/no "
-        "outcome.", requires=("pymc",), family="ppl", **PROB,
+        "outcome.", requires=("pymc",), family="ppl", **PROB, **GROUPS,
         knobs=(Knob("draws", "int", 1000, 100, 100_000, help="Posterior draws",
                     target="sampler.draws"),),
         strengths="binary outcomes across groups")
@@ -294,10 +460,10 @@ starter("gp_regression", "gp_trend_seasonality", "gp_regression", "small", "tabu
 starter("structural_time_series", "structural_time_series", "state_space_forecasting",
         "small", "timeseries", "Structural time series", "Level, trend and seasonal "
         "components estimated with a Kalman filter.", requires=("statsmodels",),
-        family="ssm", **PROB, strengths="interpretable components and intervals")
+        family="ssm", **PROB, **SERIES, strengths="interpretable components and intervals")
 starter("sarimax", "sarimax_airline", "state_space_forecasting", "medium", "timeseries",
         "SARIMAX", "Seasonal ARIMA with exogenous regressors.", requires=("statsmodels",),
-        family="ssm", **PROB, strengths="the classical statistical forecasting model")
+        family="ssm", **PROB, **SERIES, strengths="the classical statistical forecasting model")
 # LLM workflows (exported as scripts, not trained in the app)
 LLM = dict(family="llm", extra="llm")
 starter("llm_prompting", "llm_generation", "text_generation", "pretrained", "text",

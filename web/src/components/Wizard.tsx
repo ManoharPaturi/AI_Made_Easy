@@ -98,8 +98,9 @@ function DataStep({ task, facts, setFacts, modality, setModality }: {
           <div className="field"><label htmlFor="wiz-path">File or folder on the server</label>
             <input id="wiz-path" data-testid="wizard-path" placeholder="/data/churn.csv or /data/images/"
                    value={path} onChange={(e) => setPath(e.target.value)} />
-            <div className="help">A table (.csv, .tsv, .parquet, .xlsx), a folder with one sub-folder per
-              class, or a COCO / YOLO / VOC / images + masks folder.
+            <div className="help">A table (.csv, .tsv, .parquet, .xlsx), a folder of images (with or
+              without one sub-folder per class), a COCO / YOLO / VOC / images + masks folder, or node +
+              edge tables (add a graph table for many graphs).
               {task.data_kinds.length > 0 && ` This task reads: ${task.data_kinds.join(", ").replace(/_/g, " ")}.`}
             </div></div>
           <div className="field"><label htmlFor="wiz-target">Target column (tables, optional)</label>
@@ -170,6 +171,8 @@ function RecipeStep({ rows, chosen, choose, knobs, setKnobs }: {
             </div>
             <div className="muted">{r.recipe.description}</div>
             {r.reasons.map((x) => <div key={x} className="dim">✓ {x}</div>)}
+            {r.downloads.map((d) => (
+              <div key={d.node} className="dim" data-testid="download">⬇ downloads {d.label}</div>))}
             {[...r.cautions, ...r.over_budget.map((o) => `over budget: ${o}`)].map((x) => (
               <div key={x} className="sev-warning">! {x}</div>))}
             {r.errors.map((x) => <div key={x} className="sev-error">✗ {x}</div>)}

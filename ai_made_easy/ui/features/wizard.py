@@ -181,9 +181,10 @@ class NewProjectWizard(QtWidgets.QDialog):
         self.detect_btn.clicked.connect(self._detect)
         form.addRow("", self.detect_btn)
         layout.addWidget(self.own_box)
-        hint = QtWidgets.QLabel("Tables (.csv, .tsv, .parquet, .xlsx), a folder with one "
-                                "sub-folder per class, or COCO / YOLO / VOC / images + masks "
-                                "folders.")
+        hint = QtWidgets.QLabel("Tables (.csv, .tsv, .parquet, .xlsx), a folder of images "
+                                "(with or without one sub-folder per class), COCO / YOLO / "
+                                "VOC / images + masks folders, or node + edge tables (add a "
+                                "graph table for many graphs).")
         hint.setObjectName("blockMeta")
         hint.setWordWrap(True)
         layout.addWidget(hint)
@@ -338,6 +339,7 @@ class NewProjectWizard(QtWidgets.QDialog):
             state = "ready" if row["ready"] else "not ready"
             lines = [f"{i + 1}. {r['title']}   [{r['tier_label']} · {state}]", r["description"]]
             lines += [f"  ✓ {x}" for x in row["reasons"]]
+            lines += [f"  ⬇ downloads {d['label']}" for d in row.get("downloads", [])]
             lines += [f"  ! {x}" for x in row["cautions"] + [f"over budget: {o}"
                                                              for o in row["over_budget"]]]
             lines += [f"  ✗ {x}" for x in row["errors"]]

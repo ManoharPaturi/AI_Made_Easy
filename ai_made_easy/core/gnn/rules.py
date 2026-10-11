@@ -35,6 +35,25 @@ def _csv_graph(nodes: str, edges: str, mtime: float, id_col: str, label: str, sr
             "has_label": label in n.columns}
 
 
+@lru_cache(maxsize=16)
+def _csv_graphs(nodes: str, graphs: str, mtime: float, gid: str, nid: str, label: str,
+                features: str) -> dict:
+    import pandas as pd
+
+    n = pd.read_csv(nodes, nrows=20_000)
+    g = pd.read_csv(graphs)
+    wanted = [c.strip() for c in features.split(",") if c.strip()]
+    cols = wanted or [c for c in n.select_dtypes("number").columns if c not in (gid, nid)]
+    out = {"features": len(cols), "graphs": len(g)}
+    if label in g.columns:
+        out["classes"] = int(g[label].nunique())
+    missing = [c for c in (gid, nid) if c not in n.columns] + \
+        [c for c in (gid, label) if c not in g.columns]
+    if missing:
+        out["missing"] = missing
+    return out
+
+
 def _resolve(raw: str) -> Path:
     path = Path(raw).expanduser()
     return path if path.is_absolute() else Path.cwd() / path
@@ -60,6 +79,17 @@ def data_facts(node) -> dict:  # noqa: ANN001
     nodes, edges = _resolve(str(p["nodes_path"])), _resolve(str(p["edges_path"]))
     if not nodes.is_file() or not edges.is_file():
         return {}
+    if t == "data.graphs_csv":
+        graphs = _resolve(str(p["graphs_path"]))
+        if not graphs.is_file():
+            return {"missing": [graphs.name]}
+        try:
+            return _csv_graphs(str(nodes), str(graphs),
+                               nodes.stat().st_mtime + graphs.stat().st_mtime,
+                               str(p["graph_column"]), str(p["id_column"]),
+                               str(p["label_column"]), str(p["feature_columns"] or ""))
+        except Exception:  # noqa: BLE001 — unreadable files are reported when training
+            return {}
     try:
         facts = _csv_graph(str(nodes), str(edges), nodes.stat().st_mtime + edges.stat().st_mtime,
                            str(p["id_column"]), str(p["label_column"] or ""),
@@ -90,6 +120,9 @@ def gnn_rules(ctx: LintContext) -> list:
                                      "layer, otherwise the edges are ignored",
                           anchor.instance_id if anchor else None))
     facts = data_facts(data)
+    if facts.get("missing"):
+        out.append(_issue("error", f"{_name(data)}: {', '.join(map(str, facts['missing']))} "
+                                   "not found in the tables", data.instance_id))
     head = ctx.chain[0] if ctx.chain else None
     if head is not None and "features" in facts and head.instance_id in ctx.shapes:
         if list(ctx.shapes[head.instance_id]) != [facts["features"]]:

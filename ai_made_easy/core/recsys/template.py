@@ -323,11 +323,12 @@ def _dataset(graph: Graph) -> dict:
                 "per_user": 30, "feedback": "implicit", "features": 4, "seed": 0,
                 "val_fraction": 0.1, "test_fraction": 0.2}
     out = {"block": node.type_id, **dict(node.resolved_params())}
-    raw = out.get("path")
-    if raw and not str(raw).startswith("~") and not Path(str(raw)).is_absolute():
-        candidate = Path.cwd() / str(raw)
-        if candidate.exists():
-            out["path"] = str(candidate)
+    for key in ("path", "user_features", "item_features"):
+        raw = out.get(key)
+        if raw and not str(raw).startswith("~") and not Path(str(raw)).is_absolute():
+            candidate = Path.cwd() / str(raw)
+            if candidate.exists():
+                out[key] = str(candidate)
     return out
 
 
@@ -335,7 +336,8 @@ def _comment(d: dict) -> str:
     if d["block"] == "data.synthetic_interactions":
         return (f"{d['n_users']} generated users x {d['n_items']} items "
                 f"({d['feedback']} feedback)")
-    return str(d["path"])
+    sides = [d.get(k) for k in ("user_features", "item_features") if d.get(k)]
+    return " + ".join([str(d["path"]), *map(str, sides)])
 
 
 def context(graph: Graph, framework: str) -> dict:

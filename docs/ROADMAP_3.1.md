@@ -60,6 +60,11 @@ Gaps that most limit users today, in order:
   - graph-level CSV datasets (one graph per id)
 - **Tests:** each new reader gets a tiny synthetic fixture and an end-to-end training
   test.
+- **Status:** done. Image folders (flat or per class, colour or grey) train the VAE, DCGAN
+  and diffusion recipes. Tables train the flows and, with a group column, the hierarchical
+  PyMC models (priors scaled to the data). Series train the structural, SARIMAX and HMM
+  recipes, with the season length taken from the timestamps. Interaction logs pick up
+  user / item feature tables, and the new Graphs CSV block reads one graph per id.
 
 ## Phase 3 — Pretrained recipes
 - **Recipes on the existing encoder blocks:**
@@ -71,6 +76,12 @@ Gaps that most limit users today, in order:
   - offers pretrained recipes only when the budget fits
 - **Tests:** offline tests run with `weights="none"`. The nightly job runs one real
   fine-tune per modality.
+- **Status:** done. Eight recipes: a linear probe and a fine-tune each for a Hugging Face
+  text encoder, a wav2vec 2.0 / HuBERT / WavLM speech encoder, timm image models and
+  DINOv2 (59 recipes). Recipe cards list each checkpoint's download size and licence
+  (new `hf_encoders` zoo catalog). With a budget, pretrained recipes that do not fit are
+  left out. The text encoder gained `weights = none` and cost estimates, and frozen
+  encoders no longer count as trainable in budgets.
 
 ## Phase 4 — Advanced pipelines
 - **Fine-tune:** discriminative learning rates (per layer group, geometric decay) next to

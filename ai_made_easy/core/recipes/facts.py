@@ -19,7 +19,8 @@ from ai_made_easy.core.data.profile import (
 
 # data kinds a recipe can declare it reads
 KINDS = ("demo", "table", "text_table", "image_folder", "text_folder", "audio_folder", "coco",
-         "yolo", "voc", "mask_folder", "series", "interactions", "graph", "corpus", "pairs")
+         "yolo", "voc", "mask_folder", "series", "interactions", "graph", "graphs", "corpus",
+         "pairs")
 TABLE_SUFFIXES = {".csv", ".tsv", ".parquet", ".pq", ".xlsx", ".xls", ".json", ".jsonl"}
 SAMPLE_ROWS = 20_000
 TARGET_NAMES = ("target", "label", "labels", "class", "y", "outcome", "species", "category",
@@ -28,6 +29,15 @@ USER_NAMES = ("user", "user_id", "userid", "customer", "customer_id")
 ITEM_NAMES = ("item", "item_id", "itemid", "product", "product_id", "movie", "movie_id")
 # tasks every table fits: they need no labels (a label column only scores the result)
 UNSUPERVISED = ("clustering", "anomaly_detection")
+# tasks any image folder fits: generative models learn the images themselves
+GENERATIVE = ("vae_generation", "gan_generation", "diffusion_generation")
+GROUP_NAMES = ("group", "groups", "group_id", "site", "school", "county", "region", "store",
+               "team", "subject", "patient", "hospital", "clinic", "village", "state")
+GRAPH_NAMES = ("graph", "graph_id", "graphid", "molecule", "mol_id")
+UNITS = {"image_folder": "images", "audio_folder": "clips", "text_folder": "documents",
+         "coco": "images", "yolo": "images", "voc": "images", "mask_folder": "images",
+         "graph": "nodes", "graphs": "graphs", "interactions": "interactions",
+         "series": "steps"}
 TIME_NAMES = ("date", "time", "timestamp", "datetime", "ds", "month", "day")
 
 
@@ -48,6 +58,7 @@ class DataFacts:
     classes: list[str] = field(default_factory=list)
     channels: int = 0
     image_size: int = 0                  # typical (median) side length
+    period: int = 0                      # steps per season of a series (0: unknown / none)
     missing: bool = False
     tasks: list[str] = field(default_factory=list)           # tasks the data fits, best first
     paths: dict[str, str] = field(default_factory=dict)      # images_dir, labels_dir, ...
@@ -72,7 +83,8 @@ class DataFacts:
             return "no data yet: each recipe trains on its demo dataset"
         if self.error:
             return self.error
-        parts = [self.kind.replace("_", " "), f"{self.rows:,} rows" if self.rows else ""]
+        unit = UNITS.get(self.kind, "rows")
+        parts = [self.kind.replace("_", " "), f"{self.rows:,} {unit}" if self.rows else ""]
         if self.features:
             parts.append(f"{len(self.features)} features")
         if self.classes:
@@ -212,7 +224,71 @@ def _folder(root: Path) -> DataFacts:
                          channels=ch or 3, tasks=["semantic_segmentation"],
                          paths={"images_dir": str(images), "masks_dir": str(masks)},
                          details=["images with per-pixel class masks"])
+    graph = _graph_tables(root)
+    if graph is not None:
+        return graph
     return _class_folders(root)
+
+
+def _tables(root: Path, word: str, skip: tuple[Path, ...] = ()) -> Path | None:
+    return next((f for f in sorted(root.iterdir()) if f.is_file() and f not in skip
+                 and f.suffix.lower() in (".csv", ".tsv") and word in f.stem.lower()), None)
+
+
+def _graph_tables(root: Path, edges: Path | None = None) -> DataFacts | None:
+    """A node table and an edge list (one graph), plus a graph table when the rows carry a
+    graph id (many graphs, one label each)."""
+    edges = edges or _tables(root, "edge")
+    nodes = _tables(root, "node", (edges,)) if edges is not None else None
+    if edges is None or nodes is None:
+        return None
+    node_frame = read_table(nodes, guess_format(nodes), nrows=SAMPLE_ROWS)
+    edge_cols = [str(c) for c in read_table(edges, guess_format(edges), nrows=5).columns]
+    node_cols = [str(c) for c in node_frame.columns]
+    source = _pick(edge_cols, ("source", "src", "from", "u")) or edge_cols[0]
+    dest = _pick(edge_cols, ("target", "dst", "to", "v")) or edge_cols[min(1, len(edge_cols) - 1)]
+    graph_col = _pick(node_cols, GRAPH_NAMES)
+    node_id = _pick([c for c in node_cols if c != graph_col], ("id", "node", "node_id")) \
+        or next(c for c in node_cols if c != graph_col)
+    columns = {"source": source, "target": dest, "id": node_id}
+    paths = {"edges_path": str(edges), "nodes_path": str(nodes)}
+    if not graph_col or graph_col not in edge_cols:
+        label = _pick([c for c in node_cols if c != node_id], TARGET_NAMES)
+        facts = DataFacts(kind="graph", source=str(edges), rows=len(node_frame),
+                          tasks=["node_classification", "link_prediction"],
+                          columns={**columns, "label": label}, paths=paths,
+                          details=[f"{len(node_frame):,} nodes in {nodes.name}; edges in "
+                                   f"{edges.name}"])
+        if label:
+            facts.classes = sorted(node_frame[label].astype(str).unique())
+        else:
+            facts.tasks = ["link_prediction"]
+            facts.warnings.append("the node table has no label column: link prediction only")
+        return facts
+    graphs = _tables(root, "graph", (edges, nodes))
+    facts = DataFacts(kind="graphs", source=str(root), tasks=["graph_classification"],
+                      columns={**columns, "graph": graph_col}, paths=paths,
+                      rows=int(node_frame[graph_col].nunique()))
+    if graphs is None:
+        facts.error = (f"the nodes carry a graph id ('{graph_col}'): add a graph table "
+                       f"(e.g. graphs.csv) with '{graph_col}' and each graph's label")
+        return facts
+    graph_frame = read_table(graphs, guess_format(graphs))
+    graph_cols = [str(c) for c in graph_frame.columns]
+    if graph_col not in graph_cols:
+        facts.error = f"{graphs.name} has no '{graph_col}' column to match the nodes"
+        return facts
+    label = _pick([c for c in graph_cols if c != graph_col], TARGET_NAMES) \
+        or next((c for c in graph_cols if c != graph_col), "")
+    facts.columns["label"] = label
+    facts.paths["graphs_path"] = str(graphs)
+    facts.rows = len(graph_frame)
+    facts.classes = sorted(graph_frame[label].astype(str).unique()) if label else []
+    facts.details.append(f"{len(graph_frame):,} graphs, {len(node_frame):,} nodes; labels in "
+                         f"{graphs.name}")
+    if len(facts.classes) < 2:
+        facts.warnings.append("fewer than two graph classes")
+    return facts
 
 
 def _mask_classes(files: list[Path]) -> int:
@@ -231,6 +307,12 @@ def _mask_classes(files: list[Path]) -> int:
 def _class_folders(root: Path) -> DataFacts:
     subdirs = sorted(d for d in root.iterdir() if d.is_dir() and not d.name.startswith("."))
     if not subdirs:
+        images = _files(root, IMAGE_SUFFIXES)
+        if images:
+            side, ch = _image_shape(images)
+            return DataFacts(kind="image_folder", source=str(root), rows=len(images),
+                             image_size=side, channels=ch or 3, tasks=list(GENERATIVE),
+                             details=[f"{len(images):,} images, no class folders"])
         if _files(root, TEXT_SUFFIXES, 1):
             n = len(_files(root, TEXT_SUFFIXES))
             return DataFacts(kind="corpus", source=str(root), rows=n,
@@ -268,8 +350,10 @@ def _class_folders(root: Path) -> DataFacts:
                  in IMAGE_SUFFIXES]
         facts.image_size, facts.channels = _image_shape(files)
         facts.channels = facts.channels or 3
-    facts.tasks = ["keyword_spotting", "multiclass"] if modality == "audio" else \
-        ["binary" if len(classes) == 2 else "multiclass", "multiclass"]
+    # a folder of clips trains a classifier (keyword spotting reads generated speech)
+    facts.tasks = ["binary" if len(classes) == 2 else "multiclass", "multiclass"]
+    if modality == "image":
+        facts.tasks += GENERATIVE
     facts.tasks = list(dict.fromkeys(facts.tasks))
     return facts
 
@@ -301,18 +385,19 @@ def _file(path: Path, target: str, task: str) -> DataFacts:
         facts.kind, facts.tasks = "interactions", ["recommendation"]
         facts.columns = {"user": user, "item": item, **({"rating": rating} if rating else {})}
         facts.details.append(f"{frame[user].nunique():,} users · {frame[item].nunique():,} items")
+        for side, column in (("user", user), ("item", item)):
+            table = _feature_table(path, side, column)
+            if table is not None:
+                facts.paths[f"{side}_features"] = str(table)
+                facts.details.append(f"{side} features in {table.name}")
         return facts
     source, dest = _pick(columns, ("source", "src", "from")), _pick(columns, ("target", "dst",
                                                                                "to"))
-    nodes = next((f for f in sorted(path.parent.glob("*node*")) if f.suffix.lower()
-                  in TABLE_SUFFIXES), None)
-    if source and dest and nodes is not None and task in ("", "node_classification",
-                                                           "link_prediction"):
-        facts.kind, facts.tasks = "graph", ["node_classification", "link_prediction"]
-        facts.columns = {"source": source, "target": dest}
-        facts.paths = {"edges_path": str(path), "nodes_path": str(nodes)}
-        facts.details.append(f"{len(frame):,} edges; nodes in {nodes.name}")
-        return facts
+    if source and dest and task in ("", "node_classification", "link_prediction",
+                                    "graph_classification"):
+        graph = _graph_tables(path.parent, path)
+        if graph is not None:
+            return graph
     texts = [c for c in columns if _is_text(frame[c])]
     if task == "sequence_to_sequence" or (len(texts) >= 2 and len(columns) == 2):
         facts.kind, facts.tasks = "pairs", ["sequence_to_sequence"]
@@ -329,8 +414,11 @@ def _file(path: Path, target: str, task: str) -> DataFacts:
             facts.target = target or _pick(numeric, TARGET_NAMES) or numeric[-1]
             facts.columns = {"id": _pick(columns, ("id", "series", "series_id", "store",
                                                    "item_id"))}
-            facts.tasks = ["forecasting", "state_space_forecasting"]
+            facts.tasks = ["forecasting", "state_space_forecasting", "regime_detection"]
             facts.features = [c for c in numeric if c != facts.target]
+            facts.period = _period(frame[time_col])
+            if facts.period:
+                facts.details.append(f"{facts.period} steps per season")
             return facts
     if texts and (not target or target not in texts):
         facts.kind, facts.text_column = "text_table", texts[0]
@@ -356,13 +444,71 @@ def _file(path: Path, target: str, task: str) -> DataFacts:
             facts.missing = True
     facts.warnings += [f.message for f in profile.findings if f.severity in ("warning",
                                                                              "error")][:6]
+    group = _group_column(frame, [c for c in columns if c != facts.target])
+    if group:
+        facts.columns["group"] = group
+        facts.details.append(f"grouped by '{group}' ({frame[group].nunique()} groups)")
     if profile.task == "classification" or profile.classes:
         facts.classes = [c.name for c in profile.classes]
         facts.tasks = ["binary" if len(facts.classes) == 2 else "multiclass", "multiclass"]
+        if group and len(facts.classes) == 2:
+            facts.tasks.append("bayesian_modeling")
     else:
         facts.tasks = ["regression", "gp_regression", "bayesian_modeling"]
+    if fmt in ("csv", "tsv") and len(density_columns(facts)) >= 2:
+        facts.tasks.append("density_estimation")
     facts.tasks = list(dict.fromkeys([*facts.tasks, *UNSUPERVISED]))
     return facts
+
+
+def density_columns(facts: DataFacts) -> list[str]:
+    """The numeric columns a density model learns: the features, plus a numeric target."""
+    return [*facts.numeric, *([facts.target] if facts.target and not facts.classes else [])]
+
+
+def _feature_table(interactions: Path, side: str, column: str) -> Path | None:
+    """A table beside the interactions with one row per user (or item), keyed by ``column``."""
+    for f in sorted(interactions.parent.iterdir()):
+        if f == interactions or f.suffix.lower() not in (".csv", ".tsv") \
+                or side not in f.stem.lower():
+            continue
+        try:
+            head = read_table(f, guess_format(f), nrows=5)
+        except Exception:  # noqa: BLE001, S112 — unreadable side tables are skipped
+            continue
+        if column in head.columns and len(head.select_dtypes("number").columns.drop(
+                column, errors="ignore")):
+            return f
+    return None
+
+
+def _group_column(frame, columns: list[str]) -> str:  # noqa: ANN001
+    """A column that splits the rows into a handful of groups with several rows each."""
+    def fits(c: str) -> bool:
+        n = frame[c].nunique()
+        is_label = not str(frame[c].dtype).startswith("float")
+        return is_label and 2 <= n <= min(200, len(frame) // 3)
+    named = _pick(columns, GROUP_NAMES)
+    if named and fits(named):
+        return named
+    return next((c for c in columns if str(frame[c].dtype) in ("object", "category", "string")
+                 and fits(c)), "")
+
+
+def _period(times) -> int:  # noqa: ANN001
+    """Steps per season from the spacing of the timestamps (0 when there is no clear one)."""
+    import pandas as pd
+
+    stamps = pd.to_datetime(times, errors="coerce").dropna().sort_values()
+    if len(stamps) < 3:
+        return 0
+    step = stamps.diff().dropna().median()
+    for limit, period in ((pd.Timedelta(hours=1), 24), (pd.Timedelta(days=1), 7),
+                          (pd.Timedelta(days=7), 52), (pd.Timedelta(days=31), 12),
+                          (pd.Timedelta(days=92), 4)):
+        if step <= limit:
+            return period
+    return 0
 
 
 def _is_text(series) -> bool:  # noqa: ANN001

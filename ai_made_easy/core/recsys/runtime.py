@@ -34,6 +34,25 @@ def synthetic_interactions(d: dict) -> dict:
             "user_ids": [str(u) for u in range(n_u)], "item_ids": [str(i) for i in range(n_i)]}
 
 
+def side_features(path: str, column: str, ids: list) -> np.ndarray:
+    """Numeric features per id from a side table, standardised; unknown ids get zeros."""
+    import pandas as pd
+
+    if not str(path or "").strip():
+        return np.zeros((len(ids), 0), np.float32)
+    table = Path(str(path)).expanduser()
+    frame = pd.read_csv(table, sep="\t" if table.suffix.lower() == ".tsv" else ",")
+    if column not in frame.columns:
+        raise SystemExit(f"column {column!r} is not in {table.name}: {list(frame.columns)}")
+    frame[column] = frame[column].astype(str)
+    frame = frame.drop_duplicates(column).set_index(column)
+    numeric = frame.select_dtypes("number").astype(np.float32)
+    values = numeric.reindex([str(i) for i in ids]).to_numpy(np.float32)
+    mean, std = np.nanmean(values, 0), np.nanstd(values, 0)
+    values = (values - mean) / np.where(std > 0, std, 1.0)
+    return np.nan_to_num(values).astype(np.float32)
+
+
 def interactions_csv(d: dict) -> dict:
     import pandas as pd
 
@@ -50,8 +69,8 @@ def interactions_csv(d: dict) -> dict:
             "items": frame[d["item_column"]].astype(str).map(i_index).to_numpy(),
             "ratings": frame[rating].to_numpy(np.float32) if rating else None,
             "n_users": len(user_ids), "n_items": len(item_ids),
-            "user_features": np.zeros((len(user_ids), 0), np.float32),
-            "item_features": np.zeros((len(item_ids), 0), np.float32),
+            "user_features": side_features(d.get("user_features"), d["user_column"], user_ids),
+            "item_features": side_features(d.get("item_features"), d["item_column"], item_ids),
             "user_ids": user_ids, "item_ids": item_ids}
 
 

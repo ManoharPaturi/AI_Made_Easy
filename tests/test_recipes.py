@@ -146,7 +146,8 @@ def test_designs_fit_the_users_data(tmp_path):
         set(mlp.nodes)
     text = recipes.recommend("binary", recipes.detect(reviews_csv(tmp_path)))
     assert {s.recipe.id for s in text} == {"text_bag_of_embeddings", "text_lstm",
-                                           "text_transformer"}
+                                           "text_transformer", "text_encoder_probe",
+                                           "text_encoder_finetune"}
     assert not any(s.errors for s in text)
 
 
@@ -154,7 +155,8 @@ def test_modalities_and_demo_tasks():
     assert recipes.modalities_for("multiclass") == ["tabular", "image"]
     image = recipes.recommend("multiclass", modality="image")
     assert {s.recipe.id for s in image} == {"image_cnn", "image_cnn_augmented",
-                                            "image_transfer"}
+                                            "image_transfer", "timm_probe", "timm_finetune",
+                                            "dinov2_probe", "dinov2_finetune"}
     assert all(Graph.from_dict(s.graph).nodes["dense"].params["units"] == 10 for s in image)
     assert not recipes.recommend("binary", modality="image")   # the image demo has 10 classes
 

@@ -100,6 +100,21 @@ def _timm_shape(in_shapes, params):
     return [int(row["feature_dim"])]
 
 
+HF_ENCODER_PARAMS_M = {row["name"]: row["params_m"] for row in catalog("hf_encoders")
+                       if row["modality"] == "image"}
+HF_PATCHES = {"openai/clip-vit-base-patch32": 32, "google/siglip-base-patch16-224": 16}
+
+
+def _hf_encoder_cost(in_shapes, params) -> tuple[int, int]:
+    """(parameters, FLOPs): a ViT spends about 2 FLOPs per parameter per patch token."""
+    model = params["model_id"]
+    s = in_shapes[0]
+    patch = HF_ENCODERS[model][1] or HF_PATCHES.get(model, 16)
+    tokens = (s[1] // patch) * (s[2] // patch) + 1
+    n = int(HF_ENCODER_PARAMS_M[model] * 1e6)
+    return n, 2 * n * tokens
+
+
 def _hf_encoder_shape(in_shapes, params):
     s = in_shapes[0]
     _rgb(s, params["model_id"])
@@ -162,8 +177,15 @@ def _unet_flops(in_shapes, params):
     return count, 2 * macs
 
 
+TIMM_MACS_PER_PARAM_224 = 160   # ResNet-50, ConvNeXt and ViT-S all sit near 160 at 224 px
+
+
 def _timm_cost(in_shapes, params):
-    return int(float(TIMM_MODELS[params["model"]]["params_m"]) * 1e6), 0
+    """(parameters, FLOPs); FLOPs scale with the pixels from ~160 MACs per parameter at 224
+    px (the catalog has no measured MACs for timm models)."""
+    n = int(float(TIMM_MODELS[params["model"]]["params_m"]) * 1e6)
+    s = in_shapes[0] if in_shapes else [3, 224, 224]
+    return n, int(2 * TIMM_MACS_PER_PARAM_224 * n * s[1] * s[2] / 224 ** 2)
 
 
 # ------------------------------------------------------------------ registration
@@ -310,20 +332,21 @@ def _blocks() -> list[BlockDefinition]:
             torch_helpers=("skip_pretrained", "imagenet_normalize", "TimmBackbone"),
             desc="87 curated timm models (ConvNeXt V2, EfficientNetV2, RegNet, Swin, ViT, "
                  "DeiT, MaxViT, MobileNetV4, EVA-02, ...) → pooled features [F]."),
-            requires=("timm",), extra="vision-tasks", meta={"zoo": "timm_image"}),
+            requires=("timm",), extra="vision-tasks",
+            meta={"zoo": "timm_image", "cost": _timm_cost}),
         _replace(nn_block(
             "vision.hf_image_encoder", "Hugging Face Image Encoder", "Pretrained Models",
             family="model",
             params=(P("model_id", "enum", "facebook/dinov2-small", options=tuple(HF_ENCODERS)),
                     P("weights", "enum", "pretrained", options=("pretrained", "none")),
                     P("freeze", "bool", True)),
-            shape=_hf_encoder_shape,
+            shape=_hf_encoder_shape, param_fn=lambda s, p: _hf_encoder_cost(s, p)[0],
             torch=lambda c: (f"HFImageEncoder(\"{c['model_id']}\", "
                              f"pretrained={c['weights'] == 'pretrained'}, "
                              f"freeze={bool(c['freeze'])})"),
             torch_helpers=("imagenet_normalize", "HFImageEncoder"),
             desc="DINOv2, CLIP or SigLIP image tower → pooled features [F]."),
-            requires=("transformers",), extra="vision-tasks"),
+            requires=("transformers",), extra="vision-tasks", meta={"cost": _hf_encoder_cost}),
     ]
 
 

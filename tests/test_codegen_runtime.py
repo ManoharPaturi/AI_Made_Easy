@@ -27,7 +27,7 @@ def test_every_model_block_is_exercised():
     covered = {t for t, *_ in CASES}
     nn_blocks = {b.type_id for b in get_registry().all()
                  if b.shape_fn is not None and b.builder is None
-                 and b.type_id not in ("core.input", "core.output", "core.hf_text_encoder")
+                 and b.type_id not in ("core.input", "core.output")
                  and not missing_requirements(b)}  # optional extras: their CI job runs them
     assert nn_blocks - covered == set(), "blocks without a runnable test case"
 

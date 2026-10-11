@@ -111,6 +111,7 @@ Install only what you need with the optional extras:
 | `vision` | torchvision datasets, transforms and pretrained backbones |
 | `vision-tasks` | timm backbones, Hugging Face DETR / SegFormer / DINOv2, COCO RLE masks |
 | `audio` | Hugging Face speech encoders (wav2vec 2.0, HuBERT, WavLM, Whisper) |
+| `text` | Hugging Face text encoders (DistilBERT, BERT, RoBERTa, MiniLM, ...) and tokenizers |
 | `probabilistic` | pgmpy, hmmlearn, PyMC, GPyTorch and statsmodels (graphical models, probabilistic programs, Gaussian processes, state-space models) |
 | `graph` | PyTorch Geometric (graph neural networks) |
 | `rl` | Gymnasium and stable-baselines3 (reinforcement learning) |

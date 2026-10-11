@@ -81,6 +81,8 @@ jobs:
         run: >-
           pytest -q -p no:cacheprovider tests/test_vision.py
           tests/test_codegen_runtime.py -k "vision or exercised or Vision"
+      - name: Pretrained image recipes (random weights)
+        run: pytest -q -p no:cacheprovider tests/test_pretrained_recipes.py -k "image or budget"
 
   test-probabilistic:
     # the probabilistic extra: graphical models, HMMs and their generated scripts
@@ -106,6 +108,8 @@ jobs:
           pip install -e ".[dev,probabilistic,serve]"
       - name: Test
         run: pytest -q -p no:cacheprovider tests/test_pgm.py tests/test_ppl.py tests/test_gp.py tests/test_ssm.py
+      - name: Your series and grouped tables
+        run: pytest -q -p no:cacheprovider tests/test_your_data.py -k "series_recipes or grouped_table"
 
   test-graph-rl:
     # the graph and rl extras: PyTorch Geometric, Gymnasium and stable-baselines3
@@ -133,6 +137,8 @@ jobs:
         run: >-
           pytest -q -p no:cacheprovider tests/test_gnn.py tests/test_rl.py
           tests/test_codegen_runtime.py -k "graph or exercised"
+      - name: Your graphs and interaction tables
+        run: pytest -q -p no:cacheprovider tests/test_your_data.py -k "recommender_and_graph"
 
   test-audio:
     # the audio extra (Hugging Face speech encoders): speech and sequence blocks, their
@@ -156,11 +162,13 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install torch --index-url https://download.pytorch.org/whl/cpu
-          pip install -e ".[dev,audio,serve]"
+          pip install -e ".[dev,audio,text,serve]" pandas
       - name: Test
         run: >-
           pytest -q -p no:cacheprovider tests/test_speech.py tests/test_sequence.py
-          tests/test_codegen_runtime.py -k "audio or exercised"
+          tests/test_codegen_runtime.py -k "audio or exercised or hf_text"
+      - name: Pretrained text and audio recipes (random weights)
+        run: pytest -q -p no:cacheprovider tests/test_pretrained_recipes.py -k "not image"
 
   web:
     needs: lint

@@ -1,4 +1,7 @@
 import { expect, test } from "@playwright/test";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 
 test.beforeEach(async ({ page }) => {
   await page.goto("/");
@@ -168,6 +171,10 @@ test("new-project wizard: task, demo data, recipes, explanation", async ({ page 
   await page.getByTestId("wizard-next").click();
   await page.getByTestId("wizard-next").click();
   await expect(page.getByTestId("recipe-image_transfer")).toBeVisible();
+  await expect(page.getByTestId("recipe-image_transfer").getByTestId("download"))
+    .toHaveText("⬇ downloads resnet18 · ~47 MB · BSD-3-Clause (torchvision) licence");
+  await expect(page.getByTestId("recipe-dinov2_probe").getByTestId("download"))
+    .toContainText("facebook/dinov2-small · ~88 MB · apache-2.0 licence");
   await expect(page.getByTestId("recipe-tabular_mlp")).toHaveCount(0);
   await page.getByTestId("recipe-image_cnn").click();
   await page.locator("#knob-stages").fill("3");
@@ -202,6 +209,32 @@ test("wizard: classic clustering and the LLM tasks", async ({ page, request }) =
     await expect(row.locator(".chip").nth(1)).toHaveText("Binary classification");
   } finally {
     await request.delete("/api/projects/e2e_classic");
+  }
+});
+
+test("wizard: a flow learns the density of your own table", async ({ page }) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "aime-e2e-"));
+  const table = path.join(dir, "points.csv");
+  const rows = Array.from({ length: 200 }, (_, i) =>
+    `${Math.sin(i).toFixed(4)},${Math.cos(i * 0.7).toFixed(4)},${((i * 37) % 11).toFixed(1)}`);
+  fs.writeFileSync(table, ["a,b,c", ...rows].join("\n"));
+  try {
+    await page.getByTestId("new-project").click();
+    await page.getByTestId("task-density_estimation").click();
+    await page.getByTestId("wizard-next").click();
+    await page.getByTestId("own-data").check();
+    await page.getByTestId("wizard-path").fill(table);
+    await page.getByTestId("detect").click();
+    await expect(page.getByTestId("facts")).toContainText("200 rows");
+    await page.getByTestId("wizard-next").click();
+    await page.getByTestId("wizard-next").click();
+    await page.getByTestId("recipe-realnvp").click();
+    await page.getByTestId("create-design").click();
+    await expect(page.getByTestId("status")).toHaveText("No problems");
+    await expect(page.getByTestId("design-kind")).toContainText("Density estimation");
+    await expect(page.locator(".block-node", { hasText: "Table File" })).toHaveCount(1);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
   }
 });
 
