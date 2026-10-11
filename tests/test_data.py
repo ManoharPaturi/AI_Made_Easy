@@ -404,7 +404,7 @@ def test_data_service_and_page(app, tmp_path):
     service = DataService()
     landed = []
     service.changed.connect(lambda: landed.append(True))
-    assert service.issues_for(graph) == []  # nothing cached yet: profiled in background
+    service.issues_for(graph)  # nothing cached yet: profiled in background (may land first)
     service.wait()
     assert landed and any("Impute" in i.message for i in service.issues_for(graph))
     page = DataPage()

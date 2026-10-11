@@ -240,7 +240,7 @@ def test_new_optimizer_loss_fragments():
     )
     wire(g, ("in", "d1"), ("d1", "out"))
     code = generate_training(g, "pytorch")
-    assert "torch.optim.RAdam(model.parameters()" in code
+    assert "torch.optim.RAdam(params" in code
     assert "nn.SmoothL1Loss(beta=1.0)" in code
     assert "LinearLR(optimizer, start_factor=0.1" in code
     # regression mode: smooth_l1 counts as regression

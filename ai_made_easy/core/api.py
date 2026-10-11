@@ -124,9 +124,19 @@ def validate(graph: dict | Graph) -> dict:
             fix = None
         rows.append({"severity": i.severity, "node": i.node_id, "message": i.message,
                      "fix": {"label": fix[0], "description": fix[1]} if fix else None})
-    return {"valid": not any(i.severity == "error" for i in issues),
-            "issues": rows,
-            "shapes": {k: list(v) for k, v in shapes.items()}}
+    out = {"valid": not any(i.severity == "error" for i in issues),
+           "issues": rows,
+           "shapes": {k: list(v) for k, v in shapes.items()}}
+    if any(n.type_id.startswith("pipeline.") for n in g.nodes.values()):
+        out["designs"] = stage_designs(g)
+    return out
+
+
+def stage_designs(graph: dict | Graph, base: str | None = None) -> dict:
+    """Each pipeline stage's design as blocks to draw inline on the canvas."""
+    from ai_made_easy.core.pipelines.designs import inline
+
+    return inline(_graph(graph), base)
 
 
 def apply_fix(graph: dict | Graph, issue_index: int) -> dict:

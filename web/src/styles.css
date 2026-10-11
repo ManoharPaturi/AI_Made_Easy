@@ -182,6 +182,24 @@ pre.code { margin: 0; font: 12px/1.5 "SF Mono", Menlo, Consolas, monospace; whit
 .block-node .body { padding: 4px 10px 6px; color: var(--node-subtext); font-size: 11px;
                     max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .block-node .shape { font-family: "SF Mono", Menlo, monospace; color: var(--text-dim); }
+/* composite view: a pipeline stage's design drawn inside the stage */
+.block-node .inline-toggle { display: block; width: 100%; text-align: left; border: 0;
+                             border-top: 1px solid var(--node-border); border-radius: 0 0 6px 6px;
+                             background: transparent; color: var(--accent); font-size: 10.5px;
+                             padding: 3px 10px; cursor: pointer; }
+.block-node .inline-design { border-top: 1px dashed var(--node-border); padding: 4px 8px 6px;
+                             min-width: 210px; }
+.block-node .inline-kind { color: var(--text-muted); font-size: 10px; margin-bottom: 3px; }
+.block-node .inline-block { display: flex; align-items: center; gap: 5px; font-size: 10.5px;
+                            color: var(--node-text, var(--text)); line-height: 17px;
+                            flex-wrap: wrap; }
+.block-node .inline-block.config { color: var(--text-muted); }
+.block-node .inline-arrow { width: 100%; color: var(--text-muted); font-size: 9px;
+                            line-height: 9px; padding-left: 2px; }
+.block-node .inline-dot { width: 8px; height: 8px; border-radius: 2px; flex: none; }
+.block-node .inline-name { flex: 1; }
+.block-node .inline-summary { font-family: "SF Mono", Menlo, monospace; color: var(--text-dim);
+                              font-size: 10px; }
 .port-label { position: absolute; font-size: 9px; color: var(--text-muted); top: -14px; }
 .react-flow__handle { width: 9px; height: 9px; background: var(--wire); border: 2px solid var(--node-body); }
 .react-flow__edge-path { stroke: var(--wire); stroke-width: 1.6; }

@@ -28,6 +28,7 @@ class GraphService(QtCore.QObject):
         self._node_defaults: dict[str, str] = {}  # type_id -> original name
         self.last_shapes: dict = {}
         self.settled_from_load = False  # True while settling right after a load
+        self.inline_open: set[str] = set()  # pipeline stages showing their design inside
 
         adapter.guard_notifiers.append(self.guard_message.emit)
 
@@ -58,6 +59,7 @@ class GraphService(QtCore.QObject):
         return self.adapter.to_ir()
 
     def load(self, graph: Graph) -> None:
+        self.inline_open.clear()
         """Replace canvas content; settle fires once, without dirty marking."""
         self._loading = True
         try:
@@ -112,6 +114,30 @@ class GraphService(QtCore.QObject):
             self.log.info(f"placed {name}")
         except Exception as exc:
             self.log.error(str(exc))
+
+    def toggle_inline(self, ir: Graph, base=None) -> bool:  # noqa: ANN001
+        """Show or hide the design of the selected pipeline stages inside them; False when
+        no pipeline stage with a design is selected."""
+        from ai_made_easy.core.pipelines.designs import inline
+
+        designs = inline(ir, base)
+        chosen = [i for i in self.adapter.selected_ids() if i in designs]
+        for node_id in chosen:
+            self.inline_open ^= {node_id}
+        self.refresh_inline(ir, base, designs)
+        return bool(chosen)
+
+    def refresh_inline(self, ir: Graph, base=None, designs: dict | None = None) -> None:  # noqa: ANN001
+        """Redraw the open stages (their designs may have changed)."""
+        if not self.inline_open and designs is None:
+            return
+        from ai_made_easy.core.pipelines.designs import inline
+
+        designs = inline(ir, base) if designs is None else designs
+        for node_id in list(designs):
+            self.adapter.set_inline(node_id, designs[node_id]
+                                    if node_id in self.inline_open else None)
+        self.inline_open &= set(designs)
 
     def expand_selected(self) -> None:
         try:
