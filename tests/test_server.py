@@ -254,3 +254,28 @@ def test_frontend_is_served(client):
         assert cached.status_code == 200 and "immutable" in cached.headers["cache-control"]
     assert client.get("/../../etc/passwd").status_code in (200, 404)
     assert client.get("/api/docs").status_code == 200
+
+
+def test_registry_is_complete_for_concurrent_first_requests():
+    """A fresh process answering several requests at once: none may see a half-loaded
+    block catalog (the web UI once showed "Search 0 blocks" on a cold server)."""
+    code = """
+import threading
+from ai_made_easy.core import registry
+counts = []
+def read():
+    counts.append(len(registry.get_registry().all()))
+threads = [threading.Thread(target=read) for _ in range(8)]
+for t in threads: t.start()
+for t in threads: t.join()
+print(sorted(set(counts)))
+"""
+    import json
+    import subprocess
+    import sys
+
+    out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True,
+                         timeout=300)
+    assert out.returncode == 0, out.stderr[-2000:]
+    counts = json.loads(out.stdout.strip())
+    assert len(counts) == 1 and counts[0] > 400, counts

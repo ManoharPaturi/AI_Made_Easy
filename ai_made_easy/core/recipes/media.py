@@ -244,7 +244,7 @@ def _audio(ctx: Context) -> Draft:
 register_recipe(Recipe(
     "audio_mel_cnn", "Mel-spectrogram CNN", CLASSIFY, "small", "audio",
     "Treats the spectrogram as an image: the standard recipe for sound classification.",
-    _audio, data_kinds=("audio_folder",), requires=("torchaudio",), extra="audio",
+    _audio, data_kinds=("audio_folder",),
     knobs=(_lr(1e-3), Knob("width", "int", 16, 8, 128, help="Filters in the first stage"),
            EPOCHS(25)),
     strengths="works for commands, events and other short sounds"))

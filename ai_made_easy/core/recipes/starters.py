@@ -181,16 +181,16 @@ starter("forecast_patchtst", "demand_forecasting", "forecasting", "medium", "tim
         knobs=TRAIN_KNOBS(1e-3, 30), strengths="many related series and covariates")
 starter("keyword_cnn", "keyword_spotting", "keyword_spotting", "small", "audio",
         "Keyword CNN", "A CNN over mel spectrograms that recognises spoken commands.",
-        knobs=TRAIN_KNOBS(1e-3, 25), requires=("torchaudio",), extra="audio",
+        knobs=TRAIN_KNOBS(1e-3, 25),
         strengths="small enough for a microcontroller-sized budget")
 starter("audio_tagger", "keyword_spotting", "audio_tagging", "small", "audio",
         "Audio tagger", "The mel CNN with one yes/no output per tag: several sounds can be "
         "present at once.", knobs=TRAIN_KNOBS(1e-3, 25), edit=_speech_tags,
-        requires=("torchaudio",), extra="audio", strengths="multi-label sound events")
+        strengths="multi-label sound events")
 starter("ctc_lstm", "speech_recognition_ctc", "speech_recognition", "medium", "audio",
         "BiLSTM + CTC", "Mel features, a bidirectional LSTM and CTC: transcribes speech "
-        "letter by letter.", knobs=TRAIN_KNOBS(3e-3, 40), requires=("torchaudio",),
-        extra="audio", strengths="learns to transcribe without aligned labels")
+        "letter by letter.", knobs=TRAIN_KNOBS(3e-3, 40),
+        strengths="learns to transcribe without aligned labels")
 # generative
 starter("vae", "shapes_vae", "vae_generation", "small", "image", "Variational autoencoder",
         "An encoder to a latent space and a decoder back: smooth, controllable generation.",

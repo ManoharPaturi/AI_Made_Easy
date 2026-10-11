@@ -6,6 +6,8 @@ can discover blocks without importing Qt or reading source.
 """
 from __future__ import annotations
 
+import threading
+
 from ai_made_easy.core.spec import BlockDefinition
 
 
@@ -71,18 +73,31 @@ class BlockRegistry:
 
 
 _REGISTRY: BlockRegistry | None = None
+_READY = False
+# re-entrant: the block modules call get_registry() while the first call is loading them;
+# other threads wait instead of seeing a half-filled catalog (the web server answers the
+# browser's first requests in parallel)
+_LOCK = threading.RLock()
 
 
 def get_registry() -> BlockRegistry:
     """Global registry; imports the built-in block library on first use."""
-    global _REGISTRY
-    if _REGISTRY is None:
-        _REGISTRY = BlockRegistry()
-        import ai_made_easy.core.blocks  # noqa: F401  (registers built-ins)
-        from ai_made_easy.core.block_packs import register_custom_blocks
+    global _REGISTRY, _READY
+    if _READY:
+        return _REGISTRY
+    with _LOCK:
+        if _REGISTRY is None:
+            _REGISTRY = BlockRegistry()
+            try:
+                import ai_made_easy.core.blocks  # noqa: F401  (registers built-ins)
+                from ai_made_easy.core.block_packs import register_custom_blocks
 
-        try:
-            register_custom_blocks()  # the user's saved custom blocks
-        except OSError:
-            pass
-    return _REGISTRY
+                try:
+                    register_custom_blocks()  # the user's saved custom blocks
+                except OSError:
+                    pass
+            except BaseException:
+                _REGISTRY = None
+                raise
+            _READY = True
+        return _REGISTRY
