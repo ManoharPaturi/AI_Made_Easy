@@ -60,6 +60,29 @@ def _mdn_params(in_shapes, p):
     return in_shapes[0][0] * out + out
 
 
+def quantile_levels(p: dict) -> tuple[float, ...]:
+    try:
+        return tuple(float(v) for v in str(p.get("quantiles", "")).split(",") if v.strip())
+    except ValueError:
+        return ()
+
+
+def _quantile_shape(in_shapes, p):
+    s = in_shapes[0]
+    if len(s) != 1:
+        raise ShapeError(f"the Quantile Head reads features [F], got {s}: add Flatten before it")
+    levels = quantile_levels(p)
+    if not levels or any(not 0 < q < 1 for q in levels) or list(levels) != sorted(set(levels)):
+        raise ShapeError("quantiles must be increasing levels between 0 and 1, e.g. "
+                         "0.05, 0.5, 0.95")
+    return [int(p["targets"]) * len(levels)]
+
+
+def _quantile_params(in_shapes, p):
+    out = int(p["targets"]) * len(quantile_levels(p))
+    return in_shapes[0][0] * out + out
+
+
 def _layers() -> list[BlockDefinition]:
     mc = nn_block(
         "bayes.mc_dropout", "MC Dropout", CATEGORY, family="model",
@@ -100,9 +123,24 @@ def _layers() -> list[BlockDefinition]:
         torch_helpers=("MDNHead",),
         desc="Predicts a mixture of Gaussians instead of one value: multi-modal targets and "
              "input-dependent noise (trains with the mixture's negative log-likelihood).")
+    quantile = nn_block(
+        "bayes.quantile_head", "Quantile Head", CATEGORY, family="model",
+        params=(P("quantiles", "str", "0.05, 0.5, 0.95",
+                  help="Increasing levels; the outer two form the prediction interval and the "
+                       "one nearest 0.5 is the point prediction"),
+                P("targets", "int", 1, lo=1, hi=100, help="Number of target columns")),
+        shape=_quantile_shape, param_fn=_quantile_params,
+        torch=lambda c: (f"QuantileHead({c['input_shape'][0]}, "
+                         f"{quantile_levels(c)!r}, {int(c['targets'])})"),
+        torch_helpers=("QuantileHead",),
+        desc="Predicts quantiles of each target (they never cross) and trains with the "
+             "pinball loss: prediction intervals without assuming a distribution. With "
+             "Conformal Prediction the interval is calibrated (conformalized quantile "
+             "regression).")
     out = []
-    for defn in (mc, linear, conv, mdn):
-        role = "distribution" if defn.type_id == "bayes.mdn" else "tensor"
+    for defn in (mc, linear, conv, mdn, quantile):
+        role = "distribution" if defn.type_id in ("bayes.mdn", "bayes.quantile_head") \
+            else "tensor"
         out.append(replace(defn, outputs=(PortSpec("out", role=role),),
                            meta={**(defn.meta or {}), "bayes": True}))
     return out
@@ -133,7 +171,9 @@ def _config() -> list[BlockDefinition]:
               (P("alpha", "float", 0.1, lo=0.001, hi=0.5,
                  help="Miss rate: 0.1 gives 90% prediction sets / intervals"),),
               "Split conformal prediction: sets of classes or intervals that contain the "
-              "truth with the chosen probability, calibrated on the validation set."),
+              "truth with the chosen probability, calibrated on the validation set. With a "
+              "Quantile Head it widens or narrows the predicted quantile interval "
+              "(conformalized quantile regression, Romano et al., 2019)."),
     ]
 
 

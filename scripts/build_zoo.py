@@ -164,11 +164,26 @@ HF_ENCODERS = {
     "microsoft/wavlm-base-plus": ("audio", 768, 94.4, 378, "see the model card"),
     "openai/whisper-tiny": ("audio", 384, 37.8, 151, "apache-2.0"),
     "openai/whisper-base": ("audio", 512, 72.6, 290, "apache-2.0"),
+    "MIT/ast-finetuned-audioset-10-10-0.4593": ("audio", 768, 86.2, 346, "bsd-3-clause"),
     "facebook/dinov2-small": ("image", 384, 22.1, 88, "apache-2.0"),
     "facebook/dinov2-base": ("image", 768, 86.6, 346, "apache-2.0"),
     "openai/clip-vit-base-patch32": ("image", 768, 87.8, 605, "mit"),
     "google/siglip-base-patch16-224": ("image", 768, 92.9, 813, "apache-2.0"),
 }
+
+
+# Stable Diffusion bases for LoRA fine-tuning: parameters (M) and float32 download (MB) of
+# the UNet + text encoder + VAE, license
+DIFFUSION = {
+    "stable-diffusion-v1-5/stable-diffusion-v1-5": (1066.2, 4270, "creativeml-openrail-m"),
+    "stabilityai/stable-diffusion-2-1-base": (1290.0, 5160, "openrail++"),
+}
+
+
+def diffusion_entry(model_id: str) -> dict:
+    params_m, download_mb, license_ = DIFFUSION[model_id]
+    return {"name": model_id, "params_m": params_m, "download_mb": download_mb,
+            "license": license_, "native_side": 512, "source": "huggingface"}
 
 
 def hf_entry(model_id: str) -> dict:
@@ -195,6 +210,7 @@ def main() -> None:
     except ImportError:
         print("timm is not installed: skipping timm_image.json")
     _write("hf_encoders", [hf_entry(m) for m in HF_ENCODERS])
+    _write("diffusion", [diffusion_entry(m) for m in DIFFUSION])
     _write("torchvision_detection", [head_entry(n, t, s) for n, (t, s) in DETECTION.items()])
     _write("torchvision_segmentation",
            [head_entry(n, "semantic_segmentation", s) for n, s in SEGMENTATION.items()])

@@ -1,7 +1,7 @@
 """Design rules for Bayesian layers, the Laplace approximation and calibration blocks."""
 from __future__ import annotations
 
-from ai_made_easy.core.bayes.blocks import CALIBRATION, STOCHASTIC
+from ai_made_easy.core.bayes.blocks import CALIBRATION, STOCHASTIC, quantile_levels
 from ai_made_easy.core.lints import LintContext, _issue, _name, register_rule
 
 REGRESSION_LOSSES = ("train.loss_mse", "train.loss_l1", "train.loss_huber",
@@ -10,7 +10,8 @@ REGRESSION_LOSSES = ("train.loss_mse", "train.loss_l1", "train.loss_huber",
 
 def bayes_rules(ctx: LintContext) -> list:
     types = {n.type_id for n in ctx.graph.nodes.values()}
-    if not types & {*STOCHASTIC, "bayes.mdn", "bayes.laplace", *CALIBRATION}:
+    if not types & {*STOCHASTIC, "bayes.mdn", "bayes.quantile_head", "bayes.laplace",
+                    *CALIBRATION}:
         return []
     out = []
     last = ctx.last_compute()
@@ -24,6 +25,33 @@ def bayes_rules(ctx: LintContext) -> list:
             out.append(_issue("error", "a mixture density head predicts real-valued targets: "
                                        "use an MSE loss block (training uses the mixture's "
                                        "likelihood instead)", node.instance_id))
+    for node in ctx.nodes_of("bayes.quantile_head"):
+        if last is None or node.instance_id != last.instance_id:
+            out.append(_issue("error", f"{_name(node)} must be the last layer: it outputs the "
+                                       "quantiles", node.instance_id))
+        if classification:
+            out.append(_issue("error", "a quantile head predicts real-valued targets: use an "
+                                       "MSE loss block (training uses the pinball loss "
+                                       "instead)", node.instance_id))
+        if ctx.nodes_of("bayes.mdn", "bayes.laplace"):
+            out.append(_issue("error", "a quantile head does not combine with a mixture "
+                                       "density head or the Laplace approximation: keep one",
+                              node.instance_id))
+        conformal = ctx.nodes_of("eval.conformal")
+        levels = quantile_levels(node.resolved_params())
+        if conformal and len(levels) >= 2:
+            alpha = float(conformal[0].resolved_params()["alpha"])
+            if abs((levels[-1] - levels[0]) - (1 - alpha)) > 0.02:
+                out.append(_issue("info", f"the head's outer quantiles ({levels[0]:g}, "
+                                          f"{levels[-1]:g}) form a {levels[-1] - levels[0]:.0%} "
+                                          f"interval but Conformal Prediction targets "
+                                          f"{1 - alpha:.0%}: CQR still calibrates it, but "
+                                          f"quantiles {alpha / 2:g} and {1 - alpha / 2:g} give "
+                                          "tighter intervals", node.instance_id))
+        elif conformal:
+            out.append(_issue("error", "conformalized quantile regression needs at least two "
+                                       "quantiles (a lower and an upper one)",
+                              node.instance_id))
     for node in ctx.nodes_of("bayes.laplace"):
         if last is None or last.type_id != "core.dense":
             out.append(_issue("error", "the Laplace approximation needs the model to end with "

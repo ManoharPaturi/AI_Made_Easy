@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from ai_made_easy.core.blocks._dsl import P, nn_block
+from ai_made_easy.core.codegen import KerasUnsupported
 from ai_made_easy.core.registry import get_registry
 from ai_made_easy.core.spec import ShapeError
 
@@ -24,7 +25,17 @@ def _rnn_params(kind: str) -> tuple:
     if kind == "rnn":
         params = params[:1] + (P("nonlinearity", "enum", "tanh",
                                  options=("tanh", "relu")),) + params[1:]
+    if kind == "lstm":
+        params = params[:1] + (P("proj_size", "int", 0, lo=0,
+                                 help="LSTMP: project the hidden state to this width (0 = off;"
+                                      " must be smaller than hidden_size). Fewer parameters "
+                                      "and a smaller output for the same memory cell"),) + \
+            params[1:]
     return params
+
+
+def _out_width(params) -> int:
+    return int(params.get("proj_size") or 0) or int(params["hidden_size"])
 
 
 def _rnn_shape(name: str):
@@ -32,7 +43,11 @@ def _rnn_shape(name: str):
         s = in_shapes[0]
         if len(s) != 2:
             raise ShapeError(f"{name} expects a batch-first sequence [L, C], got {s}")
-        width = int(params["hidden_size"]) * (2 if params["bidirectional"] else 1)
+        proj = int(params.get("proj_size") or 0)
+        if proj and proj >= int(params["hidden_size"]):
+            raise ShapeError(f"{name} proj_size ({proj}) must be smaller than hidden_size "
+                             f"({params['hidden_size']})")
+        width = _out_width(params) * (2 if params["bidirectional"] else 1)
         return [s[0], width] if params["return_sequences"] else [width]
 
     return fn
@@ -50,12 +65,14 @@ def _rnn_count(kind: str):
 
     def fn(in_shapes, params):
         h, layers = int(params["hidden_size"]), int(params["num_layers"])
+        out = _out_width(params)            # the recurrent state is projected (LSTMP)
         dirs = 2 if params["bidirectional"] else 1
         bias = 2 * gates * h if params["bias"] else 0
+        proj = out * h if out != h else 0
         total, cin = 0, in_shapes[0][-1]
         for layer in range(layers):
-            inp = cin if layer == 0 else h * dirs
-            total += dirs * (gates * h * inp + gates * h * h + bias)
+            inp = cin if layer == 0 else out * dirs
+            total += dirs * (gates * h * inp + gates * h * out + bias + proj)
         return total
 
     return fn
@@ -69,6 +86,8 @@ def _torch_rnn(kind: str):
                 f"num_layers={c['num_layers']}"]
         if kind == "rnn":
             args.append(f"nonlinearity=\"{c['nonlinearity']}\"")
+        if int(c.get("proj_size") or 0):
+            args.append(f"proj_size={int(c['proj_size'])}")
         if not c["bias"]:
             args.append("bias=False")
         args.append("batch_first=True")
@@ -98,6 +117,8 @@ def _keras_rnn(kind: str):
     cls = {"lstm": "LSTM", "gru": "GRU", "rnn": "SimpleRNN"}[kind]
 
     def fn(c):
+        if int(c.get("proj_size") or 0):
+            raise KerasUnsupported("LSTM with a projection (proj_size)")
         layers_n = int(c["num_layers"])
         expr = c["i0"]
         for i in range(layers_n):

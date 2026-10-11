@@ -58,6 +58,8 @@ DEVICE = "{{ trainer.device }}"
 EARLY_STOP = {{ trainer.early_stopping_patience }}
 GRAD_CLIP = {{ trainer.grad_clip_norm or 1.0 }}
 SAMPLE_TOKENS = 200
+TOKENIZER = {{ tokenizer | repr }}{{ "   # byte-level BPE learned on the training text" if tokenizer else "   # None: one token per byte" }}
+
 CHECKPOINT = "{{ name }}_best.pt"
 INFERENCE_FILE = "inference_state.pkl"
 SAMPLES_DIR = Path("eval_samples")
@@ -68,6 +70,24 @@ Image = None    # (the runtime's image helpers are unused here)
 {{ model_code }}
 {{ data_code }}
 {{ metrics_code }}
+{{ tokenizer_code }}
+
+# ======================================================================== tokens
+TOKENS = None          # the BPE tokenizer once learned (or loaded); None: bytes
+TOKENS_PER_BYTE = 1.0  # validation tokens per byte: converts the loss to bits per byte
+
+
+def use_tokenizer(merges) -> None:
+    global TOKENS
+    TOKENS = BPE(merges) if merges is not None else None
+
+
+def encode_text(text: str) -> np.ndarray:
+    return TOKENS.encode(text) if TOKENS is not None else encode_bytes(text)
+
+
+def decode_text(ids) -> str:
+    return TOKENS.decode(ids) if TOKENS is not None else decode_bytes(ids)
 
 
 def pick_device() -> torch.device:
@@ -110,7 +130,7 @@ def lm_batch(data: torch.Tensor, n: int, device) -> tuple:
 
 @torch.no_grad()
 def lm_loss(model, data: torch.Tensor, device) -> float:
-    """Mean next-byte cross-entropy over non-overlapping windows."""
+    """Mean next-token cross-entropy over non-overlapping windows."""
     model.eval()
     total, count = 0.0, 0
     windows = (len(data) - 1) // CONTEXT
@@ -131,7 +151,7 @@ def lm_generate(model, prompt: str, tokens: int, temperature: float = 0.8, top_k
     model.eval()
     device = next(model.parameters()).device
     g = torch.Generator(device="cpu").manual_seed(seed)
-    ids = list(encode_bytes(prompt)) or [10]
+    ids = list(encode_text(prompt)) or [10]
     for _ in range(tokens):
         window = ids[-CONTEXT:]
         window = [10] * (CONTEXT - len(window)) + window   # left-pad with newlines
@@ -141,7 +161,7 @@ def lm_generate(model, prompt: str, tokens: int, temperature: float = 0.8, top_k
             kth = torch.topk(logits, min(top_k, logits.numel())).values[-1]
             logits[logits < kth] = -math.inf
         ids.append(int(torch.multinomial(logits.softmax(-1), 1, generator=g)))
-    return decode_bytes(ids[len(encode_bytes(prompt)):])
+    return decode_text(ids[len(encode_text(prompt)):])
 
 
 def lm_prompts(text: str) -> list[str]:
@@ -187,7 +207,7 @@ def train_lm(model, train: torch.Tensor, val: torch.Tensor, prompts: list, devic
                       LIVE_DIR / f"epoch_{epoch:03d}.txt", live=True)
         print(f"epoch {epoch}/{EPOCHS} train_loss={total / steps_per_epoch:.4f} "
               f"val_loss={val_loss:.4f} val_perplexity={math.exp(min(val_loss, 50)):.4f} "
-              f"val_bits_per_byte={val_loss / math.log(2):.4f} "
+              f"val_bits_per_byte={val_loss * TOKENS_PER_BYTE / math.log(2):.4f} "
               f"lr={optimizer.param_groups[0]['lr']:.3g} ({time.time() - started:.1f}s)",
               flush=True)
         if val_loss < best:
@@ -301,6 +321,8 @@ def load_predictor(folder: str | Path = ".", device: str = "cpu") -> nn.Module:
     global _PREDICTOR
     with open(Path(folder) / INFERENCE_FILE, "rb") as fh:
         STATE.update(pickle.load(fh))
+    if KIND == "language_model":
+        use_tokenizer(STATE.get("bpe_merges"))
     model = build_model()
     model.load_state_dict(torch.load(Path(folder) / CHECKPOINT, map_location=device))
     _PREDICTOR = model.eval().to(device)
@@ -329,6 +351,7 @@ def infer(raw: list) -> list[dict]:
 
 
 def main() -> None:
+    global TOKENS_PER_BYTE
     random.seed(SEED)
     np.random.seed(SEED)
     torch.manual_seed(SEED)
@@ -338,18 +361,35 @@ def main() -> None:
     print(f"parameters: {sum(p.numel() for p in model.parameters() if p.requires_grad):,}")
     if KIND == "language_model":
         text = load_text(DATASET)
-        data = torch.from_numpy(encode_bytes(text))
-        cut = int(len(data) * (1 - float(DATASET.get("val_fraction", 0.1))))
-        train, val = data[:cut], data[cut:]
+        if TOKENIZER:   # learn the merges on the training text only
+            cut_chars = int(len(text) * (1 - float(DATASET.get("val_fraction", 0.1))))
+            started = time.time()
+            STATE["bpe_merges"] = train_bpe(text[:cut_chars], TOKENIZER["vocab_size"],
+                                            TOKENIZER["min_frequency"])
+            use_tokenizer(STATE["bpe_merges"])
+            train = torch.from_numpy(encode_text(text[:cut_chars]))
+            val = torch.from_numpy(encode_text(text[cut_chars:]))
+            TOKENS_PER_BYTE = len(val) / max(len(text[cut_chars:].encode("utf-8")), 1)
+            print(f"BPE: {256 + len(STATE['bpe_merges']):,} tokens, "
+                  f"{1 / max(TOKENS_PER_BYTE, 1e-9):.2f} bytes per token "
+                  f"({time.time() - started:.1f}s)")
+            val_text, unit = text[cut_chars:], "tokens"
+        else:
+            data = torch.from_numpy(encode_bytes(text))
+            cut = int(len(data) * (1 - float(DATASET.get("val_fraction", 0.1))))
+            train, val = data[:cut], data[cut:]
+            val_text, unit = text[cut:], "bytes"
         if len(train) <= CONTEXT + 1 or len(val) <= CONTEXT + 1:
-            raise SystemExit(f"the text ({len(data):,} bytes) is too short for a {CONTEXT}-byte "
-                             "context: add text or shorten the Input")
-        print(f"bytes: train={len(train):,} val={len(val):,} context={CONTEXT}")
-        prompts = lm_prompts(text[cut:])
+            raise SystemExit(f"the text ({len(train) + len(val):,} {unit}) is too short for a "
+                             f"{CONTEXT}-token context: add text or shorten the Input")
+        print(f"{unit}: train={len(train):,} val={len(val):,} context={CONTEXT}")
+        prompts = lm_prompts(val_text)
         model = train_lm(model, train, val, prompts, device)
         loss = lm_loss(model, val, device)
         metrics = {"loss": loss, "perplexity": math.exp(min(loss, 50)),
-                   "bits_per_byte": loss / math.log(2)}
+                   "bits_per_byte": loss * TOKENS_PER_BYTE / math.log(2)}
+        if TOKENIZER:
+            metrics["bytes_per_token"] = 1 / max(TOKENS_PER_BYTE, 1e-9)
         write_samples([p + lm_generate(model, p, 400, seed=SEED) for p in prompts],
                       SAMPLES_DIR / "samples.txt")
     else:
@@ -418,6 +458,13 @@ def context(graph: Graph, framework: str) -> dict:
                      + ("sentences" if kind == "language_model" else "reverse-the-word pairs"))
     if any(n.type_id in cat.LOSS_IDS for n in graph.nodes.values()):
         notes.append("loss blocks are ignored: text generation trains with cross-entropy")
+    bpe, bpe_params = _picked(graph, ("gen.bpe_tokenizer",))
+    tokenizer = None
+    if bpe is not None and kind == "language_model":
+        tokenizer = {"vocab_size": int(bpe_params["vocab_size"]),
+                     "min_frequency": int(bpe_params["min_frequency"])}
+    elif bpe is not None:
+        notes.append("the BPE Tokenizer is ignored: sequence-to-sequence models read bytes")
     chain = graph.model_nodes()
     shapes = graph.infer_shapes()
     _t, trainer = _picked(graph, ("train.trainer",))
@@ -440,6 +487,8 @@ def context(graph: Graph, framework: str) -> dict:
         "batch_size": int(loader.get("batch_size") or 0) or int(trainer["batch_size"]),
         "model_code": _strip_main(model_code), "data_code": runtime.DATA_CODE,
         "metrics_code": runtime.METRICS_CODE, "optimizer_expr": optimizer,
+        "tokenizer": tokenizer,
+        "tokenizer_code": runtime.TOKENIZER_CODE if tokenizer else "",
         "scheduler_expr": (cat.render(sched.type_id, cat.resolved(sched.type_id, sched_params),
                                       "pytorch") if sched else None),
         "scheduler_step": cat.COMPONENTS[sched.type_id].meta["step"] if sched else None,

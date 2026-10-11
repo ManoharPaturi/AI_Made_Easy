@@ -1,0 +1,23 @@
+{
+ "schema_version": 1,
+ "name": "stable_diffusion_lora",
+ "meta": {
+  "title": "Stable Diffusion — LoRA fine-tuning",
+  "description": "Teaches Stable Diffusion 1.5 a new subject or style from a few dozen images: low-rank adapters on the UNet's attention layers train while the base model stays frozen. Each image is captioned 'a photo of {class}' from its folder. Replace the demo shapes with your own image folder. Needs the generative extra, a 4.3 GB download on first run and a GPU (or Apple silicon); set weights to none to check the design offline."
+ },
+ "nodes": [
+  {"id": "images", "type": "data.synthetic_images",
+   "params": {"kind": "shapes", "n_images": 60, "image_size": 128, "channels": 3, "seed": 0,
+              "val_fraction": 0.1},
+   "position": [0, 0]},
+  {"id": "sd", "type": "gen.sd_lora",
+   "params": {"base_model": "stable-diffusion-v1-5/stable-diffusion-v1-5", "weights": "pretrained",
+              "resolution": 512, "rank": 8, "alpha": 8.0, "prompt": "a photo of {class}",
+              "sample_prompts": "", "guidance": 7.5, "sample_steps": 30, "sample_every": 2},
+   "position": [0, 100]},
+  {"id": "optimizer", "type": "train.adamw", "params": {"lr": 0.0001}, "position": [0, 200]},
+  {"id": "trainer", "type": "train.trainer",
+   "params": {"epochs": 10, "batch_size": 4, "device": "auto"}, "position": [0, 300]}
+ ],
+ "edges": []
+}

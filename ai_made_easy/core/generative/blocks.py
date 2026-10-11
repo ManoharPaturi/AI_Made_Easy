@@ -191,7 +191,8 @@ def _models() -> list[BlockDefinition]:
              "Scheduler block.")
     gpt = nn_block(
         "gen.gpt", "GPT (Decoder-only Transformer)", MODELS, family="model",
-        params=(P("vocab_size", "int", BYTE_VOCAB, lo=2, help="256 for byte-level text"),
+        params=(P("vocab_size", "int", BYTE_VOCAB, lo=2,
+                  help="256 for byte-level text, or the BPE Tokenizer's vocab_size"),
                 P("context", "int", 128, lo=2, help="Longest sequence the model attends over"),
                 P("d_model", "int", 128, lo=8), P("layers", "int", 4, lo=1, hi=48),
                 P("heads", "int", 4, lo=1), P("dropout", "float", 0.1, lo=0.0, hi=1.0),
@@ -287,7 +288,78 @@ def _config() -> list[BlockDefinition]:
             description="Turns the design into a diffusion model (DDPM training) and sets "
                         "how images are sampled: DDIM / DDPM, steps, guidance and EMA.",
             meta={"kind": "config", "generative": True}),
+        BlockDefinition(
+            type_id="gen.sd_lora", display_name="Stable Diffusion LoRA", category=CONFIG,
+            color=color, library="diffusers", checks_fn=_sd_checks,
+            requires=("diffusers", "peft", "transformers"), extra="generative",
+            params=(P("base_model", "enum", SD_MODELS[0], options=SD_MODELS,
+                      help="Pretrained text-to-image model the adapters are trained on"),
+                    P("weights", "enum", "pretrained", options=("pretrained", "none"),
+                      help="none: a tiny random Stable Diffusion, to check a design offline "
+                           "(its images are noise)"),
+                    P("resolution", "int", 512, lo=32, hi=1024,
+                      help="Training and sampling size; the base models were trained at 512"),
+                    P("rank", "int", 4, lo=1, hi=256,
+                      help="LoRA rank: adapter size (4–16 learns a style or a subject)"),
+                    P("alpha", "float", 4.0, lo=0.1, hi=1024.0,
+                      help="LoRA scale (alpha / rank multiplies the adapters)"),
+                    P("prompt", "str", "a photo of {class}",
+                      help="Caption of every training image; {class} is its class folder. "
+                           "A subject's own word (\"a photo of sks dog\") teaches a new "
+                           "concept"),
+                    P("sample_prompts", "str", "",
+                      help="Prompts for the sample grids, separated by | (empty: one per "
+                           "class)"),
+                    P("guidance", "float", 7.5, lo=0.0, hi=30.0,
+                      help="Classifier-free guidance when sampling"),
+                    P("sample_steps", "int", 30, lo=1, hi=200, help="DDIM steps per sample"),
+                    P("sample_every", "int", 1, lo=1, hi=1000,
+                      help="Epochs between sample grids")),
+            description="Fine-tunes Stable Diffusion on your images with LoRA: low-rank "
+                        "adapters on the UNet's attention layers learn a style or a subject "
+                        "while the 1B-parameter base stays frozen. Saves the adapters "
+                        "(a few MB) in the diffusers format and serves prompts as images.",
+            meta={"kind": "config", "generative": True}),
+        BlockDefinition(
+            type_id="gen.bpe_tokenizer", display_name="BPE Tokenizer", category=CONFIG,
+            color=color, library="PyTorch", checks_fn=_bpe_checks,
+            params=(P("vocab_size", "int", 1024, lo=257, hi=65536,
+                      help="256 byte tokens plus the learned merges; the model's embedding "
+                           "and output must have this many entries"),
+                    P("min_frequency", "int", 2, lo=1,
+                      help="Stop merging when the most frequent pair is rarer than this")),
+            description="Byte-level byte-pair encoding for language models: learns merges of "
+                        "frequent byte pairs on the training text (GPT-2 style), so the "
+                        "model sees words and word pieces instead of single bytes: longer "
+                        "context for the same Input length. Saved with the model.",
+            meta={"kind": "config", "generative": True}),
     ]
+
+
+SD_MODELS = ("stable-diffusion-v1-5/stable-diffusion-v1-5",
+             "stabilityai/stable-diffusion-2-1-base")
+
+
+def _sd_checks(p: dict) -> list:
+    out = []
+    step = 8 if p["weights"] == "none" else 64
+    if int(p["resolution"]) % step:
+        out.append(("error", f"resolution must be a multiple of {step} (the VAE and UNet "
+                             "halve the image several times)"))
+    if p["weights"] == "pretrained" and not 256 <= int(p["resolution"]) <= 768:
+        out.append(("warning", "the base models were trained at 512 px: far smaller or "
+                               "larger images give poor samples"))
+    if float(p["alpha"]) / int(p["rank"]) > 4:
+        out.append(("warning", "alpha / rank above 4 scales the adapters strongly: training "
+                               "can diverge (alpha = rank is a safe start)"))
+    return out
+
+
+def _bpe_checks(p: dict) -> list:
+    if int(p["vocab_size"]) <= 300:
+        return [("info", "with so few merges most tokens stay single bytes: 1,000–8,000 is "
+                         "typical for small corpora")]
+    return []
 
 
 # ------------------------------------------------------------------ data
@@ -369,6 +441,14 @@ def _metrics() -> list[BlockDefinition]:
         _metric("eval.kid", "KID", "kid", IMAGE_TASKS,
                 "Kernel (MMD) distance between real and generated features; unbiased for "
                 "small sample counts.", FEATURES),
+        _metric("eval.inception_score", "Inception Score", "inception_score", IMAGE_TASKS,
+                "exp(mean KL(p(class | image) ‖ p(class))) under ImageNet Inception-v3: "
+                "high when every image is recognisably one thing and the images vary "
+                "(Salimans et al., 2016). Downloads the torchvision weights; ignores the "
+                "real images, so pair it with FID.",
+                (P("samples", "int", 500, lo=10, hi=50000, help="Generated images scored"),
+                 P("splits", "int", 10, lo=1, hi=50,
+                   help="Groups the score is averaged over (its std is reported too)"))),
         _metric("eval.perplexity", "Perplexity", "perplexity", ("language_modeling",),
                 "exp(cross-entropy) of held-out text: the average branching factor."),
         _metric("eval.bleu", "BLEU", "bleu", ("sequence_to_sequence",),

@@ -1,0 +1,139 @@
+{
+ "schema_version": 1,
+ "name": "rl_lunar_lander_ppo",
+ "meta": {
+  "title": "Reinforcement Learning \u2014 LunarLander (Box2D) with PPO",
+  "description": "PPO learns to land between the flags with three engines from eight readings (position, speed, angle, leg contact). Needs Box2D: pip install 'ai-made-easy[rl-box2d]'. Around a million steps lands reliably (200 points)."
+ },
+ "nodes": [
+  {
+   "id": "input",
+   "type": "core.input",
+   "params": {
+    "shape": "8"
+   },
+   "position": [
+    0,
+    0
+   ]
+  },
+  {
+   "id": "dense_0",
+   "type": "core.dense",
+   "params": {
+    "units": 64
+   },
+   "position": [
+    0,
+    90
+   ]
+  },
+  {
+   "id": "tanh_1",
+   "type": "core.tanh",
+   "params": {},
+   "position": [
+    0,
+    180
+   ]
+  },
+  {
+   "id": "dense_2",
+   "type": "core.dense",
+   "params": {
+    "units": 64
+   },
+   "position": [
+    0,
+    270
+   ]
+  },
+  {
+   "id": "tanh_3",
+   "type": "core.tanh",
+   "params": {},
+   "position": [
+    0,
+    360
+   ]
+  },
+  {
+   "id": "output",
+   "type": "core.output",
+   "params": {},
+   "position": [
+    0,
+    450
+   ]
+  },
+  {
+   "id": "env",
+   "type": "rl.env",
+   "params": {
+    "env_id": "LunarLander-v3",
+    "custom_id": "",
+    "n_envs": 16,
+    "seed": 0
+   },
+   "position": [
+    300,
+    0
+   ]
+  },
+  {
+   "id": "algo",
+   "type": "rl.ppo",
+   "params": {
+    "total_timesteps": 1000000,
+    "learning_rate": 0.0003,
+    "n_steps": 1024,
+    "batch_size": 64,
+    "n_epochs": 4,
+    "gamma": 0.999,
+    "gae_lambda": 0.98,
+    "clip_range": 0.2,
+    "ent_coef": 0.01,
+    "head": "64",
+    "evaluations": 20,
+    "eval_episodes": 10
+   },
+   "position": [
+    300,
+    90
+   ]
+  },
+  {
+   "id": "trainer",
+   "type": "train.trainer",
+   "params": {
+    "device": "cpu"
+   },
+   "position": [
+    300,
+    180
+   ]
+  }
+ ],
+ "edges": [
+  {
+   "from": "input/out",
+   "to": "dense_0/in"
+  },
+  {
+   "from": "dense_0/out",
+   "to": "tanh_1/in"
+  },
+  {
+   "from": "tanh_1/out",
+   "to": "dense_2/in"
+  },
+  {
+   "from": "dense_2/out",
+   "to": "tanh_3/in"
+  },
+  {
+   "from": "tanh_3/out",
+   "to": "output/in"
+  }
+ ]
+}

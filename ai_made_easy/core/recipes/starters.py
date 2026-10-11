@@ -364,6 +364,13 @@ starter("dcgan", "shapes_gan", "gan_generation", "medium", "image", "DCGAN",
 starter("ddpm", "shapes_diffusion", "diffusion_generation", "large", "image",
         "Diffusion (DDPM)", "A U-Net learns to remove noise step by step.",
         knobs=TRAIN_KNOBS(1e-3, 30), **IMAGES, strengths="the highest-quality, most diverse samples")
+starter("sd_lora", "stable_diffusion_lora", "text_to_image", "pretrained", "image",
+        "Stable Diffusion LoRA", "Low-rank adapters teach a pretrained Stable Diffusion a "
+        "subject or a style from a few dozen captioned images.",
+        swaps={"image_folder": _images}, knobs=(lr("optimizer.lr", 1e-4),
+                                                epochs("trainer.epochs", 10)),
+        requires=("diffusers", "peft", "transformers"), extra="generative",
+        family="text_to_image", strengths="photorealistic images from text prompts")
 starter("tiny_gpt", "tiny_gpt", "language_modeling", "small", "text", "Tiny GPT",
         "A small causal transformer that writes text byte by byte.",
         swaps={"corpus": _corpus}, knobs=TRAIN_KNOBS(1e-3, 30),

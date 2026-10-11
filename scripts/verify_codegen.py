@@ -1,8 +1,9 @@
 """Execute generated model code for every NN block and compare real output
 shapes against the designer's inferred shapes (PyTorch + Keras 3).
 
-Usage: KERAS_BACKEND=torch python scripts/verify_codegen.py [--keras] [-v]
-Also importable: ``block_cases()`` / ``run_case()`` power the test suite.
+Usage: KERAS_BACKEND=torch python scripts/verify_codegen.py [--keras] [-v] [--coverage]
+Also importable: ``block_cases()`` / ``run_case()`` power the test suite and
+``coverage()`` reports, per block family, which layers the harness runs.
 """
 from __future__ import annotations
 
@@ -35,7 +36,9 @@ VARIANTS: dict[str, list[dict]] = {
     "core.adaptive_maxpool1d": [{"output_size": 8}],
     "core.lstm": [{"bidirectional": True}, {"num_layers": 2, "dropout": 0.2},
                   {"return_sequences": False}, {"bidirectional": True,
-                                                "return_sequences": False}],
+                                                "return_sequences": False},
+                  {"proj_size": 16, "num_layers": 2},
+                  {"proj_size": 16, "bidirectional": True, "return_sequences": False}],
     "core.gru": [{"bidirectional": True, "num_layers": 2, "return_sequences": False}],
     "core.rnn": [{"nonlinearity": "relu", "bias": False}],
     "core.layer_norm": [{"normalized_dims": "all"}, {"affine": False}],
@@ -62,10 +65,11 @@ VARIANTS: dict[str, list[dict]] = {
     "seq.xlstm": [{"return_sequences": False, "num_layers": 2}],
     "audio.mfcc": [{"n_fft": 512, "hop_length": 256, "n_mels": 40, "n_mfcc": 20}],
     "audio.hf_encoder": [{"model_id": m, "weights": "none", "pooling": "none"} for m in (
-        "facebook/wav2vec2-base", "openai/whisper-tiny")],
+        "facebook/wav2vec2-base", "openai/whisper-tiny")] + [
+        {"model_id": "MIT/ast-finetuned-audioset-10-10-0.4593", "weights": "none"}],
     **{f"forecast.{m}": [{"head": h} for h in ("quantile", "student_t", "negbin")]
        for m in ("dlinear", "nbeats", "nhits", "tcn", "patchtst", "tide", "rnn",
-                 "transformer")},
+                 "transformer", "tft")},
     "audio.mel_spectrogram": [{"layout": "sequence [frames, bins]"}],
     "gen.diffusion_unet": [{"num_classes": 4, "attention": False, "depth": 2}],
     "gen.gpt": [{"tie_weights": False, "layers": 2}],
@@ -85,7 +89,7 @@ DEFAULT_OVERRIDES = {"core.pretrained_backbone": {"weights": "none"},
                      **{t: {"weights": "none"} for t in (
                          "vision.detector", "vision.instance_segmenter",
                          "vision.keypoint_detector", "vision.hf_detector", "vision.segmenter",
-                         "vision.hf_segmenter", "vision.timm_backbone",
+                         "vision.hf_segmenter", "vision.hf_mask2former", "vision.timm_backbone",
                          "vision.hf_image_encoder", "audio.hf_encoder")}}
 
 # blocks that only make sense inside a larger design: (input shape, dtype, layers before,
@@ -99,6 +103,10 @@ CONTEXTS: dict[str, tuple] = {
     # flows need at least one learnable transform next to ActNorm / permutations
     "flow.actnorm": ([8], "float32", [], [("flow.affine_coupling", {})]),
     "flow.permute": ([8], "float32", [], [("flow.affine_coupling", {})]),
+    # the YOLO-style head reads features from a backbone
+    "vision.yolo_head": ([3, 64, 64], "float32",
+                         [("core.conv2d", {"out_channels": 8, "kernel_size": 3, "stride": 2,
+                                           "padding": 1})], []),
 }
 
 CANDIDATE_SHAPES = ([32], [8, 16], [4, 16, 16], [4, 8, 8, 8], [8, 16, 16], [1, 16],
@@ -155,6 +163,50 @@ def block_cases(extra_params: dict | None = None):
                     break
 
 
+def coverage(extra_params: dict | None = None) -> dict[str, dict[str, list[str]]]:
+    """family (type-id prefix) -> status -> block ids. Statuses: ``run`` (the harness
+    executes a case), ``needs_extra`` (an optional package is missing here; its CI job
+    runs it), ``download`` (needs pretrained weights), ``no_case`` (no candidate input
+    shape is valid: add a CONTEXTS entry) and ``config`` (data / training / evaluation /
+    graph-model blocks without generated layer code: their family tests cover them)."""
+    cases = {type_id for type_id, *_rest in block_cases(
+        VARIANTS if extra_params is None else extra_params)}
+    out: dict[str, dict[str, list[str]]] = {}
+    for defn in get_registry().all():
+        if defn.type_id in ("core.input", "core.output"):
+            continue
+        family = defn.type_id.split(".")[0]
+        if defn.shape_fn is None or defn.builder is not None:
+            status = "config"
+        elif defn.type_id in cases:
+            status = "run"
+        elif DEFAULT_OVERRIDES.get(defn.type_id, {}) is None:
+            status = "download"
+        elif missing_requirements(defn):
+            status = "needs_extra"
+        else:
+            status = "no_case"
+        out.setdefault(family, {}).setdefault(status, []).append(defn.type_id)
+    return out
+
+
+def print_coverage(report: dict) -> None:
+    columns = ("run", "needs_extra", "download", "no_case", "config")
+    print(f"{'family':<12}" + "".join(f"{c:>13}" for c in columns))
+    totals = dict.fromkeys(columns, 0)
+    for family in sorted(report):
+        row = report[family]
+        print(f"{family:<12}" + "".join(f"{len(row.get(c, [])):>13}" for c in columns))
+        for c in columns:
+            totals[c] += len(row.get(c, []))
+    print(f"{'total':<12}" + "".join(f"{totals[c]:>13}" for c in columns))
+    layers = totals["run"] + totals["needs_extra"] + totals["download"] + totals["no_case"]
+    print(f"layer blocks run by the harness here: {totals['run']}/{layers}")
+    for family in sorted(report):
+        for type_id in report[family].get("no_case", []):
+            print(f"  no case: {type_id}")
+
+
 def _sample(shape, int_input: bool, vocab: int = 10):
     import torch
 
@@ -209,6 +261,10 @@ def run_keras(graph: Graph) -> tuple[int, ...]:
 def main() -> int:
     verbose = "-v" in sys.argv
     do_keras = "--keras" in sys.argv
+    if "--coverage" in sys.argv:
+        report = coverage()
+        print_coverage(report)
+        return 1 if any(r.get("no_case") for r in report.values()) else 0
     fails = 0
     total = 0
     for type_id, shape, params, g in block_cases(VARIANTS):

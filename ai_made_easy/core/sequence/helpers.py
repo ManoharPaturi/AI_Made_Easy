@@ -214,10 +214,30 @@ HF_AUDIO = '''\
 import math
 
 
+def kaldi_fbank(wave: torch.Tensor, n_mels: int = 128, sample_rate: int = 16000) -> torch.Tensor:
+    """Kaldi-compatible log mel filterbanks [B, frames, n_mels] (25 ms frames every 10 ms,
+    DC removal, pre-emphasis 0.97, Povey window, 512-point FFT), as AST was trained on."""
+    frames = wave.unfold(-1, 400, 160)
+    frames = frames - frames.mean(-1, keepdim=True)
+    frames = torch.cat((frames[..., :1] * 0.03, frames[..., 1:] - 0.97 * frames[..., :-1]), -1)
+    window = torch.hann_window(400, periodic=False, device=wave.device) ** 0.85
+    power = torch.fft.rfft(frames * window, n=512).abs() ** 2                # [B, T, 257]
+    mel = lambda f: 1127.0 * math.log(1.0 + f / 700.0)  # noqa: E731
+    edges = torch.linspace(mel(20.0), mel(sample_rate / 2), n_mels + 2, device=wave.device)
+    bins = 1127.0 * torch.log1p(torch.arange(257, device=wave.device) * sample_rate / 512
+                                / 700.0)
+    left, center, right = edges[:-2, None], edges[1:-1, None], edges[2:, None]
+    bank = torch.clamp(torch.minimum((bins - left) / (center - left),
+                                     (right - bins) / (right - center)), min=0.0)
+    return torch.log(torch.clamp(power @ bank.T, min=1.1921e-07))
+
+
 class HFAudioEncoder(nn.Module):
-    """Hugging Face speech encoder (wav2vec 2.0, HuBERT, WavLM, Whisper encoder).
+    """Hugging Face speech encoder (wav2vec 2.0, HuBERT, WavLM, Whisper encoder, AST).
 
     Waveform [B, 1, samples] at 16 kHz -> pooled [B, F] or frame features [B, T, F].
+    AST (Audio Spectrogram Transformer) reads 128-bin filterbanks as image patches; the
+    AudioSet checkpoint always sees a 10.24 s window (shorter clips are padded).
     """
 
     PRESETS = {  # repo: (model class, config class, config kwargs for random init)
@@ -232,17 +252,23 @@ class HFAudioEncoder(nn.Module):
                                 {"d_model": 512, "encoder_layers": 6, "decoder_layers": 6,
                                  "encoder_attention_heads": 8, "decoder_attention_heads": 8,
                                  "encoder_ffn_dim": 2048, "decoder_ffn_dim": 2048}),
+        "MIT/ast-finetuned-audioset-10-10-0.4593": ("ASTModel", "ASTConfig", {}),
     }
+    AST_MEAN, AST_STD = -4.2677393, 4.5689974   # AudioSet filterbank statistics
 
     def __init__(self, model_id: str, pretrained: bool = False, freeze: bool = True,
-                 pooling: str = "mean") -> None:
+                 pooling: str = "mean", samples: int = 16000) -> None:
         super().__init__()
         import transformers
 
         model_cls, config_cls, kwargs = self.PRESETS[model_id]
         model_cls = getattr(transformers, model_cls)
         self.whisper = "whisper" in model_id
+        self.ast = model_id.startswith("MIT/ast")
         self.pooling = pooling
+        if self.ast:   # the checkpoint's position embeddings fix the window at 1024 frames
+            self.max_length = 1024 if pretrained else 1 + (samples - 400) // 160
+            kwargs = {"max_length": self.max_length}
         if pretrained and not skip_pretrained():
             model = model_cls.from_pretrained(model_id)
         else:
@@ -256,6 +282,11 @@ class HFAudioEncoder(nn.Module):
 
     def frames(self, x: torch.Tensor) -> torch.Tensor:
         wave = x.reshape(x.shape[0], -1)
+        if self.ast:
+            fbank = kaldi_fbank(wave.float())
+            fbank = nn.functional.pad(fbank, (0, 0, 0, max(0, self.max_length - fbank.shape[1])))
+            fbank = (fbank[:, : self.max_length] - self.AST_MEAN) / (2 * self.AST_STD)
+            return self.model(input_values=fbank)
         if not self.whisper:
             wave = (wave - wave.mean(-1, keepdim=True)) / (wave.std(-1, keepdim=True) + 1e-7)
             return self.model(input_values=wave).last_hidden_state
@@ -268,6 +299,8 @@ class HFAudioEncoder(nn.Module):
         return hidden[:, : max(1, math.ceil(n / 320))]                # frames with audio
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        if self.ast:   # mean of the [CLS] and distillation tokens
+            return self.frames(x).pooler_output
         hidden = self.frames(x)
         return hidden.mean(1) if self.pooling == "mean" else hidden
 '''

@@ -152,6 +152,19 @@ def learn_structure(train) -> list:
         if method == "pc":
             est = cd.PC(return_type="dag", significance_level=cfg["significance"],
                         show_progress=False)
+        elif method == "mmhc":   # MMPC skeleton, then hill climbing inside it
+            from itertools import permutations
+
+            from pgmpy.estimators import MmhcEstimator
+
+            skeleton = MmhcEstimator(train).mmpc(significance_level=cfg["significance"])
+            allowed = set(skeleton.to_directed().edges())
+            forbidden = [e for e in permutations(train.columns, 2) if e not in allowed]
+            est = cd.HillClimbSearch(scoring_method=score, return_type="dag",
+                                     expert_knowledge=cd.ExpertKnowledge(
+                                         forbidden_edges=forbidden),
+                                     max_indegree=cfg["max_indegree"] or None,
+                                     show_progress=False)
         elif method == "ges":
             est = cd.GES(scoring_method=score, return_type="dag")
         else:

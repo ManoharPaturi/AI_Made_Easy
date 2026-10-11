@@ -7,7 +7,7 @@ synthetic shapes) and outputs a class map [C, H, W] is semantic segmentation.
 from __future__ import annotations
 
 from ai_made_easy.core.tasks import Task, register_task, register_task_resolver
-from ai_made_easy.core.vision.blocks import TASK_BLOCKS, VISION_DATA, VISION_LOSSES
+from ai_made_easy.core.vision.blocks import BOX_LOSSES, TASK_BLOCKS, VISION_DATA, VISION_LOSSES
 
 _BOX_METRICS = ("eval.map", "eval.map50")
 # detectors compute their own losses; the optimizer default is AdamW at a low learning rate
@@ -18,7 +18,8 @@ register_task(Task(
     "Find every object: a box, a class and a confidence per object.",
     target="boxes + labels", output_role="boxes", modalities=("image",),
     trainer_kind="detection", serving="boxes", default_metrics=_BOX_METRICS,
-    meta={"loss_tasks": (), "losses": [], "metrics": list(_BOX_METRICS), **_BOX_DEFAULTS}))
+    meta={"loss_tasks": (), "losses": list(BOX_LOSSES), "metrics": list(_BOX_METRICS),
+          **_BOX_DEFAULTS}))
 register_task(Task(
     "instance_segmentation", "Instance segmentation",
     "Find every object and outline it with a pixel mask.",

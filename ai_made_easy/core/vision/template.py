@@ -17,6 +17,7 @@ from ai_made_easy.core.training import catalog as cat
 from ai_made_easy.core.training import data_catalog as dcat
 from ai_made_easy.core.vision import runtime
 from ai_made_easy.core.vision.blocks import (
+    BOX_LOSSES,
     SYNTHETIC_CLASSES,
     VISION_DATA,
     VISION_LOSSES,
@@ -88,6 +89,9 @@ SPLIT = {{ split | repr }}
 PRIMARY = "{{ primary }}"                       # validation metric that picks the best epoch
 IGNORE_INDEX = {{ ignore_index }}
 PCK_THRESHOLD = {{ pck_threshold }}
+{% if box_loss %}
+BOX_LOSS = {{ box_loss | repr }}                 # (IoU loss, weight) for the YOLO-style head
+{% endif %}
 CHECKPOINT = "{{ name }}_best.pt"
 INFERENCE_FILE = "inference_state.pkl"
 SAMPLES_DIR = Path("eval_samples")
@@ -296,7 +300,13 @@ def compute_loss(logits: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
 # ======================================================================== train / evaluate
 def task_head(model: nn.Module) -> nn.Module:
 {% if box_task %}
-    return next(m for m in model.modules() if hasattr(m, "losses") and hasattr(m, "detect"))
+    head = next(m for m in model.modules() if hasattr(m, "losses") and hasattr(m, "detect"))
+    if hasattr(head, "attach"):   # a head on your own layers runs the whole network
+        head.attach(model)
+{% if box_loss %}
+        head.configure(*BOX_LOSS)
+{% endif %}
+    return head
 {% else %}
     return model
 {% endif %}
@@ -360,6 +370,9 @@ def train_step_loss(model: nn.Module, images: torch.Tensor, targets, device):
     losses = task_head(model).losses(images, targets)
     return sum(losses.values())
 {% else %}
+    own = next((m for m in model.modules() if hasattr(m, "segmentation_loss")), None)
+    if own is not None:   # e.g. Mask2Former: its own matching loss
+        return own.segmentation_loss(images, targets.to(device))
     return compute_loss(model(images), targets.to(device))
 {% endif %}
 
@@ -644,8 +657,10 @@ def _losses(graph: Graph) -> list:
 def _optimizer(graph: Graph, box_task: bool) -> str:
     node, params = _resolved_node(graph, cat.OPTIMIZER_IDS)
     if node is None:
-        return ("torch.optim.AdamW(params, lr=0.0001, weight_decay=0.0001)" if box_task
-                else "torch.optim.AdamW(params, lr=0.001, weight_decay=0.0001)")
+        head = head_of(graph)
+        lr = (head.definition().meta or {}).get("default_lr") if head is not None else None
+        lr = lr or (0.0001 if box_task else 0.001)
+        return f"torch.optim.AdamW(params, lr={lr}, weight_decay=0.0001)"
     expr = cat.render(node.type_id, cat.resolved(node.type_id, params), "pytorch")
     return expr.replace("model.parameters()", "params")
 
@@ -678,9 +693,20 @@ def context(graph: Graph, framework: str) -> dict:
     _snode, split = _resolved_node(graph, ("prep.split",))
     split = {**{p.name: p.default for p in dcat.BLOCKS["prep.split"].params}, **split}
     always, augment = _augmentations(graph, notes)
+    composed = head is not None and head.type_id == "vision.yolo_head"
+    box_node = next((n for n in graph.nodes.values() if n.type_id in BOX_LOSSES), None)
+    box_loss = None
+    if box_node is not None and composed:
+        box_loss = (BOX_LOSSES[box_node.type_id], float(box_node.resolved_params()["weight"]))
     if box_task and any(n.type_id in (*VISION_LOSSES, *cat.LOSS_IDS)
+                        or (n.type_id in BOX_LOSSES and not composed)
                         for n in graph.nodes.values()):
-        notes.append("loss blocks are ignored: detectors compute their own losses")
+        notes.append("loss blocks are ignored: detectors compute their own losses"
+                     + (" (box-loss blocks train the YOLO-style head)" if composed else ""))
+    if head is not None and head.type_id == "vision.hf_mask2former" and any(
+            n.type_id in (*VISION_LOSSES, *cat.LOSS_IDS) for n in graph.nodes.values()):
+        notes.append("Mask2Former trains with its own matching loss: loss blocks only score "
+                     "the validation loss")
     metric_nodes = [n for n in graph.nodes.values() if n.type_id in VISION_METRICS]
     pck = next((float(n.resolved_params()["threshold"]) for n in metric_nodes
                 if n.type_id == "eval.pck"), 0.2)
@@ -708,7 +734,7 @@ def context(graph: Graph, framework: str) -> dict:
         "num_workers": int(loader.get("num_workers") or 0),
         "split": {k: split[k] for k in ("val_fraction", "test_fraction", "seed", "shuffle")},
         "primary": primary, "ignore_index": int(dataset.get("ignore_index", 255)),
-        "pck_threshold": pck, "box_task": box_task,
+        "pck_threshold": pck, "box_task": box_task, "box_loss": box_loss,
         "model_code": _strip_main(model_code),
         "data_code": runtime.DATA_CODE, "metrics_code": runtime.METRICS_CODE,
         "encode_code": runtime.ENCODE_CODE,

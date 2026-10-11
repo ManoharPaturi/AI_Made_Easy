@@ -55,7 +55,8 @@ def _blocks() -> list[BlockDefinition]:
                    (P("columns", "str", "", help="Explanatory columns of the data (their "
                                                  "future values are needed to forecast)"),
                     P("time_varying", "bool", False,
-                      help="Let the coefficients drift over time")),
+                      help="Let the coefficients drift over time: each follows a random "
+                           "walk with a learned variance; the report plots their paths")),
                    "Effects of explanatory columns (price, temperature, holidays).",
                    family="model"),
         _component("ssm.arima", "SARIMAX Specification",

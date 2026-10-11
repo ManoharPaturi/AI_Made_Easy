@@ -55,6 +55,7 @@ def generative_rules(ctx: LintContext) -> list:
     if conflicts:
         return conflicts   # the other checks assume one consistent kind of model
     rules = {"vae": _vae, "adversarial": _gan, "diffusion": _diffusion,
+             "text_to_image": _text_to_image,
              "language_model": _language_model, "seq2seq": _seq2seq}
     return rules[kind](ctx, data)
 
@@ -69,11 +70,46 @@ def _conflicts(ctx: LintContext, kind: str) -> list:
                                 "Scheduler (diffusion)", node.instance_id)]
     data = dataset_of(ctx.graph)
     want = {"vae": "images", "adversarial": "images", "diffusion": "images",
-            "language_model": "text", "seq2seq": "pairs"}[kind]
+            "language_model": "text", "seq2seq": "pairs", "text_to_image": "images"}[kind]
     if data is not None and GENERATIVE_DATA.get(data.type_id, "images") != want:
         return [_issue("error", f"{_name(data)} does not fit this design ({want} needed)",
                        data.instance_id)]
     return []
+
+
+def _text_to_image(ctx: LintContext, data) -> list:  # noqa: ANN001
+    out = []
+    sd = ctx.nodes_of("gen.sd_lora")[0]
+    layers = [n for n in ctx.graph.nodes.values()
+              if n.type_id in ("core.input", "core.output")
+              or n.definition().shape_fn is not None]
+    if layers:
+        out.append(_issue("error", "Stable Diffusion LoRA is a complete pretrained model: "
+                                   "remove the Input, Output and layer blocks",
+                          layers[0].instance_id))
+    for node in ctx.nodes_of("eval.fid", "eval.kid"):
+        if node.resolved_params()["features"] != "pixels":
+            out.append(_issue("error", f"{_name(node)} uses Inception features, which Stable "
+                                       "Diffusion runs do not load: set features to pixels",
+                              node.instance_id))
+    for node in ctx.nodes_of("eval.inception_score"):
+        out.append(_issue("warning", "the Inception Score is not computed for Stable "
+                                     "Diffusion LoRA runs (use FID on pixels)",
+                          node.instance_id))
+    p = sd.resolved_params()
+    if data is not None and data.type_id == "data.image_folder" and \
+            "{class}" not in str(p["prompt"]):
+        out.append(_issue("info", "every image gets the same caption: put {class} in the "
+                                  "prompt to name each class folder", sd.instance_id))
+    if p["weights"] == "pretrained":
+        from ai_made_easy.core.zoo import download
+
+        info = download("gen.sd_lora", p) or {"download_mb": 4500, "license": "see the model card"}
+        out.append(_issue("info", f"downloads {p['base_model']} (about "
+                                  f"{info['download_mb'] / 1000:.1f} GB, {info['license']} "
+                                  "license) on the first run; a GPU with 8 GB or more is "
+                                  "recommended", sd.instance_id))
+    return out
 
 
 def _input(ctx: LintContext):
@@ -193,24 +229,38 @@ def _language_model(ctx: LintContext, data) -> list:  # noqa: ANN001
                                        "the model would copy the answer instead of predicting "
                                        "it: use Causal Transformer / GPT, or a one-directional "
                                        "RNN", node.instance_id))
+    bpe = next(iter(ctx.nodes_of("gen.bpe_tokenizer")), None)
+    vocab = int(bpe.resolved_params()["vocab_size"]) if bpe is not None else BYTE_VOCAB
+    what = (f"the BPE tokenizer makes {vocab} tokens" if bpe is not None
+            else f"text is byte-level ({BYTE_VOCAB} tokens)")
     last = ctx.last_compute()
     made = ctx.shapes.get(last.instance_id) if last is not None else None
     if made is not None and have is not None:
         if len(made) != 2 or made[0] != have[0]:
             out.append(_issue("error", f"a language model outputs next-token scores for every "
-                                       f"position [{have[0]}, {BYTE_VOCAB}] but this one "
+                                       f"position [{have[0]}, {vocab}] but this one "
                                        f"outputs {list(made)}", last.instance_id))
-        elif made[1] != BYTE_VOCAB:
+        elif made[1] != vocab:
             param = "vocab_size" if last.type_id == "gen.gpt" else "units"
-            out.append(_issue("error", f"text is byte-level ({BYTE_VOCAB} tokens) but the model "
-                                       f"scores {made[1]}: set {param} to {BYTE_VOCAB}",
-                              last.instance_id))
+            out.append(_issue("error", f"{what} but the model scores {made[1]}: set {param} "
+                                       f"to {vocab}", last.instance_id))
+    for node in ctx.chain:   # the first lookup table must hold every token id
+        if node.type_id == "core.embedding":
+            n = int(node.resolved_params()["num_embeddings"])
+            if n < vocab:
+                out.append(_issue("error", f"{what} but {_name(node)} has {n} rows: set "
+                                           f"num_embeddings to {vocab}", node.instance_id))
+            break
     return out
 
 
 def _seq2seq(ctx: LintContext, data) -> list:  # noqa: ANN001
     out = []
     models = ctx.nodes_of("gen.seq2seq_transformer")
+    for bpe in ctx.nodes_of("gen.bpe_tokenizer"):
+        out.append(_issue("warning", "the BPE Tokenizer applies to language models: "
+                                     "sequence-to-sequence models read bytes, so it is ignored",
+                          bpe.instance_id))
     if not models:
         node = data or ctx.last_compute()
         return [_issue("error", "sequence-to-sequence training needs a Seq2Seq Transformer "
@@ -240,3 +290,8 @@ def _seq2seq(ctx: LintContext, data) -> list:  # noqa: ANN001
 
 
 register_rule(generative_rules)
+
+
+def text_to_image_issues(graph) -> list:  # noqa: ANN001
+    """Validator of the Stable Diffusion LoRA family (no layer graph to lint)."""
+    return generative_rules(LintContext(graph, [], {}))

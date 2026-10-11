@@ -15,7 +15,10 @@ HF_AUDIO = {  # model id: (feature width, frames function, parameters in M, GMAC
     "microsoft/wavlm-base-plus": (768, h.wav2vec_frames, 94.4, 17.9),
     "openai/whisper-tiny": (384, lambda s: max(1, -(-s // 320)), 8.2, 4.0),
     "openai/whisper-base": (512, lambda s: max(1, -(-s // 320)), 20.6, 9.5),
+    # AST: ~120 patches of the filterbank per second of audio
+    "MIT/ast-finetuned-audioset-10-10-0.4593": (768, lambda s: 1, 86.2, 10.3),
 }
+AST_WINDOW_S = 10.24   # the AudioSet checkpoint always encodes 1024 frames
 
 
 def _sequence(shape: list[int], name: str) -> None:
@@ -146,14 +149,32 @@ def _hf_audio_shape(in_shapes, p):
         raise ShapeError("speech encoders need at least 400 samples (25 ms at 16 kHz)")
     if "whisper" in p["model_id"] and samples > 480000:
         raise ShapeError("Whisper encodes at most 30 s (480,000 samples at 16 kHz)")
+    if p["model_id"].startswith("MIT/ast"):
+        if p["pooling"] != "mean":
+            raise ShapeError("AST encodes patches of the spectrogram, not frames in time "
+                             "order: use pooling mean")
+        if samples < 2800:
+            raise ShapeError("AST needs at least 2,800 samples (16 filterbank frames)")
+        if p.get("weights") == "pretrained" and samples > 163_840:
+            raise ShapeError("the AudioSet AST checkpoint encodes at most 10.24 s "
+                             "(163,840 samples at 16 kHz)")
     t = frames(samples)
     return [width] if p["pooling"] == "mean" else [t, width]
+
+
+def _ast_samples(c: dict) -> str:
+    """AST sizes its position embeddings from the clip length when trained from scratch."""
+    if not c["model_id"].startswith("MIT/ast"):
+        return ""
+    return f", samples={_samples(c['input_shape'], 'AST')}"
 
 
 def _hf_audio_cost(in_shapes, p):
     samples = _samples(in_shapes[0], "audio")
     _w, _f, params_m, gmacs = HF_AUDIO[p["model_id"]]
     seconds = 30.0 if "whisper" in p["model_id"] else samples / 16000
+    if p["model_id"].startswith("MIT/ast") and p.get("weights") == "pretrained":
+        seconds = AST_WINDOW_S
     return int(params_m * 1e6), int(2 * gmacs * 1e9 * seconds)
 
 
@@ -234,10 +255,12 @@ def _blocks() -> list:
         param_fn=lambda s, p: _hf_audio_cost(s, p)[0],
         torch=lambda c: (f"HFAudioEncoder(\"{c['model_id']}\", "
                          f"pretrained={c['weights'] == 'pretrained'}, "
-                         f"freeze={bool(c['freeze'])}, pooling=\"{c['pooling']}\")"),
+                         f"freeze={bool(c['freeze'])}, pooling=\"{c['pooling']}\""
+                         f"{_ast_samples(c)})"),
         torch_helpers=("skip_pretrained", "MelSpectrogram", "HFAudioEncoder"),
-        desc="Self-supervised speech model over 16 kHz waveforms: utterance embedding [F] "
-             "or frame features [T, F].")
+        desc="Pretrained audio model over 16 kHz waveforms: utterance embedding [F] or frame "
+             "features [T, F]. wav2vec 2.0 / HuBERT / WavLM / Whisper learn from speech; AST "
+             "(Audio Spectrogram Transformer) classifies any sound (AudioSet).")
     return [
         _with_cost(tcn, _tcn_cost),
         _with_cost(mamba, _mamba_cost),

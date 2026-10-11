@@ -14,7 +14,7 @@ LINKS = {"exp": "positive", "softplus": "positive", "sqrt": "positive", "abs": "
          "invlogit": "unit", "sigmoid": "unit", "invprobit": "unit"}
 FITS = {"positive": ("positive", "unit"), "unit": ("unit",), "count": ("count", "binary"),
         "real": ("real", "positive", "unit", "count", "binary", "category"),
-        "vector": ("vector",)}
+        "vector": ("vector",), "cholesky": ("cholesky",)}
 
 
 def _issue(severity: str, message: str, node_id: str | None = None) -> ValidationIssue:
@@ -133,7 +133,8 @@ def ppl_issues(graph: Graph) -> list[ValidationIssue]:
                 hint = {"positive": "use HalfNormal / Exponential / Gamma, or exp() / "
                                     "softplus() in a Deterministic",
                         "unit": "use a Beta prior, or invlogit() in a Deterministic",
-                        "count": "use a count distribution"}.get(support, "")
+                        "count": "use a count distribution",
+                        "cholesky": "wire an LKJ Correlation block"}.get(support, "")
                 out.append(_issue("warning", f"{v.name}.{pname} must be {support} but "
                                              f"{value} can be {parent_support}: {hint}",
                                   v.node_id))

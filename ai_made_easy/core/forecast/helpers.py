@@ -272,11 +272,100 @@ class TransformerForecaster(Forecaster):
         return self.out(self.project(z.mean(1)))
 '''
 
+TFT = '''\
+class GRN(nn.Module):
+    """Gated residual network (TFT): ELU MLP, GLU gate, skip connection and LayerNorm."""
+
+    def __init__(self, din: int, hidden: int, dout: int, dropout: float) -> None:
+        super().__init__()
+        self.fc1, self.fc2 = nn.Linear(din, hidden), nn.Linear(hidden, hidden)
+        self.gate, self.drop = nn.Linear(hidden, 2 * dout), nn.Dropout(dropout)
+        self.skip = nn.Linear(din, dout) if din != dout else nn.Identity()
+        self.norm = nn.LayerNorm(dout)
+
+    def forward(self, a: torch.Tensor) -> torch.Tensor:
+        h = self.drop(self.fc2(nn.functional.elu(self.fc1(a))))
+        return self.norm(self.skip(a) + nn.functional.glu(self.gate(h), -1))
+
+
+class VariableSelection(nn.Module):
+    """Embeds every input variable, weighs them with a softmax per time step and mixes them:
+    ``weights`` keeps the last importances [B, T, variables] for inspection."""
+
+    def __init__(self, variables: int, d: int, dropout: float) -> None:
+        super().__init__()
+        self.scale = nn.Parameter(torch.randn(variables, d) * 0.1)
+        self.shift = nn.Parameter(torch.zeros(variables, d))
+        self.select = GRN(variables * d, d, variables, dropout)
+        self.grns = nn.ModuleList(GRN(d, d, d, dropout) for _ in range(variables))
+        self.weights = None
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        e = x.unsqueeze(-1) * self.scale + self.shift                      # [B, T, V, d]
+        w = torch.softmax(self.select(e.flatten(-2)), -1)
+        self.weights = w.detach()
+        v = torch.stack([g(e[..., i, :]) for i, g in enumerate(self.grns)], -2)
+        return (w.unsqueeze(-1) * v).sum(-2)
+
+
+class TFTLite(Forecaster):
+    """Temporal Fusion Transformer, lite (Lim et al., 2021) without static covariates:
+    variable selection on the past channels and the known-future covariates, an LSTM
+    encoder-decoder, gated skips, causal multi-head attention over past and future steps
+    and a position-wise GRN before the distribution head."""
+
+    def __init__(self, window: int, channels_in: int, horizon: int, head: str = "quantile",
+                 quantiles: tuple = (0.1, 0.5, 0.9), d_model: int = 32, heads: int = 4,
+                 dropout: float = 0.1, future_covariates: int = 0) -> None:
+        super().__init__()
+        d = d_model
+        self.out = ForecastHead(horizon, head, quantiles)
+        self.horizon, self.future_covariates = horizon, future_covariates
+        self.past = VariableSelection(channels_in, d, dropout)
+        if future_covariates:
+            self.future = VariableSelection(future_covariates, d, dropout)
+        else:   # no known future: one learned input per horizon step
+            self.queries = nn.Parameter(torch.zeros(horizon, d))
+        self.encoder = nn.LSTM(d, d, batch_first=True)
+        self.decoder = nn.LSTM(d, d, batch_first=True)
+        self.lstm_gate, self.lstm_norm = nn.Linear(d, 2 * d), nn.LayerNorm(d)
+        self.enrich = GRN(d, d, d, dropout)
+        self.attention = nn.MultiheadAttention(d, heads, dropout=dropout, batch_first=True)
+        self.attn_gate, self.attn_norm = nn.Linear(d, 2 * d), nn.LayerNorm(d)
+        self.positionwise = GRN(d, d, d, dropout)
+        self.final_gate, self.final_norm = nn.Linear(d, 2 * d), nn.LayerNorm(d)
+        self.project = nn.Linear(d, self.out.k)
+        steps = window + horizon
+        self.register_buffer("mask", torch.ones(steps, steps).triu(1).bool()[-horizon:],
+                             persistent=False)
+
+    def forecast(self, x: torch.Tensor, future=None) -> torch.Tensor:
+        batch, glu = x.shape[0], nn.functional.glu
+        past = self.past(x)
+        if self.future_covariates:
+            fut = (future.reshape(batch, self.horizon, -1) if future is not None
+                   else x.new_zeros(batch, self.horizon, self.future_covariates))
+            ahead = self.future(fut)
+        else:
+            ahead = self.queries.expand(batch, -1, -1)
+        enc, state = self.encoder(past)
+        dec, _ = self.decoder(ahead, state)
+        z = self.lstm_norm(torch.cat([past, ahead], 1) + glu(self.lstm_gate(
+            torch.cat([enc, dec], 1)), -1))
+        e = self.enrich(z)
+        q = e[:, -self.horizon:]
+        a = self.attention(q, e, e, attn_mask=self.mask, need_weights=False)[0]
+        y = self.positionwise(self.attn_norm(q + glu(self.attn_gate(a), -1)))
+        y = self.final_norm(z[:, -self.horizon:] + glu(self.final_gate(y), -1))
+        return self.out(self.project(y).reshape(batch, -1))
+'''
+
 _MATH = "import math\n\n\n"
 FORECAST_HELPERS: dict[str, str] = {
     "ForecastHead": HEAD, "DLinear": DLINEAR, "NBEATS": NBEATS, "NHITS": _MATH + NHITS,
     "TCNForecaster": TCN_FORECASTER, "PatchTST": PATCHTST, "TiDE": TIDE,
     "RNNForecaster": RNN_FORECASTER, "TransformerForecaster": TRANSFORMER_FORECASTER,
+    "TFTLite": TFT,
 }
 
 
@@ -381,3 +470,28 @@ def transformer_forecaster_cost(window: int, cin: int, out: int, d: int,
             macs += length * 3 * d * d
             length = (length - 1) // 2 + 1
     return params, macs + d * out
+
+
+def _grn(din: int, hidden: int, dout: int) -> int:
+    return (_lin(din, hidden) + _lin(hidden, hidden) + _lin(hidden, 2 * dout)
+            + (_lin(din, dout) if din != dout else 0) + 2 * dout)
+
+
+def _vsn(variables: int, d: int) -> int:
+    return 2 * variables * d + _grn(variables * d, d, variables) + variables * _grn(d, d, d)
+
+
+def tft_cost(window: int, cin: int, horizon: int, k: int, d: int,
+             future: int) -> tuple[int, int]:
+    """(parameters, MACs) of ``TFTLite``."""
+    lstm = 8 * d * d + 8 * d
+    gate = _lin(d, 2 * d) + 2 * d                  # GLU gate + LayerNorm
+    attention = 4 * d * d + 4 * d
+    grn = _grn(d, d, d)
+    params = (_vsn(cin, d) + (_vsn(future, d) if future else horizon * d) + 2 * lstm
+              + 3 * gate + 2 * grn + attention + _lin(d, k))
+    steps = window + horizon
+    macs = (window * _vsn(cin, d) + horizon * (_vsn(future, d) if future else 0)
+            + steps * (lstm + gate + grn) + steps * 2 * d * d + horizon * 2 * d * d
+            + 2 * horizon * steps * d + horizon * (2 * gate + grn + d * k))
+    return params, macs

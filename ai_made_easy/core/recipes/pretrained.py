@@ -17,7 +17,7 @@ TEXT_MODELS = ("distilbert-base-uncased", "sentence-transformers/all-MiniLM-L6-v
                "google/electra-small-discriminator", "bert-base-uncased", "roberta-base",
                "microsoft/deberta-v3-small")
 AUDIO_MODELS = ("facebook/wav2vec2-base", "facebook/hubert-base-ls960",
-                "microsoft/wavlm-base-plus")
+                "microsoft/wavlm-base-plus", "MIT/ast-finetuned-audioset-10-10-0.4593")
 TIMM_MODELS = ("convnext_atto", "efficientnet_b0", "mobilenetv4_conv_small", "resnet50d",
                "convnext_tiny", "vit_small_patch16_224", "eva02_small_patch14_224")
 DINO_MODELS = ("facebook/dinov2-small", "facebook/dinov2-base")

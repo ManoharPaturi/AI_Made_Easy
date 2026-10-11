@@ -22,6 +22,7 @@ class Dist:
     params: tuple[tuple[str, float, str], ...]  # (name, default, support of the parameter)
     support: str                               # support of the variable itself
     desc: str
+    ports: bool = True                         # parameters can be wired from variables
 
 
 DISTRIBUTIONS: tuple[Dist, ...] = (
@@ -68,7 +69,19 @@ DISTRIBUTIONS: tuple[Dist, ...] = (
          "Probabilities over k categories that sum to 1 (set size)."),
     Dist("ppl.categorical", "Categorical", "Categorical", (("p", 0.0, "vector"),), "category",
          "One of k categories with probabilities p (wire a Dirichlet into p)."),
+    Dist("ppl.mv_normal", "Multivariate Normal", "MvNormal",
+         (("mu", 0.0, "real"), ("chol", 0.0, "cholesky")), "real_vector",
+         "A vector of size correlated values (e.g. a group's intercept and slope); wire an "
+         "LKJ Correlation into chol to learn the correlations. With group set, one vector per "
+         "level; use it in expressions as name[0], name[1], ..."),
+    Dist("ppl.lkj_cholesky", "LKJ Correlation (Cholesky)", "LKJCholeskyCov",
+         (("eta", 2.0, "positive"), ("sd", 1.0, "positive")), "cholesky",
+         "Prior over a size × size covariance: correlations from the LKJ distribution (eta = "
+         "1 uniform, larger = closer to independence) and standard deviations from an "
+         "Exponential with mean sd. Reports its correlations and standard deviations.",
+         ports=False),
 )
+SIZED = {"ppl.dirichlet": 3, "ppl.mv_normal": 2, "ppl.lkj_cholesky": 2}   # default size
 BY_ID = {d.type_id: d for d in DISTRIBUTIONS}
 SAMPLER_METHODS = ("nuts", "advi", "smc", "map")
 PPL_DATA = ("data.synthetic_groups",)
@@ -94,26 +107,30 @@ def _dist_checks(dist: Dist):
 
 def _distribution(dist: Dist) -> BlockDefinition:
     ports = tuple(PortSpec(name, dtype="config", role="variable")
-                  for name, _d, _s in dist.params)
+                  for name, _d, _s in dist.params) if dist.ports else ()
     numeric = tuple(P(name, "float", default,
                       lo=1e-12 if support == "positive" else (0.0 if support in ("unit", "count") else -1e9),
                       hi=1.0 if support == "unit" else 1e9,
                       help="Used when nothing is wired into this port")
-                    for name, default, support in dist.params if support != "vector")
+                    for name, default, support in dist.params
+                    if support not in ("vector", "cholesky"))
     common = (P("name", "str", dist.label.split("-")[0].lower().replace(" ", "_"),
                 help="Variable name (used in expressions and results)"),
               *numeric,
-              P("observed", "str", "", help="Data column this variable explains (empty: a "
-                                            "latent / prior variable)"),
-              P("group", "str", "",
-                help="Hierarchical: one value per level of this data column (partial "
-                     "pooling across groups)"),
-              *((P("size", "int", 3, lo=2, hi=1000, help="Number of categories"),)
-                if dist.type_id == "ppl.dirichlet" else ()),
+              *((P("observed", "str", "", help="Data column this variable explains (empty: "
+                                               "a latent / prior variable)"),)
+                if dist.support not in ("real_vector", "cholesky") else ()),
+              *((P("group", "str", "",
+                   help="Hierarchical: one value per level of this data column (partial "
+                        "pooling across groups)"),) if dist.support != "cholesky" else ()),
+              *((P("size", "int", SIZED[dist.type_id], lo=2, hi=1000,
+                   help="Number of categories" if dist.type_id == "ppl.dirichlet"
+                   else "Vector length (the same on the LKJ and the Multivariate Normal)"),)
+                if dist.type_id in SIZED else ()),
               *((P("non_centered", "bool", True,
                    help="Grouped with wired mu and sigma: sample standardised offsets and "
                         "scale them (avoids divergences when groups have little data)"),)
-                if dist.type_id == "ppl.normal" else ()))
+                if dist.type_id in ("ppl.normal", "ppl.mv_normal") else ()))
     return BlockDefinition(
         type_id=dist.type_id, display_name=dist.label, category=CATEGORY,
         color=family_color("model"), params=common, inputs=ports,

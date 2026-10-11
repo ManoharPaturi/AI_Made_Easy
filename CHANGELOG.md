@@ -70,6 +70,46 @@
   - New sample `pipeline_advanced.json` combines all four.
 - The training script gains `PARAM_GROUPS` / `PREPARE_HOOK` pipeline hooks, and an int8
   serving path for QAT models. `train.kfold` gets `refit`.
+- **Block coverage** (544 blocks, up from 531):
+  - **Detectors from blocks:** an **FPN Neck** fuses three feature maps, and an anchor-free
+    **YOLO-style Head** detects on features from your own convolution blocks. Together
+    they make a detector you can read end to end (new sample `yolo_style_detection.json`:
+    mAP@.5 0.9 on the shapes after three epochs from scratch). **GIoU**, **DIoU** and
+    **CIoU** box losses train the head.
+  - **Mask2Former** (Hugging Face, Swin backbone) for semantic segmentation, trained with
+    its own matching loss.
+  - **Temporal Fusion Transformer (lite)** forecaster: variable selection, an LSTM
+    encoder-decoder and attention over past and known-future inputs, with every
+    distribution head.
+  - **AST** (Audio Spectrogram Transformer) joins the speech encoders. Its Kaldi
+    filterbanks are computed inside the model and match Hugging Face's feature extractor.
+  - LSTM `proj_size` (LSTMP), with exact parameter counts.
+  - **BPE Tokenizer** for language models: byte-level merges learned on the training
+    text, saved with the model. The tiny GPT sample reaches 0.81 bits per byte in three
+    epochs, against 1.42 on bytes.
+  - **Multivariate Normal** and **LKJ Correlation** distributions. With `group`, a vector
+    per level (one plate), indexed in expressions as `ab[0]`. Correlated intercepts and
+    slopes sample non-centred, and the report lists the learned correlations.
+  - **MMHC** structure learning (max-min parents and children, then hill climbing).
+  - **Quantile Head** trained with the pinball loss. With Conformal Prediction it becomes
+    conformalized quantile regression: the interval is calibrated on the validation
+    set, and the served prediction returns the quantiles and the interval.
+  - **Time-varying regression coefficients** in state-space models: random-walk
+    coefficients for structural models and SARIMAX, with their paths in the report.
+  - **Inception Score** metric for image generators.
+  - **Stable Diffusion LoRA** (new `generative` extra: diffusers and peft): adapters on
+    SD 1.5 / 2.1-base learn a style or a subject from an image folder, with live sample
+    grids, diffusers-format weights and prompt-to-image serving. `weights = none` builds
+    a tiny random Stable Diffusion, so the whole path runs offline. New wizard recipe and
+    `stable_diffusion_lora` sample.
+  - Reinforcement learning on pixels: image observations reach the designed network as
+    `[C, H, W]`, so convolutional policies work. New **PixelChase** environment (built
+    in) with the sample `rl_pixel_chase_cnn.json`, and the **Box2D** environments
+    LunarLander, BipedalWalker and CarRacing (new `rl-box2d` extra; sample
+    `rl_lunar_lander_ppo.json`).
+  - `scripts/verify_codegen.py --coverage` reports, per family, which blocks the codegen
+    harness runs; every layer block has a case. New `CONTRIBUTING.md` with a guide to
+    adding a block.
 
 ### Fixed
 - A folder of audio clips preselected keyword spotting in the wizard, a task no recipe

@@ -21,7 +21,9 @@ FUNCTIONS = {"exp": "pm.math.exp", "log": "pm.math.log", "sqrt": "pm.math.sqrt",
              "softplus": "pm.math.log1pexp", "invprobit": "pm.math.invprobit"}
 RESERVED = {"pm", "np", "pd", "data", "model", "rows", "math", *FUNCTIONS}
 _ALLOWED = (ast.Expression, ast.BinOp, ast.UnaryOp, ast.Call, ast.Name, ast.Load,
-            ast.Constant, ast.Add, ast.Sub, ast.Mult, ast.Div, ast.Pow, ast.USub, ast.UAdd)
+            ast.Constant, ast.Add, ast.Sub, ast.Mult, ast.Div, ast.Pow, ast.USub, ast.UAdd,
+            ast.Subscript)
+VECTOR = "real_vector"   # support of Multivariate Normal variables: indexed as name[i]
 
 
 class ModelError(ValueError):
@@ -65,13 +67,31 @@ def parse_expression(text: str) -> tuple[ast.Expression, set[str]]:
         if not isinstance(sub, _ALLOWED):
             raise ModelError(f"'{ast.unparse(sub)}' is not allowed in an expression "
                              "(arithmetic, functions and names only)")
-        if isinstance(sub, ast.Call):
+        if isinstance(sub, ast.Subscript):
+            if not (isinstance(sub.value, ast.Name) and isinstance(sub.slice, ast.Constant)
+                    and isinstance(sub.slice.value, int) and sub.slice.value >= 0):
+                raise ModelError(f"'{ast.unparse(sub)}': index a vector variable with a "
+                                 "whole number, like ab[0]")
+        elif isinstance(sub, ast.Call):
             if not isinstance(sub.func, ast.Name) or sub.func.id not in FUNCTIONS:
                 raise ModelError(f"unknown function in '{ast.unparse(sub)}'; available: "
                                  f"{', '.join(sorted(FUNCTIONS))}")
         elif isinstance(sub, ast.Name) and sub.id not in FUNCTIONS:
             names.add(sub.id)
     return tree, names
+
+
+def indexed(tree: ast.Expression) -> tuple[dict, set]:
+    """(name -> indices used as name[i], names used without an index)."""
+    used: dict = {}
+    inside = set()
+    for sub in ast.walk(tree):
+        if isinstance(sub, ast.Subscript):
+            used.setdefault(sub.value.id, set()).add(sub.slice.value)
+            inside.add(id(sub.value))
+    bare = {sub.id for sub in ast.walk(tree)
+            if isinstance(sub, ast.Name) and id(sub) not in inside and sub.id not in FUNCTIONS}
+    return used, bare
 
 
 def variables(graph) -> list[Var]:  # noqa: ANN001
@@ -148,6 +168,31 @@ def resolve(vars_: list[Var], columns: set[str] | None = None) -> dict:
                     if columns is not None and name not in columns:
                         raise ModelError(f"{v.name} uses {name!r}, which is neither a wired "
                                          f"variable nor a data column", v.name)
+        if v.kind == "deterministic":
+            used, bare = indexed(parse_expression(v.expression)[0])
+            for name, idx in used.items():
+                target = by_name.get(name)
+                if target is None or target.support != VECTOR:
+                    raise ModelError(f"{v.name} indexes {name}, which is not a Multivariate "
+                                     "Normal vector", v.name)
+                if max(idx) >= target.size:
+                    raise ModelError(f"{v.name} uses {name}[{max(idx)}] but {name} has "
+                                     f"{target.size} entries (0 to {target.size - 1})", v.name)
+            for name in bare:
+                if name in by_name and by_name[name].support == VECTOR:
+                    raise ModelError(f"{name} is a vector: use {name}[0], {name}[1], ... in "
+                                     f"{v.name}", v.name)
+        if v.type_id == "ppl.mv_normal":
+            kind, chol = v.params["chol"]
+            if kind == "var" and (by_name[chol].type_id != "ppl.lkj_cholesky"
+                                  or by_name[chol].size != v.size):
+                raise ModelError(f"{v.name}.chol takes an LKJ Correlation block of size "
+                                 f"{v.size}", v.name)
+        if v.type_id == "ppl.lkj_cholesky":
+            users = [u for u in vars_ if v.name in u.parents]
+            if any(u.type_id != "ppl.mv_normal" for u in users):
+                raise ModelError(f"{v.name} is a covariance factor: wire it only into a "
+                                 "Multivariate Normal's chol", v.name)
         parents = [by_name[p] for p in v.parents]
         v.row_level = bool(v.observed) or any(p.row_level for p in parents) or (
             v.kind == "deterministic" and any(n not in by_name for n in v.names))
@@ -173,6 +218,14 @@ def _ref(name: str, by_name: dict, row_level: bool) -> str:
 class _Rewrite(ast.NodeTransformer):
     def __init__(self, by_name: dict, row_level: bool) -> None:
         self.by_name, self.row_level = by_name, row_level
+
+    def visit_Subscript(self, node: ast.Subscript):  # noqa: N802, ANN201
+        name, i = node.value.id, node.slice.value
+        parent = self.by_name[name]
+        if parent.group:   # one vector per level: [levels, size]
+            rows = f"{identifier(parent.group)}_idx" if self.row_level else ":"
+            return ast.parse(f"{name}[{rows}, {i}]", mode="eval").body
+        return ast.parse(f"{name}[{i}]", mode="eval").body
 
     def visit_Name(self, node: ast.Name):  # noqa: N802, ANN201
         if node.id in FUNCTIONS:
@@ -205,6 +258,29 @@ def model_code(vars_: list[Var], info: dict) -> list[str]:
             lines.append(f"{v.name} = pm.Deterministic(\"{v.name}\", {expr})")
             continue
         dist = BY_ID[v.type_id]
+        if v.type_id == "ppl.lkj_cholesky":
+            eta, sd = v.params["eta"][1], v.params["sd"][1]
+            lines.append(f"{v.name}, {v.name}_corr, {v.name}_stds = pm.LKJCholeskyCov("
+                         f"\"{v.name}\", n={v.size}, eta={eta!r}, sd_dist=pm.Exponential."
+                         f"dist({1 / sd!r}, shape={v.size}), compute_corr=True)")
+            continue
+        if v.type_id == "ppl.mv_normal":
+            kind, mu = v.params["mu"]
+            mu = (f"{_ref(mu, by_name, False)} * np.ones({v.size})" if kind == "var"
+                  else f"np.full({v.size}, {mu!r})")
+            kind, chol = v.params["chol"]
+            cov = f"chol={chol}" if kind == "var" else f"cov=np.eye({v.size})"
+            shape = (f"(len(STATE['levels'][{v.group!r}]), {v.size})" if v.group
+                     else f"{v.size}")
+            if v.non_centered and v.group and kind == "var":   # z-scores times the factor
+                lines.append(f"{v.name}_z = pm.Normal(\"{v.name}_z\", 0.0, 1.0, "
+                             f"shape={shape})")
+                lines.append(f"{v.name} = pm.Deterministic(\"{v.name}\", {mu} + "
+                             f"{v.name}_z @ {chol}.T)")
+                continue
+            lines.append(f"{v.name} = pm.MvNormal(\"{v.name}\", mu={mu}, {cov}, "
+                         f"shape={shape})")
+            continue
         if (v.non_centered and v.group and not v.observed
                 and all(v.params[k][0] == "var" for k in ("mu", "sigma"))):
             mu = _ref(v.params["mu"][1], by_name, False)

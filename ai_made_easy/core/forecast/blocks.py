@@ -12,7 +12,7 @@ from ai_made_easy.core.spec import BlockDefinition, PortSpec
 CATEGORY = "Forecasting"
 HEADS = ("point", "quantile", "student_t", "negbin")
 # models that read known-future covariates
-USES_FUTURE = {"forecast.tcn", "forecast.tide", "forecast.rnn"}
+USES_FUTURE = {"forecast.tcn", "forecast.tide", "forecast.rnn", "forecast.tft"}
 FORECAST_MODELS: dict[str, str] = {}   # type id -> helper class
 FORECAST_DATA: dict[str, dict] = {}
 FORECAST_METRICS: dict[str, dict] = {}
@@ -182,7 +182,25 @@ def _models() -> list[BlockDefinition]:
                                                                int(p["d_model"]),
                                                                int(p["layers"])),
                "Attention encoder with convolutional distilling between layers (Informer)."),
+        _model("forecast.tft", "Temporal Fusion Transformer (lite)", "TFTLite",
+               (P("d_model", "int", 32, lo=8), P("heads", "int", 4, lo=1),
+                P("dropout", "float", 0.1, lo=0.0, hi=1.0), FUTURE),
+               lambda c: (f"TFTLite({c['input_shape'][0]}, {c['input_shape'][1]}, "
+                          f"{int(c['horizon'])}, {_heads_args(c)}, d_model={int(c['d_model'])}, "
+                          f"heads={int(c['heads'])}, dropout={float(c['dropout'])}, "
+                          f"future_covariates={int(c['future_covariates'])})"),
+               lambda s, p, out: h.tft_cost(s[0], s[1], int(p["horizon"]), head_size(p),
+                                            int(p["d_model"]), int(p["future_covariates"])),
+               "Temporal Fusion Transformer without static covariates: variable selection "
+               "shows which inputs matter, an LSTM encoder-decoder and attention read past "
+               "and known-future steps; pair with the quantile head.",
+               check=_heads_check),
     ]
+
+
+def _heads_check(s, p):
+    if int(p["d_model"]) % int(p["heads"]):
+        raise ShapeError(f"d_model ({p['d_model']}) must be divisible by heads ({p['heads']})")
 
 
 def _pools(p: dict) -> tuple[int, ...]:

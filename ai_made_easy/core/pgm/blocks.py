@@ -90,15 +90,17 @@ def _config() -> list[BlockDefinition]:
                  help="Rows held out to score the model (log-likelihood)")),
               "The kind of graphical model the wired variables form."),
         block("pgm.structure_learning", "Structure Learning",
-              (P("method", "enum", "ges", options=("ges", "hill_climb", "pc", "tree"),
+              (P("method", "enum", "ges", options=("ges", "hill_climb", "pc", "mmhc", "tree"),
                  help="ges: greedy equivalence search (finds the best-scoring class); "
                       "hill_climb: fast local search (can stop at a local optimum); pc: "
-                      "independence tests; tree: Chow-Liu tree"),
+                      "independence tests; mmhc: max-min hill climbing (tests find the "
+                      "candidate neighbours, a scored search orients them: scales to many "
+                      "variables); tree: Chow-Liu tree"),
                P("score", "enum", "bic", options=("bic", "bdeu", "k2", "aic", "bds")),
                P("max_indegree", "int", 0, lo=0, hi=20, help="Most parents per variable "
                                                              "(0: no limit)"),
                P("significance", "float", 0.01, lo=1e-6, hi=0.5,
-                 help="PC: independence-test level"),
+                 help="PC and MMHC: independence-test level"),
                P("start_from_design", "bool", True,
                  help="Hill climbing starts from the wired edges")),
               "Learns which variables depend on which from the data; the learned edges are "

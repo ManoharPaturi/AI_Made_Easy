@@ -111,7 +111,12 @@ def _rate_rules(ctx: LintContext, info: dict, data_node) -> list:  # noqa: ANN00
             out.append(_issue("error", f"{_name(node)} was pretrained on 16 kHz audio but the "
                                        f"clips are {info['rate']} Hz: set sample_rate to 16000",
                               target))
-        if info["task"] == "transcripts" and p["pooling"] == "mean":
+        if info["task"] == "transcripts" and p["model_id"].startswith("MIT/ast"):
+            out.append(_issue("error", f"{_name(node)} uses AST, which classifies whole clips "
+                                       "and has no frames for speech recognition: choose "
+                                       "wav2vec 2.0, HuBERT, WavLM or Whisper",
+                              node.instance_id))
+        elif info["task"] == "transcripts" and p["pooling"] == "mean":
             out.append(_issue("error", f"{_name(node)} averages the frames away; speech "
                                        "recognition needs them: set pooling to none",
                               node.instance_id))

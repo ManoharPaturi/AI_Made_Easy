@@ -12,6 +12,7 @@ from pathlib import Path
 from ai_made_easy.core.lints import LintContext, _issue, _name, register_rule
 from ai_made_easy.core.training import catalog as cat
 from ai_made_easy.core.vision.blocks import (
+    BOX_LOSSES,
     SSD_SIDES,
     SYNTHETIC_CLASSES,
     TASK_BLOCKS,
@@ -21,7 +22,8 @@ from ai_made_easy.core.vision.blocks import (
 from ai_made_easy.core.vision.tasks import VISION_TASKS, dataset_of, head_of, vision_task
 
 DIRECT_HEADS = {"vision.detector", "vision.instance_segmenter", "vision.keypoint_detector",
-                "vision.hf_detector", "vision.segmenter", "vision.hf_segmenter"}
+                "vision.hf_detector", "vision.segmenter", "vision.hf_segmenter",
+                "vision.hf_mask2former"}
 BOX_HEADS = {"vision.detector", "vision.instance_segmenter", "vision.keypoint_detector",
              "vision.hf_detector"}
 ANCHOR_ARCHS = ("fasterrcnn", "maskrcnn", "keypointrcnn", "retinanet")
@@ -164,12 +166,50 @@ def _head_rules(ctx: LintContext, head) -> list:  # noqa: ANN001
         out.append(_issue("error", f"{arch} COCO weights cannot change the number of classes: "
                                    "use weights imagenet to train your own classes",
                           head.instance_id))
+    if head.type_id == "vision.yolo_head":
+        out += _yolo_rules(ctx, head, shape)
+    if head.type_id == "vision.hf_mask2former" and len(shape) == 3 and (shape[1] % 32 or
+                                                                        shape[2] % 32):
+        out.append(_issue("error", f"Mask2Former's Swin backbone downsamples by 32: the Input "
+                                   f"height and width must be multiples of 32 (got {shape[1]}×"
+                                   f"{shape[2]})", head.instance_id))
+    boxes = [n for n in ctx.graph.nodes.values() if n.type_id in BOX_LOSSES]
+    if boxes and head.type_id != "vision.yolo_head":
+        out.append(_issue("warning", f"{_name(boxes[0])} trains the YOLO-style Head's boxes: "
+                                     f"{_name(head)} computes its own losses, so it is ignored",
+                          boxes[0].instance_id))
+    if len(boxes) > 1:
+        out.append(_issue("warning", "keep one box loss (GIoU, DIoU or CIoU): only "
+                                     f"{_name(boxes[0])} is used", boxes[1].instance_id))
     if head.type_id == "vision.hf_segmenter" and len(shape) == 3 and (shape[1] % 32 or
                                                                       shape[2] % 32):
         out.append(_issue("warning", f"SegFormer downsamples by 32: use an Input height and "
                                      f"width that are multiples of 32 (got {shape[1]}×"
                                      f"{shape[2]}) to keep edges aligned", head.instance_id))
     return out
+
+
+def _yolo_rules(ctx: LintContext, head, image: list) -> list:  # noqa: ANN001
+    """The head reads features: it needs a backbone before it, at a sensible stride."""
+    prods = ctx.producers(head.instance_id)
+    if prods and prods[0].type_id == "core.input":
+        return [_issue("error", f"{_name(head)} reads feature maps: add convolution blocks (a "
+                                "backbone, optionally an FPN Neck) between the Input and the "
+                                "head", head.instance_id)]
+    feat = ctx.shapes.get(prods[0].instance_id) if prods else None
+    if len(image) != 3 or not feat or len(feat) != 3:
+        return []
+    sy, sx = image[1] / feat[1], image[2] / feat[2]
+    if sy != int(sy) or sx != int(sx):
+        return [_issue("warning", f"the feature map {feat[1]}×{feat[2]} does not divide the "
+                                  f"{image[1]}×{image[2]} image evenly: boxes are placed on a "
+                                  "slightly wrong grid. Use 'same' padding in the backbone",
+                       head.instance_id)]
+    if sy > 32:
+        return [_issue("warning", f"each feature cell covers {int(sy)} px: objects smaller "
+                                  "than that share a cell and are missed. Downsample less "
+                                  "(stride 8–32) or add an FPN Neck", head.instance_id)]
+    return []
 
 
 def _pipeline_rules(ctx: LintContext, task: str) -> list:

@@ -68,6 +68,7 @@ SEED = {{ trainer.seed }}
 DEVICE = "{{ trainer.device }}"
 GRAD_CLIP = {{ trainer.grad_clip_norm }}
 METRICS = {{ metrics | repr }}           # final metrics: name -> feature kind
+IS_SPLITS = {{ is_splits }}                 # Inception Score: groups averaged
 METRIC_SAMPLES = {{ metric_samples }}
 VAE = {{ vae | repr }}
 GAN = {{ gan | repr }}
@@ -119,25 +120,34 @@ def to_unit(x: torch.Tensor) -> np.ndarray:
 _INCEPTION = None
 
 
-def inception_features(images: np.ndarray) -> np.ndarray:
-    """Pool features [N, 2048] of torchvision's Inception-v3 (downloads its weights)."""
+def inception_outputs(images: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """torchvision's Inception-v3 (downloads its weights): pool features [N, 2048] and
+    ImageNet class probabilities [N, 1000]."""
     global _INCEPTION
     import torchvision
 
     if _INCEPTION is None:
-        net = torchvision.models.inception_v3(weights="DEFAULT", aux_logits=True)
-        net.fc = nn.Identity()
-        _INCEPTION = net.eval()
-    out = []
+        _INCEPTION = torchvision.models.inception_v3(weights="DEFAULT", aux_logits=True).eval()
+    pooled: list = []
+    hook = _INCEPTION.fc.register_forward_pre_hook(lambda _m, inp: pooled.append(inp[0]))
+    feats, probs = [], []
     mean = torch.tensor([0.485, 0.456, 0.406]).view(1, 3, 1, 1)
     std = torch.tensor([0.229, 0.224, 0.225]).view(1, 3, 1, 1)
-    with torch.no_grad():
-        for i in range(0, len(images), 64):
-            x = torch.from_numpy(images[i:i + 64])
-            x = x.repeat(1, 3, 1, 1) if x.shape[1] == 1 else x[:, :3]
-            x = nn.functional.interpolate(x, size=(299, 299), mode="bilinear")
-            out.append(_INCEPTION((x - mean) / std).numpy())
-    return np.concatenate(out)
+    try:
+        with torch.no_grad():
+            for i in range(0, len(images), 64):
+                x = torch.from_numpy(images[i:i + 64])
+                x = x.repeat(1, 3, 1, 1) if x.shape[1] == 1 else x[:, :3]
+                x = nn.functional.interpolate(x, size=(299, 299), mode="bilinear")
+                probs.append(_INCEPTION((x - mean) / std).softmax(-1).numpy())
+                feats.append(pooled.pop().numpy())
+    finally:
+        hook.remove()
+    return np.concatenate(feats), np.concatenate(probs)
+
+
+def inception_features(images: np.ndarray) -> np.ndarray:
+    return inception_outputs(images)[0]
 
 
 def features(images: np.ndarray, kind: str) -> np.ndarray:
@@ -147,6 +157,10 @@ def features(images: np.ndarray, kind: str) -> np.ndarray:
 def image_scores(fake: np.ndarray, real: np.ndarray, wanted: dict) -> dict:
     out, cache = {}, {}
     for name, kind in wanted.items():
+        if name == "inception_score":
+            out[name], out["inception_score_std"] = inception_score(
+                inception_outputs(fake)[1], IS_SPLITS)
+            continue
         if kind not in cache:
             cache[kind] = (features(fake, kind), features(real, kind))
         f, r = cache[kind]
@@ -604,10 +618,12 @@ def _dataset(graph: Graph) -> dict:
 
 
 def _metrics(graph: Graph) -> tuple[dict, int]:
-    nodes = [n for n in graph.nodes.values() if n.type_id in ("eval.fid", "eval.kid")]
+    nodes = [n for n in graph.nodes.values()
+             if n.type_id in ("eval.fid", "eval.kid", "eval.inception_score")]
     if not nodes:
         return {"fid": "pixels"}, 500
-    wanted = {GENERATIVE_METRICS[n.type_id]["key"]: n.resolved_params()["features"]
+    wanted = {GENERATIVE_METRICS[n.type_id]["key"]: n.resolved_params().get("features",
+                                                                           "inception")
               for n in nodes}
     return wanted, max(int(n.resolved_params()["samples"]) for n in nodes)
 
@@ -660,6 +676,8 @@ def context(graph: Graph, framework: str) -> dict:
         "input_shape": input_shape, "image_shape": image_shape, "trainer": trainer,
         "batch_size": int(loader.get("batch_size") or 0) or int(trainer["batch_size"]),
         "metrics": metrics, "metric_samples": samples,
+        "is_splits": next((int(n.resolved_params()["splits"]) for n in graph.nodes.values()
+                           if n.type_id == "eval.inception_score"), 10),
         "vae": {"beta": float(rep.get("beta", 1.0)), "kl_warmup": int(rep.get("kl_warmup", 0)),
                 "recon": recon},
         "gan": {k: disc[k] for k in ("width", "norm", "spectral_norm", "loss", "gp_weight",

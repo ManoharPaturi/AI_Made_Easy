@@ -130,6 +130,14 @@ without touching the classification pipeline:
 - `profile.py`: `register_profiler` hooks vision datasets into the Data
   workspace and data lints.
 
+Heads can also sit on layers designed on the canvas. The YOLO-style head (`YOLOHead`)
+reads a feature map from convolution blocks or the FPN neck. The template calls
+`attach(model)` on it, so `losses()` / `detect()` run the whole network, and a
+forward pre-hook records the image size, which gives the head its stride. Box-loss
+blocks (GIoU / DIoU / CIoU) configure it through `configure()`. A segmenter with its
+own loss (Mask2Former) exposes `segmentation_loss(images, masks)`, which the
+template uses instead of the pixel loss blocks.
+
 Loading a trained model sets `AIME_SKIP_PRETRAINED=1` so wrappers rebuild the
 same architecture without downloading pretrained weights.
 
@@ -168,7 +176,14 @@ Transformer → language model.
   into a `samples` event that the desktop and web training panels show, and the
   run manager replays the latest one to late subscribers.
 - `runtime.py` holds the data generators / readers and the metrics (FID, KID,
-  BLEU, chrF, ROUGE-L) shared by scripts, profiles and tests.
+  Inception Score, BLEU, chrF, ROUGE-L) shared by scripts, profiles and tests, and
+  the byte-level BPE tokenizer a BPE Tokenizer block adds to language-model scripts.
+- **Stable Diffusion LoRA** is its own family (`text_to_image`, detected by the
+  `gen.sd_lora` block, rendered by `sd_template.py`): there is no layer chain, since
+  diffusers builds the pretrained UNet, VAE and text encoder. The script adds peft
+  adapters to the UNet attention, saves them with `save_lora_weights` and serves
+  prompts. `weights = none` builds a tiny random Stable Diffusion with the same code
+  path, so tests never download.
 
 ## Probabilistic models
 
@@ -215,7 +230,10 @@ always the network that is trained and served:
   ids are clamped into the embedding tables so random inputs (export checks) still run.
 - `core/rl` (trainer `rl`): the generated model becomes a stable-baselines3
   `BaseFeaturesExtractor`; `ServedPolicy` exposes the trained policy as a module for
-  exports, `infer()` uses `algorithm.predict`.
+  exports, `infer()` uses `algorithm.predict`. Image observations (CarRacing, the built-in
+  PixelChase, which the script defines and registers) reach the extractor channels-first
+  and scaled to 0–1 by stable-baselines3, so the Input is `[C, H, W]`. `infer()` takes a
+  frame as the environment gives it (`[H, W, C]`, 0–255).
 
 
 `core/budget.py` estimates a neural design's cost from the IR alone (no

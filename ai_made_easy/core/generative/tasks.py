@@ -6,7 +6,7 @@ from ai_made_easy.core.generative.blocks import GENERATIVE_DATA
 from ai_made_easy.core.tasks import Task, register_task, register_task_resolver
 
 IMAGE_DATA = ("data.synthetic_images", "data.image_folder", "data.torchvision")
-_IMAGE_METRICS = ["eval.fid", "eval.kid"]
+_IMAGE_METRICS = ["eval.fid", "eval.kid", "eval.inception_score"]
 
 register_task(Task(
     "vae_generation", "Variational autoencoder",
@@ -46,9 +46,18 @@ register_task(Task(
           "metrics": ["eval.bleu", "eval.chrf", "eval.rouge_l"],
           "default_optimizer": "AdamW (lr = 5e-4)"}))
 
+register_task(Task(
+    "text_to_image", "Text-to-image fine-tuning (LoRA)",
+    "Teach a pretrained Stable Diffusion a style or a subject from your images; generate "
+    "images from prompts.",
+    family="text_to_image", target="captioned images", output_role="tensor",
+    modalities=("image",), trainer_kind="text_to_image", serving="images", default_metrics=(),
+    meta={"loss_tasks": (), "losses": [], "metrics": ["eval.fid", "eval.kid"],
+          "default_loss": None, "default_optimizer": "AdamW (lr = 1e-4)"}))
+
 KIND_TASK = {"vae": "vae_generation", "adversarial": "gan_generation",
              "diffusion": "diffusion_generation", "language_model": "language_modeling",
-             "seq2seq": "sequence_to_sequence"}
+             "seq2seq": "sequence_to_sequence", "text_to_image": "text_to_image"}
 
 
 def _types(graph) -> set[str]:  # noqa: ANN001
@@ -58,6 +67,8 @@ def _types(graph) -> set[str]:  # noqa: ANN001
 def generative_kind(graph) -> str | None:  # noqa: ANN001
     """Trainer kind of a generative design, decided by its blocks."""
     types = _types(graph)
+    if "gen.sd_lora" in types:
+        return "text_to_image"
     if types & {"gen.noise_scheduler", "gen.diffusion_unet"}:
         return "diffusion"
     if "gen.discriminator" in types:
@@ -67,7 +78,7 @@ def generative_kind(graph) -> str | None:  # noqa: ANN001
     data = {GENERATIVE_DATA.get(t) for t in types}
     if types & {"gen.seq2seq_transformer"} or "pairs" in data:
         return "seq2seq"
-    if types & {"gen.gpt", "gen.causal_transformer"} or "text" in data:
+    if types & {"gen.gpt", "gen.causal_transformer", "gen.bpe_tokenizer"} or "text" in data:
         return "language_model"
     return None
 

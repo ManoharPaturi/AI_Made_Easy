@@ -12,7 +12,7 @@ from jinja2 import Environment, StrictUndefined
 from ai_made_easy.core.codegen import CodegenError, generate, sanitize_identifier
 from ai_made_easy.core.forecast.template import _strip_main
 from ai_made_easy.core.graph import Graph
-from ai_made_easy.core.rl.blocks import ALGORITHMS
+from ai_made_easy.core.rl.blocks import ALGORITHMS, BUILT_IN, IMAGE_ENVS
 from ai_made_easy.core.rl.tasks import algorithm_node, env_node
 
 _env = Environment(trim_blocks=True, lstrip_blocks=True, keep_trailing_newline=True,
@@ -51,6 +51,7 @@ EVAL_EPISODES = {{ loop.eval_episodes }}
 ACTION_NOISE = {{ action_noise }}
 DEVICE = "{{ device }}"
 INPUT_SHAPE = {{ input_shape | repr }}
+IMAGE_OBS = {{ image_obs }}                 # pixels: [H, W, C] uint8 from the environment
 FEATURES = {{ features }}
 CHECKPOINT = "{{ name }}_best.pt"            # a stable-baselines3 zip archive
 INFERENCE_FILE = "inference_state.pkl"
@@ -61,12 +62,66 @@ STATE: dict = {}
 {{ model_code }}
 
 
+{% if built_in %}
+# ======================================================================== environment
+import gymnasium as gym  # noqa: E402
+from gymnasium import spaces  # noqa: E402
+
+
+class PixelChase(gym.Env):
+    """A size × size grid drawn as a picture: the agent (bright) must reach the target
+    (dim). Observation: uint8 image [size·cell, size·cell, 1]; actions: up, down, left,
+    right; +1 on arrival, +0.1 per step closer, -0.05 per step."""
+
+    metadata = {"render_modes": ["rgb_array"]}
+
+    def __init__(self, size: int = 7, cell: int = 3, max_steps: int = 20,
+                 render_mode: str | None = None):
+        self.size, self.cell, self.max_steps = size, cell, max_steps
+        self.render_mode = render_mode
+        side = size * cell
+        self.observation_space = spaces.Box(0, 255, (side, side, 1), np.uint8)
+        self.action_space = spaces.Discrete(4)
+
+    def _obs(self):
+        img = np.zeros((self.size, self.size), np.uint8)
+        img[tuple(self.target)] = 120
+        img[tuple(self.agent)] = 255
+        return np.kron(img, np.ones((self.cell, self.cell), np.uint8))[..., None]
+
+    def reset(self, seed=None, options=None):
+        super().reset(seed=seed)
+        self.agent, self.target = self.np_random.integers(0, self.size, (2, 2))
+        while (self.agent == self.target).all():
+            self.target = self.np_random.integers(0, self.size, 2)
+        self.steps = 0
+        return self._obs(), {}
+
+    def step(self, action):
+        move = ((-1, 0), (1, 0), (0, -1), (0, 1))[int(action)]
+        before = np.abs(self.agent - self.target).sum()
+        self.agent = np.clip(self.agent + move, 0, self.size - 1)
+        self.steps += 1
+        reached = bool((self.agent == self.target).all())
+        closer = before - np.abs(self.agent - self.target).sum()
+        reward = 1.0 if reached else 0.1 * float(closer) - 0.05
+        return self._obs(), reward, reached, self.steps >= self.max_steps, {}
+
+    def render(self):
+        return np.repeat(self._obs(), 3, axis=2)
+
+
+gym.register("AIME/PixelChase-v0", entry_point=PixelChase)
+{% endif %}
+
+
 # ======================================================================== policy
 from stable_baselines3.common.torch_layers import BaseFeaturesExtractor  # noqa: E402
 
 
 class DesignedExtractor(BaseFeaturesExtractor):
-    """The network designed on the canvas: observations -> features."""
+    """The network designed on the canvas: observations -> features (images arrive
+    channels-first, scaled to 0-1 by stable-baselines3)."""
 
     def __init__(self, observation_space, features_dim: int = FEATURES) -> None:
         super().__init__(observation_space, features_dim)
@@ -166,7 +221,7 @@ class ServedPolicy(nn.Module):
         self.policy = algorithm.policy
 
     def forward(self, obs: torch.Tensor) -> torch.Tensor:
-        obs = obs.float()
+        obs = obs.float()   # images: [B, C, H, W] (normalised by the policy)
         if ALGO == "DQN":
             return self.policy.q_net(obs)
         if ALGO in ("PPO", "A2C"):
@@ -195,12 +250,17 @@ def infer(raw: list) -> list[dict]:
     out = []
     for item in raw:
         item = item if isinstance(item, dict) else {"observation": item}
-        obs = np.asarray(item["observation"], dtype=np.float32).reshape(INPUT_SHAPE)
+        space = _ALGORITHM.observation_space
+        if IMAGE_OBS:   # a picture as the environment gives it ([H, W, C] values 0-255)
+            obs = np.asarray(item["observation"], dtype=np.uint8).reshape(STATE["obs_shape"])
+        else:
+            obs = np.asarray(item["observation"], dtype=np.float32).reshape(space.shape)
         action, _ = _ALGORITHM.predict(obs, deterministic=bool(item.get("deterministic", True)))
         row = {"action": action.tolist() if np.ndim(action) else int(action)}
         if STATE.get("discrete"):
             with torch.no_grad():
-                scores = _PREDICTOR(torch.as_tensor(obs[None]))[0]
+                tensor = _ALGORITHM.policy.obs_to_tensor(obs)[0]
+                scores = _PREDICTOR(tensor)[0]
             key = "q_values" if ALGO == "DQN" else "probabilities"
             values = scores if ALGO == "DQN" else scores.softmax(-1)
             row[key] = [round(float(v), 6) for v in values]
@@ -271,7 +331,8 @@ def main() -> None:
     model = getattr(sb3, ALGO).load(CHECKPOINT, device=device)
     mean, std = evaluate_policy(model, eval_env, n_eval_episodes=max(EVAL_EPISODES, 20),
                                 deterministic=True)
-    STATE.update({"env_id": ENV_ID, "discrete": discrete, "algorithm": ALGO})
+    STATE.update({"env_id": ENV_ID, "discrete": discrete, "algorithm": ALGO,
+                  "obs_shape": list(eval_env.observation_space.shape)})
     with open(INFERENCE_FILE, "wb") as fh:
         pickle.dump(dict(STATE), fh)
     metrics = {"mean_reward": float(mean), "std_reward": float(std),
@@ -328,6 +389,7 @@ def context(graph: Graph, framework: str) -> dict:
         "loop": {k: ap[k] for k in ("total_timesteps", "evaluations", "eval_episodes")},
         "head": _ints(ap.get("head")), "action_noise": float(ap.get("action_noise", 0.0)),
         "device": device, "input_shape": list(shapes[chain[0].instance_id]),
+        "image_obs": ep["env_id"] in IMAGE_ENVS, "built_in": ep["env_id"] in BUILT_IN,
         "features": int(out_shape[0]),
         "requirements": own_loop_requirements(model_code, ("gymnasium", "stable-baselines3")),
         "model_code": _strip_main(model_code),
