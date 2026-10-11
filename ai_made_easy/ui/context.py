@@ -363,6 +363,7 @@ class AppContext(QtCore.QObject):
         self.validation_store.update(issues)
         self.graph_service.note_shapes(ir)
         self.graph_service.apply_validation(issues)
+        self.graph_service.refresh_inline(ir, self.data_service.base)
         self.problems.set_issues(issues)
         current = {(i.node_id, i.message) for i in issues if i.severity == "error"}
         fresh = [m for nid, m in current - self._known_errors]
@@ -1249,6 +1250,12 @@ class AppContext(QtCore.QObject):
                                  else f"{errors} error(s), {warnings} warning(s)")
 
     def act_expand(self, *_):
+        from ai_made_easy.core.data.lints import project_base
+
+        ir = self._last_ir
+        if ir is not None and any(n.type_id.startswith("pipeline.") for n in ir.nodes.values()) \
+                and self.graph_service.toggle_inline(ir, project_base(self.project_store.path)):
+            return               # a pipeline stage shows / hides its design inline
         self.graph_service.expand_selected()
 
     def act_save_selection(self, *_):

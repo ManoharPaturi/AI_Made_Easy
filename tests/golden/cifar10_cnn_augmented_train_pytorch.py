@@ -47,7 +47,9 @@ INIT_HOOK = None        # f(model): load weights / freeze layers before training
 EPOCH_HOOK = None       # f(epoch, model): e.g. unfreeze after some epochs
 LOSS_HOOK = None        # f(loss, out, xb, model) -> loss: e.g. knowledge distillation
 BEFORE_SAVE = None      # f(model): e.g. make pruning permanent
-QUANTIZE = ""           # "dynamic_int8": quantize Linear layers when serving
+PARAM_GROUPS = None     # f(model) -> optimizer groups ("lr_mult": discriminative rates)
+PREPARE_HOOK = None     # f(model) -> model: e.g. fake quantization for QAT
+QUANTIZE = ""           # "dynamic_int8" / "qat_int8": int8 weights when serving
 
 
 # ================================================================= model
@@ -259,9 +261,10 @@ def fit(model: nn.Module, train_loader, val_loader, device, log: bool = True):
     loss_fn = make_loss()
     if hasattr(loss_fn, "to"):
         loss_fn = loss_fn.to(device)
-    optimizer = torch.optim.AdamW(model.parameters(), lr=0.001, betas=(0.9, 0.999), eps=1e-08, weight_decay=0.01)
+    params = PARAM_GROUPS(model) if PARAM_GROUPS is not None else model.parameters()
+    optimizer = torch.optim.AdamW(params, lr=0.001, betas=(0.9, 0.999), eps=1e-08, weight_decay=0.01)
     for group in optimizer.param_groups:
-        group["lr"] *= LR_SCALE
+        group["lr"] *= LR_SCALE * group.get("lr_mult", 1.0)
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode="min", factor=0.5, patience=3, min_lr=0.0)
     use_amp = MIXED_PRECISION and device.type in ("cuda", "mps")
     amp_dtype = torch.float16 if device.type == "cuda" else torch.bfloat16
@@ -442,20 +445,59 @@ def prepare_inputs(raw: list) -> np.ndarray:
 _PREDICTOR = None
 
 
+def quantized_engine() -> str:
+    """A quantized-kernel backend this machine supports (fbgemm / x86 / qnnpack)."""
+    engines = torch.backends.quantized.supported_engines
+    if torch.backends.quantized.engine == "none" or torch.backends.quantized.engine \
+            not in engines:
+        torch.backends.quantized.engine = next(e for e in ("fbgemm", "x86", "qnnpack")
+                                               if e in engines)
+    return torch.backends.quantized.engine
+
+
+def qat_prepare(model: nn.Module) -> nn.Module:
+    """Fake-quantized copy of the model for quantization-aware training (FX graph mode)."""
+    from torch.ao.quantization import get_default_qat_qconfig_mapping
+    from torch.ao.quantization.quantize_fx import prepare_qat_fx
+
+    example = (torch.zeros(1, *INPUT_SHAPE),)
+    return prepare_qat_fx(model.cpu().train(),
+                          get_default_qat_qconfig_mapping(quantized_engine()), example)
+
+
+def qat_convert(model: nn.Module) -> nn.Module:
+    """The int8 model from a fake-quantized one (CPU)."""
+    from torch.ao.quantization.quantize_fx import convert_fx
+
+    return convert_fx(model.cpu().eval())
+
+
+def model_device(model: nn.Module) -> torch.device:
+    """Where the model lives (quantized models may have no float parameters)."""
+    tensor = next(iter(model.parameters()), None)
+    if tensor is None:
+        tensor = next(iter(model.buffers()), None)
+    return tensor.device if tensor is not None else torch.device("cpu")
+
+
 def load_predictor(folder: str | Path = ".", device: str = "cpu") -> nn.Module:
     """Load the trained weights and preprocessing state from a run folder."""
     global _PREDICTOR
     load_inference_state(folder)
     model = Cifar10Cnn()
-    model.load_state_dict(torch.load(Path(folder) / CHECKPOINT, map_location=device))
+    state = torch.load(Path(folder) / CHECKPOINT, map_location="cpu")
+    if QUANTIZE == "qat_int8":           # set by a pipeline's QAT stage: int8 on the CPU
+        model = qat_prepare(model)
+        model.load_state_dict(state)
+        _PREDICTOR = qat_convert(model)
+        return _PREDICTOR
+    model.load_state_dict(state)
     model.eval()
     if QUANTIZE == "dynamic_int8":       # set by a pipeline's Quantize stage (CPU serving)
-        engines = torch.backends.quantized.supported_engines
-        if torch.backends.quantized.engine == "none" or torch.backends.quantized.engine \
-                not in engines:
-            torch.backends.quantized.engine = next(e for e in ("fbgemm", "x86", "qnnpack")
-                                                   if e in engines)
+        quantized_engine()
         model = torch.ao.quantization.quantize_dynamic(model, {nn.Linear}, dtype=torch.qint8)
+        _PREDICTOR = model
+        return _PREDICTOR
     _PREDICTOR = model.to(device)
     return _PREDICTOR
 
@@ -465,7 +507,7 @@ def infer(raw: list) -> list[dict]:
     """Predictions for a list of raw inputs (see ``prepare_inputs``)."""
     if _PREDICTOR is None:
         raise RuntimeError("call load_predictor(folder) first")
-    device = next(_PREDICTOR.parameters()).device
+    device = model_device(_PREDICTOR)
     x = torch.from_numpy(np.ascontiguousarray(prepare_inputs(raw))).to(device)
     return describe(_PREDICTOR(x).float().cpu().numpy())
 
@@ -475,12 +517,15 @@ def main() -> None:
     np.random.seed(SEED)
     device = pick_device()
     print(f"device: {device}")
+    cv = {}
     train_loader, val_loader, test_loader = make_loaders()
     print(f"samples: train={len(train_loader.dataset)} val={len(val_loader.dataset)} "
           f"test={len(test_loader.dataset)}")
     model = Cifar10Cnn().to(device)
     if INIT_HOOK is not None:
         INIT_HOOK(model)
+    if PREPARE_HOOK is not None:
+        model = PREPARE_HOOK(model)
     print(f"parameters: {sum(p.numel() for p in model.parameters() if p.requires_grad):,}")
     model, loss_fn = fit(model, train_loader, val_loader, device)
     if BEFORE_SAVE is not None:
@@ -491,9 +536,9 @@ def main() -> None:
     test_loss, test_metrics = evaluate(model, loss_fn, test_loader, device)
     report = {"loss": test_loss, **{k: v for k, v in test_metrics.items() if isinstance(v, float)}}
     print("test: " + " ".join(f"{k}={v:.4f}" for k, v in report.items()))
+    final = {**report, **test_metrics, **{f"cv_{m}": v for m, v in cv.items()}}
     Path("metrics.json").write_text(json.dumps(
-        {k: v for k, v in {**report, **test_metrics}.items()
-         if isinstance(v, (float, list))}, indent=1))
+        {k: v for k, v in final.items() if isinstance(v, (float, list))}, indent=1))
     try:
         dump_test_results(model, test_loader, device)
     except Exception as exc:  # noqa: BLE001 — artefacts are optional

@@ -14,9 +14,11 @@ boilerplate. It runs on the desktop or in the browser.
 
 ## Highlights
 
-- **Pipelines:** chain Train, Fine-tune, Distill, Prune, Quantize, Evaluate, Ensemble,
-  Export and Register stages; every stage is a tracked run, and re-running a pipeline
-  picks up where it stopped.
+- **Pipelines:** chain Train, Cross-validate, Fine-tune, Distill, Prune, Quantize,
+  quantization-aware training, Evaluate, Ensemble, Export and Register stages; every stage
+  is a tracked run, and re-running a pipeline picks up where it stopped. Fine-tune with
+  discriminative learning rates, stack models on their out-of-fold predictions, distill a
+  random forest into a network, and expand any stage on the canvas to see its design.
 - **Start from a task, not a blank canvas:** **File ▸ New from Task** asks what you want
   to do (34 tasks, from classification and forecasting to clustering, anomaly detection
   and retrieval-augmented answering) and where your data is, detects its format, target

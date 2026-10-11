@@ -501,8 +501,12 @@ TRAINER = Component(
 
 KFOLD = Component(
     "train.kfold", "K-Fold Cross-Validation",
-    (P("k", "int", 5, lo=2, hi=20), P("stratified", "bool", True), P("seed", "int", 42, lo=0)),
-    desc="Retrain on k folds and report mean ± std (tabular/array datasets).")
+    (P("k", "int", 5, lo=2, hi=20), P("stratified", "bool", True), P("seed", "int", 42, lo=0),
+     P("refit", "bool", False, help="Then train the final model on the training split as "
+                                    "usual (stacking ensembles use its out-of-fold "
+                                    "predictions)")),
+    desc="Retrain on k folds and report mean ± std (tabular/array datasets); the "
+         "out-of-fold predictions are saved for stacking.")
 
 PREDICT = Component(
     "eval.predict", "Prediction Preview",

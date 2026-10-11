@@ -368,6 +368,24 @@ class CanvasController:
 
     # -------------------------------------------------------- composites
 
+    def set_inline(self, node_id: str, design: dict | None) -> None:
+        """Draw a pipeline stage's design inside the stage (None collapses it)."""
+        node = self._node(node_id)
+        if node is None:
+            return
+        view = node.view
+        if design and not design.get("error"):
+            view._aime_inline = [(b["name"], b["color"], b["summary"], b["model"])
+                                 for b in design["blocks"]]
+            view._aime_inline_title = f"{design['name']} · {design['kind']}"
+        else:
+            view._aime_inline = None
+        view.draw_node()
+
+    def inline_rows(self, node_id: str) -> list:
+        node = self._node(node_id)
+        return list(getattr(node.view, "_aime_inline", None) or []) if node else []
+
     def expand_selected(self) -> int:
         count = 0
         for node in list(self._graph.selected_nodes()):

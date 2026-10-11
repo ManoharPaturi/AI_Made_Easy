@@ -74,7 +74,8 @@ CATALOG: list[ActionSpec] = [
     ActionSpec("model.explain", "E&xplain This Design", "&Model", "act_explain", "",
                "Why each block is in the design"),
     ActionSpec("model.expand", "&Expand Architecture", "&Model", "act_expand", "Ctrl+E",
-               "Replace the selected architecture block with its layers", icon="expand"),
+               "Replace the selected architecture block with its layers, or show / hide a "
+               "pipeline stage's design inside it", icon="expand"),
     ActionSpec("model.save_selection", "Save Selection as &Block…", "&Model",
                "act_save_selection", "Ctrl+Shift+B",
                "Turn the selected blocks into a reusable custom block", icon="plus_box"),

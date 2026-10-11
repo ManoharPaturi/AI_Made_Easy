@@ -1,0 +1,481 @@
+{
+ "schema_version": 1,
+ "name": "digits_advanced_pipeline",
+ "meta": {
+  "title": "Advanced pipeline: discriminative fine-tuning, QAT, stacking, a forest teacher",
+  "description": "Three branches on the digits data. 1) Train a network, fine-tune it with discriminative learning rates (earlier layers learn slower), then quantization-aware training to int8, compared with the float model and post-training int8. 2) Cross-validate two networks and stack them: a logistic regression learns how to weigh them from their out-of-fold predictions. 3) Distill a random forest into a small network.",
+  "designs": {
+   "teacher": {
+    "name": "digits_teacher",
+    "nodes": [
+     {
+      "id": "input",
+      "type": "core.input",
+      "params": {
+       "shape": "64"
+      },
+      "position": [
+       0,
+       0
+      ]
+     },
+     {
+      "id": "d0",
+      "type": "core.dense",
+      "params": {
+       "units": 256
+      },
+      "position": [
+       0,
+       90
+      ]
+     },
+     {
+      "id": "r0",
+      "type": "core.relu",
+      "params": {},
+      "position": [
+       0,
+       180
+      ]
+     },
+     {
+      "id": "d1",
+      "type": "core.dense",
+      "params": {
+       "units": 128
+      },
+      "position": [
+       0,
+       270
+      ]
+     },
+     {
+      "id": "r1",
+      "type": "core.relu",
+      "params": {},
+      "position": [
+       0,
+       360
+      ]
+     },
+     {
+      "id": "head",
+      "type": "core.dense",
+      "params": {
+       "units": 10
+      },
+      "position": [
+       0,
+       450
+      ]
+     },
+     {
+      "id": "output",
+      "type": "core.output",
+      "params": {},
+      "position": [
+       0,
+       540
+      ]
+     },
+     {
+      "id": "data",
+      "type": "data.sklearn",
+      "params": {
+       "dataset": "digits"
+      },
+      "position": [
+       320,
+       560
+      ]
+     },
+     {
+      "id": "norm",
+      "type": "prep.normalize",
+      "params": {
+       "mode": "fit"
+      },
+      "position": [
+       320,
+       640
+      ]
+     },
+     {
+      "id": "loss",
+      "type": "train.loss_cross_entropy",
+      "params": {},
+      "position": [
+       320,
+       720
+      ]
+     },
+     {
+      "id": "opt",
+      "type": "train.adam",
+      "params": {
+       "lr": 0.003
+      },
+      "position": [
+       320,
+       800
+      ]
+     },
+     {
+      "id": "trainer",
+      "type": "train.trainer",
+      "params": {
+       "epochs": 15,
+       "batch_size": 64
+      },
+      "position": [
+       320,
+       880
+      ]
+     },
+     {
+      "id": "acc",
+      "type": "eval.accuracy",
+      "params": {},
+      "position": [
+       320,
+       960
+      ]
+     }
+    ],
+    "edges": [
+     {
+      "from": "input/out",
+      "to": "d0/in"
+     },
+     {
+      "from": "d0/out",
+      "to": "r0/in"
+     },
+     {
+      "from": "r0/out",
+      "to": "d1/in"
+     },
+     {
+      "from": "d1/out",
+      "to": "r1/in"
+     },
+     {
+      "from": "r1/out",
+      "to": "head/in"
+     },
+     {
+      "from": "head/out",
+      "to": "output/in"
+     }
+    ]
+   },
+   "student": {
+    "name": "digits_student",
+    "nodes": [
+     {
+      "id": "input",
+      "type": "core.input",
+      "params": {
+       "shape": "64"
+      },
+      "position": [
+       0,
+       0
+      ]
+     },
+     {
+      "id": "d0",
+      "type": "core.dense",
+      "params": {
+       "units": 32
+      },
+      "position": [
+       0,
+       90
+      ]
+     },
+     {
+      "id": "r0",
+      "type": "core.relu",
+      "params": {},
+      "position": [
+       0,
+       180
+      ]
+     },
+     {
+      "id": "head",
+      "type": "core.dense",
+      "params": {
+       "units": 10
+      },
+      "position": [
+       0,
+       270
+      ]
+     },
+     {
+      "id": "output",
+      "type": "core.output",
+      "params": {},
+      "position": [
+       0,
+       360
+      ]
+     },
+     {
+      "id": "data",
+      "type": "data.sklearn",
+      "params": {
+       "dataset": "digits"
+      },
+      "position": [
+       320,
+       400
+      ]
+     },
+     {
+      "id": "norm",
+      "type": "prep.normalize",
+      "params": {
+       "mode": "fit"
+      },
+      "position": [
+       320,
+       480
+      ]
+     },
+     {
+      "id": "loss",
+      "type": "train.loss_cross_entropy",
+      "params": {},
+      "position": [
+       320,
+       560
+      ]
+     },
+     {
+      "id": "opt",
+      "type": "train.adam",
+      "params": {
+       "lr": 0.003
+      },
+      "position": [
+       320,
+       640
+      ]
+     },
+     {
+      "id": "trainer",
+      "type": "train.trainer",
+      "params": {
+       "epochs": 15,
+       "batch_size": 64
+      },
+      "position": [
+       320,
+       720
+      ]
+     },
+     {
+      "id": "acc",
+      "type": "eval.accuracy",
+      "params": {},
+      "position": [
+       320,
+       800
+      ]
+     }
+    ],
+    "edges": [
+     {
+      "from": "input/out",
+      "to": "d0/in"
+     },
+     {
+      "from": "d0/out",
+      "to": "r0/in"
+     },
+     {
+      "from": "r0/out",
+      "to": "head/in"
+     },
+     {
+      "from": "head/out",
+      "to": "output/in"
+     }
+    ]
+   },
+   "forest": {
+    "name": "digits_forest",
+    "edges": [],
+    "nodes": [
+     {
+      "id": "data",
+      "type": "data.sklearn",
+      "params": {
+       "dataset": "digits"
+      },
+      "position": [
+       0,
+       0
+      ]
+     },
+     {
+      "id": "forest",
+      "type": "ml.random_forest_classifier",
+      "params": {
+       "n_estimators": 200
+      },
+      "position": [
+       0,
+       90
+      ]
+     },
+     {
+      "id": "acc",
+      "type": "eval.accuracy",
+      "params": {},
+      "position": [
+       0,
+       180
+      ]
+     }
+    ]
+   }
+  }
+ },
+ "nodes": [
+  {
+   "id": "train",
+   "type": "pipeline.train",
+   "params": {
+    "design": "embedded:teacher"
+   },
+   "position": [
+    0,
+    0
+   ]
+  },
+  {
+   "id": "finetune",
+   "type": "pipeline.finetune",
+   "params": {
+    "epochs": 3,
+    "lr_decay": 0.3,
+    "layer_groups": 2
+   },
+   "position": [
+    260,
+    0
+   ]
+  },
+  {
+   "id": "qat",
+   "type": "pipeline.qat",
+   "params": {
+    "epochs": 2
+   },
+   "position": [
+    520,
+    0
+   ]
+  },
+  {
+   "id": "evaluate",
+   "type": "pipeline.evaluate",
+   "params": {},
+   "position": [
+    780,
+    0
+   ]
+  },
+  {
+   "id": "cv_teacher",
+   "type": "pipeline.cross_validate",
+   "params": {
+    "design": "embedded:teacher",
+    "k": 3,
+    "refit": true
+   },
+   "position": [
+    0,
+    200
+   ]
+  },
+  {
+   "id": "cv_student",
+   "type": "pipeline.cross_validate",
+   "params": {
+    "design": "embedded:student",
+    "k": 3,
+    "refit": true
+   },
+   "position": [
+    0,
+    320
+   ]
+  },
+  {
+   "id": "stack",
+   "type": "pipeline.ensemble",
+   "params": {
+    "method": "stack"
+   },
+   "position": [
+    260,
+    260
+   ]
+  },
+  {
+   "id": "forest",
+   "type": "pipeline.train",
+   "params": {
+    "design": "embedded:forest"
+   },
+   "position": [
+    0,
+    480
+   ]
+  },
+  {
+   "id": "distill",
+   "type": "pipeline.distill",
+   "params": {
+    "student": "embedded:student",
+    "alpha": 0.3
+   },
+   "position": [
+    260,
+    480
+   ]
+  }
+ ],
+ "edges": [
+  {
+   "from": "train/out",
+   "to": "finetune/in"
+  },
+  {
+   "from": "finetune/out",
+   "to": "qat/in"
+  },
+  {
+   "from": "qat/out",
+   "to": "evaluate/in"
+  },
+  {
+   "from": "cv_teacher/out",
+   "to": "stack/in"
+  },
+  {
+   "from": "cv_student/out",
+   "to": "stack/in"
+  },
+  {
+   "from": "forest/out",
+   "to": "distill/in"
+  }
+ ]
+}
