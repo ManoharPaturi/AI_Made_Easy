@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 
+import type { SavedProject } from "./types";
 import { api } from "./api";
 import { Modal } from "./components/Modal";
 import { NewProjectWizard } from "./components/Wizard";
@@ -16,7 +17,7 @@ type Page = (typeof PAGES)[number][0];
 function OpenDialog({ onClose }: { onClose: () => void }) {
   const { load, notify } = useStore();
   const [samples, setSamples] = useState<string[]>([]);
-  const [projects, setProjects] = useState<{ name: string; modified: number }[]>([]);
+  const [projects, setProjects] = useState<SavedProject[]>([]);
   useEffect(() => {
     api.samples().then((r) => setSamples(r.samples)).catch(() => undefined);
     api.projects().then((r) => setProjects(r.projects)).catch(() => undefined);
@@ -36,6 +37,8 @@ function OpenDialog({ onClose }: { onClose: () => void }) {
       {projects.length ? projects.map((p) => (
         <div key={p.name} className="issue" onClick={() => open(() => api.project(p.name))}>
           <span style={{ flex: 1 }}>{p.name}</span>
+          {p.family && <span className="chip" title="Family">{p.family}</span>}
+          {p.task && <span className="chip" title="Task">{p.task}</span>}
           <span className="muted">{new Date(p.modified * 1000).toLocaleString()}</span>
         </div>
       )) : <p className="muted">No saved projects yet.</p>}

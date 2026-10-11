@@ -68,6 +68,9 @@ def test_flops_match_torch_counter(sample):
     if sample.startswith("cifar10_transfer"):
         pytest.importorskip("torchvision")
     graph = _sample(sample)
+    for node in graph.nodes.values():  # FLOPs don't depend on weights: never download
+        if node.type_id == "core.pretrained_backbone":
+            node.params["weights"] = "none"
     estimated = budget.estimate(graph).flops
     namespace: dict = {"__name__": "budget_test"}
     exec(compile(generate(graph, "pytorch"), "<gen>", "exec"), namespace)  # noqa: S102

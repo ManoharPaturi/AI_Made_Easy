@@ -393,3 +393,11 @@ export interface PipelineRecord {
   resumed_from: string;
   message: string;
 }
+
+/** A saved project in the Open dialog: family and task labels (schema 3 records them). */
+export interface SavedProject {
+  name: string;
+  modified: number;
+  family: string | null;
+  task: string | null;
+}

@@ -1,6 +1,14 @@
 # Changelog
 
-## Unreleased (3.0 in progress — see docs/ROADMAP_3.0.md)
+## 3.0.0
+
+The designer grows from classifiers and regressors to every major model area. It covers
+29 tasks across 8 families: neural networks, classic ML, LLM workflows, graphical models,
+probabilistic programs, Gaussian processes, state-space models and pipelines. That is
+529 blocks, up from 345. Each family is validated while you design, generates runnable
+code, trains in the app and deploys. A task-first wizard with AutoML and multi-stage
+pipelines sit on top, and a resource budget is checked throughout.
+[docs/FAMILIES.md](docs/FAMILIES.md) lists every family, task, block and design rule.
 
 ### Added
 - Multi-stage pipelines (`core/pipelines`): Train, Cross-validate, Fine-tune (freeze /
@@ -186,7 +194,28 @@
   EfficientNet-B4 / V2, ConvNeXt S/B, DenseNet-169/201, VGG-19, RegNet-Y
   800MF–3.2GF, ShuffleNetV2, MNASNet, ViT-B/32, ViT-L/16, Swin(V2), MaxViT.
 
+### Changed
+- Project files use schema 3. Saved projects record their family and task, and the web
+  Open dialog shows both. Nothing is rewritten: 1.x and 2.0 projects open unchanged
+  (port roles and multi-input ports live in the block registry).
+- `docs/FAMILIES.md` is generated from the registries by `scripts/gen_families.py`, and a
+  test keeps it current. Its rule lists quote the messages straight from the rule modules.
+- CI gains a speech job (the `audio` extra), alongside the vision, probabilistic and
+  graph / RL jobs. A nightly workflow installs every extra and runs the opt-in
+  `AIME_ONLINE=1` tests, which download real pretrained weights (torchvision, timm,
+  Hugging Face) and check each pretrained block's output shape.
+
 ### Fixed
+- A web server that had just started could show an empty block library ("Search 0
+  blocks"). The browser's first requests run in parallel, and one of them could read the
+  block catalog while another was still loading it. Loading is now guarded by a lock.
+- The audio recipes (Mel-spectrogram CNN, Keyword CNN, Audio tagger, BiLSTM + CTC) asked
+  for torchaudio, which the `audio` extra does not install, so the wizard always showed
+  them as unavailable. They only use PyTorch and the standard library. A test now checks
+  that every block's and recipe's requirements come with the extra it names.
+- The web app treated a project file without `schema_version` as schema 2, while the
+  desktop treats it as 1. An old file saved again from the browser therefore skipped its
+  1 → 2 upgrade.
 - Standardization divided columns that are constant in the training data by ~1e-8, so
   any other value at test time exploded (digits: test loss ~100,000); constant columns are
   now left unscaled, as in scikit-learn.

@@ -187,8 +187,17 @@ def create_app(*, token: str | None = None, projects_dir: str | Path | None = No
     # ------------------------------------------------------------ projects
     @app.get("/api/projects", dependencies=guard)
     def list_projects() -> dict:
-        rows = [{"name": p.stem, "modified": p.stat().st_mtime}
-                for p in sorted(projects.glob("*.json"), key=lambda p: -p.stat().st_mtime)]
+        from ai_made_easy.core.migrate import kind_of
+
+        rows = []
+        for p in sorted(projects.glob("*.json"), key=lambda p: -p.stat().st_mtime):
+            row = {"name": p.stem, "modified": p.stat().st_mtime, "family": None,
+                   "task": None}
+            try:
+                row.update(kind_of(json.loads(p.read_text())))
+            except Exception:  # noqa: BLE001, S110 — an unreadable file still gets listed
+                pass
+            rows.append(row)
         return {"projects": rows}
 
     @app.get("/api/projects/{name}", dependencies=guard)
@@ -202,14 +211,13 @@ def create_app(*, token: str | None = None, projects_dir: str | Path | None = No
 
     @app.put("/api/projects/{name}", dependencies=guard)
     def put_project(name: str, graph: dict = Body(...)) -> dict:  # noqa: B008
-        from ai_made_easy.core.graph import Graph
+        from ai_made_easy.core.migrate import stamp
 
         file = _project_file(projects, name)
         try:
-            Graph.from_dict(graph)
+            graph = stamp({**graph, "name": name})
         except Exception as exc:  # noqa: BLE001 — refuse unreadable projects
             raise HTTPException(400, f"not a valid project: {exc}") from exc
-        graph = {**graph, "name": name}
         tmp = file.with_suffix(".tmp")
         tmp.write_text(json.dumps(graph, indent=1))
         tmp.replace(file)

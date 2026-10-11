@@ -24,7 +24,11 @@ a = Analysis(
     hiddenimports=hidden,
     excludes=["torch", "tensorflow", "keras", "jax", "transformers", "sklearn", "xgboost",
               "lightgbm", "catboost", "pandas", "tkinter", "matplotlib", "fastapi",
-              "uvicorn", "starlette", "onnx", "onnxruntime", "optuna"],
+              "uvicorn", "starlette", "onnx", "onnxruntime", "optuna",
+              # model-family libraries: training runs use the user's Python environment
+              "torchvision", "torchaudio", "timm", "torch_geometric", "pgmpy", "pymc",
+              "pytensor", "arviz", "gpytorch", "hmmlearn", "statsmodels", "gymnasium",
+              "stable_baselines3", "peft", "datasets", "scipy"],
     noarchive=False,
 )
 pyz = PYZ(a.pure)
@@ -35,4 +39,4 @@ if sys.platform == "darwin":
     app = BUNDLE(coll, name="AI Made Easy.app", icon=str(icon),
                  bundle_identifier="dev.aimadeeasy.designer",
                  info_plist={"NSHighResolutionCapable": True,
-                             "CFBundleShortVersionString": "2.0.0"})
+                             "CFBundleShortVersionString": "3.0.0"})

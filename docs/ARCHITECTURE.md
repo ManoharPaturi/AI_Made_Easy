@@ -89,6 +89,21 @@ Train ─► training script (core/training or core/classic) ─► worker subpr
 - `core/zoo/*.json`: pretrained catalogs generated offline by
   `scripts/build_zoo.py` (measured feature widths, parameters, accuracy,
   license).
+- [FAMILIES.md](FAMILIES.md) is generated from these registries by
+  `scripts/gen_families.py`: families, tasks, blocks by category, and every message the
+  rule modules can raise (found by parsing their `_issue(...)` calls).
+  `tests/test_release.py` fails when it is stale.
+
+### Project files
+
+- `Graph.to_dict()` writes `schema_version` = `core.migrate.CURRENT_SCHEMA` (3);
+  `Graph.from_dict` runs `migrate()` first, one step per schema version.
+- Schema 3 needed no rewrite: roles and multi-input ports belong to block definitions,
+  not to project files. Saving (desktop, `PUT /api/projects`, `.aime` archives) goes
+  through `migrate.stamp()`, which adds `family` and `task` ids. Readers such as the web
+  project list use them without loading a design (`migrate.kind_of`), and they are
+  recomputed on every save, so they are never trusted on load.
+- A file from a newer schema is refused with "please update AI Made Easy".
 
 ## Vision tasks
 

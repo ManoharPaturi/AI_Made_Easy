@@ -66,7 +66,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [nodes, setNodes] = useState<FlowNode[]>([]);
   const [edges, setEdgesState] = useState<Edge[]>([]);
   const [meta, setMeta] = useState<Record<string, unknown>>({});
-  const [schema, setSchema] = useState(2);
+  const [schema, setSchema] = useState(3);
   const [loads, setLoads] = useState(0);
   const [validation, setValidation] = useState<Validation | null>(null);
   const [dataIssues, setDataIssues] = useState<Store["dataIssues"]>([]);
@@ -95,7 +95,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setEdgesState(e);
     setName(p.name || "untitled");
     setMeta((p.meta as Record<string, unknown>) ?? {});
-    setSchema(Number(p.schema_version ?? 2));
+    setSchema(Number(p.schema_version ?? 1));
     setSelected(null);
     if (fit) setLoads((c) => c + 1);
   }, []);

@@ -48,6 +48,19 @@ test("open an example from the Open dialog", async ({ page }) => {
   await expect(page.getByTestId("status")).toHaveText("No problems");
 });
 
+test("saved projects show their family and task", async ({ page, request }) => {
+  const sample = await (await request.get("/api/samples/student_network.json")).json();
+  expect((await request.put("/api/projects/e2e_kinds", { data: sample })).ok()).toBeTruthy();
+  try {
+    await page.getByRole("button", { name: "Open" }).click();
+    const row = page.locator(".issue", { hasText: "e2e_kinds" });
+    await expect(row.locator(".chip").first()).toHaveText("Graphical model");
+    await expect(row.locator(".chip").nth(1)).toHaveText("Probabilistic inference");
+  } finally {
+    await request.delete("/api/projects/e2e_kinds");
+  }
+});
+
 test("summary shows costs and checks the resource budget", async ({ page }) => {
   await page.getByRole("button", { name: "Summary" }).click();
   await expect(page.getByTestId("cost-tiles")).toContainText("FLOPs");

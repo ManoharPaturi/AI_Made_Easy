@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import copy
 
-CURRENT_SCHEMA = 2
+CURRENT_SCHEMA = 3
 
 
 def _v1_to_v2(data: dict) -> dict:
@@ -27,7 +27,15 @@ def _v1_to_v2(data: dict) -> dict:
     return data
 
 
-_STEPS = {1: _v1_to_v2}
+def _v2_to_v3(data: dict) -> dict:
+    """V2 → V3: nothing to rewrite. Port roles and multi-input ports live in the block
+    registry, so every V2 design keeps its meaning; saved V3 files also record the
+    design's family and task (see ``stamp``), which readers may use without loading
+    the registry and which are recomputed on every save."""
+    return data
+
+
+_STEPS = {1: _v1_to_v2, 2: _v2_to_v3}
 
 
 def migrate(data: dict) -> dict:
@@ -42,3 +50,39 @@ def migrate(data: dict) -> dict:
         version += 1
     out["schema_version"] = CURRENT_SCHEMA
     return out
+
+
+def stamp(data: dict) -> dict:
+    """A copy of a project ready to save: the current schema plus ``family`` and
+    ``task`` (ids, or None for a design with no task yet)."""
+    from ai_made_easy.core.families import family_of
+    from ai_made_easy.core.graph import Graph
+    from ai_made_easy.core.tasks import task_of
+
+    out = migrate(data)
+    out["family"] = family_of(out).id
+    try:
+        task = task_of(Graph.from_dict(out))
+    except Exception:  # noqa: BLE001 — incomplete designs have no task yet
+        task = None
+    out["task"] = task.id if task else None
+    return out
+
+
+def kind_of(data: dict) -> dict:
+    """``{"family": label, "task": label or None}`` of a project file: read from the V3
+    descriptors when present, worked out from the design for older files."""
+    from ai_made_easy.core.families import get_family
+    from ai_made_easy.core.tasks import get_task
+
+    if "family" not in data:
+        data = stamp(data)
+    try:
+        family = get_family(data["family"]).label
+    except (KeyError, ValueError):
+        family = str(data["family"])
+    try:
+        task = get_task(data["task"]).label if data.get("task") else None
+    except (KeyError, ValueError):
+        task = str(data["task"])
+    return {"family": family, "task": task}
