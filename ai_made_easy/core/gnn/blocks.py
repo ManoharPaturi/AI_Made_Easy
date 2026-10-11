@@ -231,6 +231,19 @@ def _datasets() -> list[BlockDefinition]:
                P("source_column", "str", "source"), P("target_column", "str", "target"),
                P("directed", "bool", False, help="Keep edge direction (else both ways)")),
               "Your own graph: a node table (features, label) and an edge list."),
+        _data("data.graphs_csv", "Graphs CSV (one graph per id)", "graphs",
+              (P("nodes_path", "str", "nodes.csv", help="One row per node, with its graph id"),
+               P("edges_path", "str", "edges.csv", help="One row per edge, with its graph id"),
+               P("graphs_path", "str", "graphs.csv", help="One row per graph: its id and label"),
+               P("graph_column", "str", "graph_id", help="Graph id column in all three tables"),
+               P("id_column", "str", "id", help="Node id (unique within its graph)"),
+               P("label_column", "str", "label", help="Graph class in the graph table"),
+               P("feature_columns", "str", "", help="Node feature columns (empty: every "
+                                                     "numeric column except the ids)"),
+               P("source_column", "str", "source"), P("target_column", "str", "target")),
+              "Your own graph-classification data: node and edge tables whose rows carry a "
+              "graph id, and a graph table with each graph's label (molecules, scenes, "
+              "programs, ...)."),
         _data("data.planetoid", "Planetoid Citations", "nodes",
               (P("name", "enum", "Cora", options=tuple(PLANETOID)),
                P("root", "str", "~/.cache/aime/planetoid")),

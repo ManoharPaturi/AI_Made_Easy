@@ -60,6 +60,11 @@ Gaps that most limit users today, in order:
   - graph-level CSV datasets (one graph per id)
 - **Tests:** each new reader gets a tiny synthetic fixture and an end-to-end training
   test.
+- **Status:** done. Image folders (flat or per class, colour or grey) train the VAE, DCGAN
+  and diffusion recipes. Tables train the flows and, with a group column, the hierarchical
+  PyMC models (priors scaled to the data). Series train the structural, SARIMAX and HMM
+  recipes, with the season length taken from the timestamps. Interaction logs pick up
+  user / item feature tables, and the new Graphs CSV block reads one graph per id.
 
 ## Phase 3 — Pretrained recipes
 - **Recipes on the existing encoder blocks:**

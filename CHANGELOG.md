@@ -21,8 +21,26 @@
   anomaly detector. The target warnings now name the estimator for classic pipelines.
 - **File ▸ Open Recent** shows each project's family and task; the status bar shows the
   task for every family.
+- Your own data for the families that trained only on demo data. The wizard now swaps
+  your data into these recipes:
+  - an image folder (flat, or one sub-folder per class) into the VAE, DCGAN and diffusion
+    recipes, in colour or greyscale; with class folders, the diffusion U-Net is
+    class-conditional
+  - a table's numeric columns into the normalizing flows
+  - a table with a group column (school, store, region, ...) into the hierarchical PyMC
+    models, with the group, predictor and outcome columns set and the priors scaled to
+    the data
+  - a time series into the structural and SARIMAX models (the season length comes from
+    the timestamps) and into the hidden Markov model
+- Recommenders read optional user and item feature tables beside the interaction log,
+  and DLRM's input widens to use them. Data detection finds them automatically.
+- **Graphs CSV** dataset: node and edge tables keyed by a graph id plus a graph table of
+  labels, for graph classification. A folder with node and edge tables is detected as
+  one graph or, with a graph id, as many graphs.
 
 ### Fixed
+- The graph recipes keep the node table's id and label columns instead of assuming `id`
+  and `label`.
 - Clustering and anomaly-detection scripts no longer stop when the table has no label
   column.
 - `recommend()` no longer fails for a family's task when it is the first thing called.

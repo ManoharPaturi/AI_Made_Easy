@@ -168,9 +168,13 @@ def _data() -> list[BlockDefinition]:
               (P("path", "str", "interactions.csv"), P("user_column", "str", "user"),
                P("item_column", "str", "item"),
                P("rating_column", "str", "", help="Empty: implicit feedback (every row is an "
-                                                  "interaction)")),
+                                                  "interaction)"),
+               P("user_features", "str", "", help="Optional table with one row per user: the "
+                                                  "user column plus numeric features"),
+               P("item_features", "str", "", help="Optional table with one row per item: the "
+                                                  "item column plus numeric features")),
               "Your own interaction log: one row per user–item interaction (optionally with "
-              "a rating)."),
+              "a rating), plus optional user and item feature tables."),
     ]
 
 
