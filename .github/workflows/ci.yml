@@ -106,6 +106,8 @@ jobs:
           pip install -e ".[dev,probabilistic,serve]"
       - name: Test
         run: pytest -q -p no:cacheprovider tests/test_pgm.py tests/test_ppl.py tests/test_gp.py tests/test_ssm.py
+      - name: Your series and grouped tables
+        run: pytest -q -p no:cacheprovider tests/test_your_data.py -k "series_recipes or grouped_table"
 
   test-graph-rl:
     # the graph and rl extras: PyTorch Geometric, Gymnasium and stable-baselines3
@@ -133,6 +135,8 @@ jobs:
         run: >-
           pytest -q -p no:cacheprovider tests/test_gnn.py tests/test_rl.py
           tests/test_codegen_runtime.py -k "graph or exercised"
+      - name: Your graphs and interaction tables
+        run: pytest -q -p no:cacheprovider tests/test_your_data.py -k "recommender_and_graph"
 
   test-audio:
     # the audio extra (Hugging Face speech encoders): speech and sequence blocks, their
