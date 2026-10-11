@@ -357,4 +357,4 @@ def test_autosave_recovery_and_recent_files(ctx, app, tmp_path):
     assert ctx.recent_files()[0] == str(project)
     menu = QtWidgets.QMenu()
     ctx.populate_recent(menu)
-    assert menu.actions()[0].text() == "p.json"
+    assert menu.actions()[0].text().split("\t")[0] == "p.json"

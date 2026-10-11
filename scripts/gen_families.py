@@ -74,9 +74,17 @@ def _rules(path: Path, title: str | None = None) -> list[str]:
 def render() -> str:
     sys.path.insert(0, str(ROOT))
     import ai_made_easy.core.blocks  # noqa: F401 — registers every block and family
-    from ai_made_easy.core.families import all_families, family_of
+    from ai_made_easy.core.families import all_families, family_of, get_family
     from ai_made_easy.core.registry import get_registry
-    from ai_made_easy.core.tasks import all_tasks
+    from ai_made_easy.core.recipes import all_recipes
+    from ai_made_easy.core.tasks import all_tasks, get_task
+
+    def shared(family_id: str) -> list:
+        """Other families' tasks the family's recipes train (classic classifiers, ...)."""
+        own = {t.id for t in all_tasks(family_id)}
+        ids = dict.fromkeys(t for r in all_recipes() if r.family == family_id
+                            for t in r.tasks if t not in own)
+        return [get_task(t) for t in ids]
 
     blocks = [b for b in get_registry().all() if not b.type_id.startswith("custom.")]
     by_family: dict[str, list] = defaultdict(list)
@@ -100,7 +108,7 @@ def render() -> str:
         "| --- | ---: | --- | --- | --- | --- |",
     ]
     for f in families:
-        tasks = ", ".join(t.label for t in all_tasks(f.id)) or "—"
+        tasks = ", ".join(t.label for t in [*all_tasks(f.id), *shared(f.id)]) or "—"
         lines.append(f"| [{f.label}](#{f.label.lower().replace(' ', '-')}) | "
                      f"{len(by_family[f.id])} | {', '.join(f.frameworks) or '—'} | "
                      f"{', '.join(f.targets) or '—'} | {', '.join(f.extras) or '—'} | "
@@ -114,6 +122,10 @@ def render() -> str:
             lines += [f"- **{t.label}** (`{t.id}`){': ' + t.description if t.description else ''}"
                       for t in tasks]
             lines.append("")
+        also = shared(f.id)
+        if also:
+            lines += [f"Also trains {', '.join(t.label for t in also)} (shared with "
+                      f"{', '.join(sorted({get_family(t.family).label for t in also}))}).", ""]
         cats: dict[str, list] = defaultdict(list)
         for block in by_family[f.id]:
             cats[block.category].append(block)

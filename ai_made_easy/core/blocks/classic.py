@@ -2,3 +2,4 @@
 from ai_made_easy.core.classic import catalog
 
 catalog.register_all()
+from ai_made_easy.core.classic import tasks  # noqa: E402, F401 — registers the classic tasks

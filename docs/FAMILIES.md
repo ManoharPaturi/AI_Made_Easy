@@ -7,9 +7,9 @@ AI Made Easy has 529 blocks in 8 families. A design's family follows from its bl
 | Family | Blocks | Trains with | Exports | pip extras | Tasks |
 | --- | ---: | --- | --- | --- | --- |
 | [Neural network](#neural-network) | 402 | pytorch, keras | pytorch_model, keras_model, pytorch_train, keras_train | torch | Multi-class classification, Binary classification, Multi-label classification, Regression, Distribution matching, Object detection, Instance segmentation, Keypoint detection, Semantic segmentation, Time-series forecasting, Keyword spotting, Speech recognition (CTC), Audio tagging, Variational autoencoder, Image generation (GAN), Image generation (diffusion), Language modeling, Sequence to sequence, Density estimation (normalizing flow), Node classification, Graph classification, Link prediction, Recommendation, Reinforcement learning |
-| [Classic ML pipeline](#classic-ml-pipeline) | 55 | sklearn | sklearn_train | classic | — |
+| [Classic ML pipeline](#classic-ml-pipeline) | 55 | sklearn | sklearn_train | classic | Clustering, Anomaly detection, Multi-class classification, Binary classification, Regression |
 | [Probabilistic program](#probabilistic-program) | 21 | pymc | pymc_train | probabilistic | Bayesian modeling |
-| [LLM workflow](#llm-workflow) | 15 | — | llm | llm | — |
+| [LLM workflow](#llm-workflow) | 15 | — | llm | llm | Text generation (LLM), LLM fine-tuning, Retrieval-augmented answering (RAG) |
 | [Gaussian process](#gaussian-process) | 11 | gpytorch, sklearn | gp_gpytorch, gp_sklearn | probabilistic | Gaussian-process regression / classification |
 | [Pipeline](#pipeline) | 10 | — | — | — | — |
 | [Graphical model](#graphical-model) | 8 | pgmpy | pgmpy_train | probabilistic | Probabilistic inference, Regime detection (HMM) |
@@ -283,6 +283,13 @@ AI Made Easy has 529 blocks in 8 families. A design's family follows from its bl
 
 `classic`: scikit-learn, XGBoost, LightGBM and CatBoost pipelines.
 
+**Tasks**
+
+- **Clustering** (`clustering`): Group similar rows without labels; a label column, if any, only scores the groups.
+- **Anomaly detection** (`anomaly_detection`): Flag rows that do not look like the rest; labels, if any, are used only to evaluate.
+
+Also trains Multi-class classification, Binary classification, Regression (shared with Neural network).
+
 **Blocks**
 
 - *Anomaly Detection* (3): Isolation Forest, Local Outlier Factor, One-Class SVM
@@ -332,6 +339,12 @@ AI Made Easy has 529 blocks in 8 families. A design's family follows from its bl
 ## LLM workflow
 
 `llm`: Hugging Face generation, fine-tuning and retrieval workflows (exported as scripts).
+
+**Tasks**
+
+- **Text generation (LLM)** (`text_generation`): Prompt a pretrained language model and get text back.
+- **LLM fine-tuning** (`llm_finetuning`): Adapt a pretrained language model to your examples (supervised fine-tuning, LoRA).
+- **Retrieval-augmented answering (RAG)** (`retrieval_qa`): Answer questions from your documents: retrieve the relevant passages, then generate.
 
 **Blocks**
 

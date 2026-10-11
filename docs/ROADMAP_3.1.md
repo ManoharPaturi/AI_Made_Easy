@@ -1,4 +1,4 @@
-# AI Made Easy 3.1 — plan (draft for review)
+# AI Made Easy 3.1 — plan
 
 ## Context
 3.0 shipped 8 families, 29 tasks and 529 blocks. Every family is validated at design
@@ -39,6 +39,13 @@ Gaps that most limit users today, in order:
   - a regressor on a categorical target
   - clustering with a target column (ignored)
   - an anomaly detector with labels (used only for evaluation)
+- **Status:** done. Classic designs resolve to multiclass / binary / regression and the
+  new `clustering` and `anomaly_detection` tasks; LLM workflows (text generation,
+  fine-tuning, RAG) and pipelines (their Train stage's task) have tasks too, so every
+  sample but the architecture-only `skip_connection_mlp` has one. New recipes: k-means,
+  Gaussian mixture, HDBSCAN, isolation forest, local outlier factor and three LLM
+  starters (34 tasks, 51 recipes). Labels are optional for clustering / anomaly
+  detection and only evaluate them; AutoML searches clusterings by silhouette.
 
 ## Phase 2 — Your data everywhere
 - **Data readers** for the families that train only on demo data today:

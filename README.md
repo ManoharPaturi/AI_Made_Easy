@@ -18,7 +18,9 @@ boilerplate. It runs on the desktop or in the browser.
   Export and Register stages; every stage is a tracked run, and re-running a pipeline
   picks up where it stopped.
 - **Start from a task, not a blank canvas:** **File ▸ New from Task** asks what you want
-  to predict and where your data is, detects its format, target and classes, and ranks
+  to do (34 tasks, from classification and forecasting to clustering, anomaly detection
+  and retrieval-augmented answering) and where your data is, detects its format, target
+  and classes, and ranks
   ready-to-train recipes for your data size and hardware budget, each explaining why
   every block is there. Or let **AutoML** try the recipes and tune them for you.
 - **529 blocks in 8 families** ([docs/FAMILIES.md](docs/FAMILIES.md) lists every

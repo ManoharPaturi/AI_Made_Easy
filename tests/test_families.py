@@ -239,7 +239,8 @@ def test_server_family_endpoints(isolated_home, tmp_path):
     with TestClient(create_app(token="", projects_dir=tmp_path)) as client:
         tasks = client.get("/api/tasks").json()["tasks"]
         assert {"multiclass", "regression"} <= {t["id"] for t in tasks}
-        assert client.get("/api/tasks", params={"family": "classic"}).json()["tasks"] == []
+        classic = client.get("/api/tasks", params={"family": "classic"}).json()["tasks"]
+        assert {t["id"] for t in classic} == {"clustering", "anomaly_detection"}
         families = client.get("/api/families").json()["families"]
         assert [f["id"] for f in families][-1] == "neural"
         described = client.post("/api/describe", json={"graph": tiny_classifier_dict()}).json()

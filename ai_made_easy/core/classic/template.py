@@ -101,16 +101,21 @@ def load_data():
     frame = frame.dropna()
 {% endif %}
     target = {{ d.target_column | repr }}
+{% if supervised %}
     if target not in frame.columns:
         raise SystemExit(f"target column {target!r} not found; columns: {list(frame.columns)}")
     y = frame.pop(target)
+{% else %}
+    # labels are optional: they only score the result and are never trained on
+    y = frame.pop(target) if target and target in frame.columns else None
+{% endif %}
 {% if feature_columns %}
     frame = frame[{{ feature_columns | repr }}]
 {% endif %}
 {% if drop_columns %}
     frame = frame.drop(columns=[c for c in {{ drop_columns | repr }} if c in frame.columns])
 {% endif %}
-    return frame, y.to_numpy()
+    return frame, (y.to_numpy() if y is not None else None)
 {% elif d.block == "data.sklearn" %}
     from sklearn import datasets
 
@@ -440,12 +445,21 @@ def main() -> None:
     started = time.time()
     model.fit(X)
     flags = model.predict(X)
-    rate = float((flags == -1).mean())
-    print(f"epoch 1/1 anomaly_rate={rate:.4f} ({time.time() - started:.1f}s)")
-    print(f"test: anomaly_rate={rate:.4f}")
+    m = {"anomaly_rate": float((flags == -1).mean())}
+    values, counts = np.unique(y, return_counts=True) if y is not None else ((), ())
+    if len(values) == 2:
+        # two-valued labels evaluate the detector (never trained on): the rarer value marks
+        # the anomalies
+        truth = y == values[int(np.argmin(counts))]
+        m["precision"] = float(metrics.precision_score(truth, flags == -1, zero_division=0))
+        m["recall"] = float(metrics.recall_score(truth, flags == -1, zero_division=0))
+        m["roc_auc"] = float(metrics.roc_auc_score(truth, -model.decision_function(X)))
+    print("epoch 1/1 " + " ".join(f"{k}={v:.4f}" for k, v in m.items())
+          + f" ({time.time() - started:.1f}s)")
+    print("test: " + " ".join(f"{k}={v:.4f}" for k, v in m.items()))
     joblib.dump(model, MODEL_FILE)
     save_inference_state(X)
-    Path("metrics.json").write_text(json.dumps({"anomaly_rate": rate}, indent=1))
+    Path("metrics.json").write_text(json.dumps(m, indent=1))
     print(f"saved model to {MODEL_FILE}")
 {% endif %}
 

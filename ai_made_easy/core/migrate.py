@@ -75,8 +75,8 @@ def kind_of(data: dict) -> dict:
     from ai_made_easy.core.families import get_family
     from ai_made_easy.core.tasks import get_task
 
-    if "family" not in data:
-        data = stamp(data)
+    if "family" not in data or not data.get("task"):
+        data = stamp(data)   # older files, or a task this version can now work out
     try:
         family = get_family(data["family"]).label
     except (KeyError, ValueError):

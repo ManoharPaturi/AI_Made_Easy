@@ -1,7 +1,8 @@
 """Recipes built from the shipped sample projects: one or more per remaining task
-(vision, forecasting, speech, generative, sequence, probabilistic, graph, recommender and
-reinforcement-learning designs). With the user's data the sample's demo dataset block is
-swapped for one that reads it; the rest of the design is fitted by :func:`autofit`."""
+(vision, forecasting, speech, generative, sequence, probabilistic, graph, recommender,
+reinforcement-learning and LLM designs). With the user's data the sample's demo dataset
+block is swapped for one that reads it; the rest of the design is fitted by
+:func:`autofit`."""
 from __future__ import annotations
 
 import copy
@@ -297,3 +298,17 @@ starter("structural_time_series", "structural_time_series", "state_space_forecas
 starter("sarimax", "sarimax_airline", "state_space_forecasting", "medium", "timeseries",
         "SARIMAX", "Seasonal ARIMA with exogenous regressors.", requires=("statsmodels",),
         family="ssm", **PROB, strengths="the classical statistical forecasting model")
+# LLM workflows (exported as scripts, not trained in the app)
+LLM = dict(family="llm", extra="llm")
+starter("llm_prompting", "llm_generation", "text_generation", "pretrained", "text",
+        "Prompted LLM", "A pretrained instruction model answers a prompt template.",
+        requires=("transformers",), **LLM,
+        strengths="no training: describe the task in the prompt")
+starter("llm_lora", "llm_lora_finetune", "llm_finetuning", "pretrained", "text",
+        "LoRA fine-tuning", "Supervised fine-tuning of a small LLM with LoRA adapters.",
+        requires=("transformers", "peft", "datasets"), **LLM,
+        strengths="adapts a model to your examples on modest hardware")
+starter("rag_assistant", "llm_rag_assistant", "retrieval_qa", "pretrained", "text",
+        "RAG assistant", "Embeds your documents, retrieves the relevant passages and answers "
+        "from them.", requires=("transformers",), **LLM,
+        strengths="answers grounded in your own documents")

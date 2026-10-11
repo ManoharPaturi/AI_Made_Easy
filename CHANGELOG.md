@@ -1,5 +1,33 @@
 # Changelog
 
+## Unreleased
+
+### Added
+- Every design now has a task, so the wizard, Explain, the status bar and the project
+  lists say what it does. Classic pipelines resolve to multi-class or binary
+  classification, regression, and two new tasks, **clustering** and **anomaly
+  detection**. LLM workflows get **text generation**, **LLM fine-tuning** and
+  **retrieval-augmented answering**. A pipeline takes the task of the design its Train
+  stage trains.
+- Recipes for the new tasks: k-means, Gaussian mixture and HDBSCAN clustering; isolation
+  forest and local outlier factor anomaly detection; and prompting, LoRA fine-tuning and
+  RAG starters from the LLM samples. Every table now also offers clustering and anomaly
+  detection, and AutoML searches clusterings by silhouette.
+- Clustering and anomaly detection train on tables with or without labels. A label
+  column is never trained on: it scores clusters (adjusted Rand, NMI), and 0 / 1 labels
+  evaluate a detector (precision, recall, ROC AUC, with the rarer value as the anomaly).
+- Design rules: a classifier on a continuous target, a regressor on a categorical
+  target, a label column that clustering ignores, and labels that cannot evaluate an
+  anomaly detector. The target warnings now name the estimator for classic pipelines.
+- **File ▸ Open Recent** shows each project's family and task; the status bar shows the
+  task for every family.
+
+### Fixed
+- Clustering and anomaly-detection scripts no longer stop when the table has no label
+  column.
+- `recommend()` no longer fails for a family's task when it is the first thing called.
+- The run history ranks the Davies-Bouldin index lower-is-better.
+
 ## 3.0.0
 
 The designer grows from classifiers and regressors to every major model area. It covers
