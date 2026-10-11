@@ -106,3 +106,54 @@ def torch_supervised(graph) -> str:  # noqa: ANN001
     if task.trainer_kind != "supervised":
         return f"a {task.label} design (it trains with its own loop)"
     return ""
+
+
+def _summary(node, shape) -> str:  # noqa: ANN001
+    if shape is not None:
+        return "[" + ", ".join(str(d) for d in shape) + "]"
+    shown = [f"{k} {v}" for k, v in list(node.resolved_params().items())[:2]
+             if v not in ("", None)]
+    return " · ".join(shown)
+
+
+def inline(graph, base=None) -> dict[str, dict]:  # noqa: ANN001
+    """The design each stage trains, as a list of blocks to draw inside the stage on the
+    canvas (composite view): the network in order, then data, training and metric blocks."""
+    from ai_made_easy.core.migrate import kind_of
+    from ai_made_easy.core.pipelines.plan import build_plan
+
+    out: dict[str, dict] = {}
+    for stage in build_plan(graph, base):
+        key = {"pipeline.train": "design", "pipeline.cross_validate": "design",
+               "pipeline.distill": "student", "pipeline.finetune": "design"}.get(stage.kind)
+        ref = str(stage.params.get(key) or "") if key else ""
+        if not ref:
+            continue
+        if stage.design is None:
+            out[stage.id] = {"ref": ref, "name": "", "kind": "", "blocks": [],
+                             "error": stage.error or "the design could not be read"}
+            continue
+        design = stage.design
+        try:
+            shapes = design.infer_shapes()
+        except Exception:  # noqa: BLE001 — an invalid network still lists its blocks
+            shapes = {}
+        try:
+            chain = [n.instance_id for n in design.model_nodes()]
+        except Exception:  # noqa: BLE001 — classic / probabilistic designs have no chain
+            chain = []
+        order = chain + [nid for nid in design.nodes if nid not in chain]
+        blocks = []
+        for nid in order:
+            node = design.nodes[nid]
+            definition = node.definition()
+            blocks.append({"id": nid, "type": node.type_id, "name": definition.display_name,
+                           "color": definition.color,
+                           "summary": _summary(node, shapes.get(nid)),
+                           "model": nid in chain})
+        kind = kind_of(design.to_dict())
+        out[stage.id] = {"ref": ref, "name": design.name,
+                         "kind": " · ".join(v for v in (kind.get("family"), kind.get("task"))
+                                            if v),
+                         "blocks": blocks, "error": ""}
+    return out

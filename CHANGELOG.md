@@ -49,6 +49,27 @@
   now treat frozen timm and Hugging Face encoders as frozen. New `text` extra.
 - A model-zoo catalog of the Hugging Face encoders (`core/zoo/hf_encoders.json`):
   feature width, parameters, download size and licence.
+- **Advanced pipelines:**
+  - Fine-tune gets discriminative learning rates: with `lr_decay`, each earlier layer
+    group learns more slowly (geometric decay over `layer_groups`), alongside the
+    freeze / unfreeze schedule.
+  - New **Quantization-aware training** stage: prepare (fake quantization), fine-tune,
+    then convert to int8. Its metrics compare the float model, post-training dynamic
+    int8 and QAT int8, with their sizes. On digits, QAT int8 stays within a point of
+    float at about a quarter of the size, and the run folder deploys like any other.
+  - **Stacking ensembles:** Cross-validate saves every example's out-of-fold prediction
+    and, with `refit`, trains and passes on the final model. Ensemble's new `stack`
+    method fits a logistic-regression (or ridge) meta-learner on them, and reports the
+    plain average for comparison.
+  - **Classic teachers:** Distill accepts a scikit-learn / boosting teacher; its
+    `predict_proba` (or `predict`) on the student's training rows gives the soft
+    labels.
+  - **Composite view:** a pipeline stage expands on the canvas to show the design it
+    trains: its layers with their shapes, then its data and training blocks. On the web,
+    use the ▸ toggle; on the desktop, **Model ▸ Expand** (Ctrl+E) on a selected stage.
+  - New sample `pipeline_advanced.json` combines all four.
+- The training script gains `PARAM_GROUPS` / `PREPARE_HOOK` pipeline hooks, and an int8
+  serving path for QAT models. `train.kfold` gets `refit`.
 
 ### Fixed
 - A folder of audio clips preselected keyword spotting in the wizard, a task no recipe

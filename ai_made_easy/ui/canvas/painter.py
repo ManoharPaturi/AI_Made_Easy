@@ -18,6 +18,8 @@ from PySide6 import QtCore, QtGui
 NODE_WIDTH = 196.0
 HEADER_H = 26.0
 ROW_H = 22.0
+INLINE_HEAD = 20.0     # a pipeline stage's design drawn inside it: kind line, then rows
+INLINE_ROW = 16.0
 TEXT_COLOR = (20, 22, 26, 255)   # header text on the light family colours
 
 _T: dict = {
@@ -66,6 +68,9 @@ def _layout_node(self) -> None:  # noqa: ANN001
     rows = _rows(self)
     self._width = NODE_WIDTH
     self._height = HEADER_H + 14.0 + rows * ROW_H
+    inline = getattr(self, "_aime_inline", None)
+    if inline:
+        self._height += INLINE_HEAD + len(inline) * INLINE_ROW + 6.0
     body_top = HEADER_H + 7.0
     for ports, x_of in ((self.inputs, lambda p: -p.boundingRect().width() / 2),
                         (self.outputs, lambda p: self._width - p.boundingRect().width() / 2)):
@@ -146,12 +151,17 @@ def _flat_paint(self, painter, option, widget) -> None:  # noqa: ANN001
                              QtCore.Qt.AlignmentFlag.AlignVCenter, label)
     if subtitle:
         painter.setPen(QtGui.QColor(_T["NODE_TEXT"] if not badge else _T["NODE_SUBTEXT"]))
+        card_h = HEADER_H + 14.0 + _rows(self) * ROW_H      # without an inline design
         body = QtCore.QRectF(body_left, HEADER_H + 4, rect.width() - body_left - 12,
-                             rect.height() - HEADER_H - 8)
+                             card_h - HEADER_H - 8)
         fm = QtGui.QFontMetricsF(painter.font())
         painter.drawText(body, QtCore.Qt.AlignmentFlag.AlignVCenter,
                          fm.elidedText(subtitle, QtCore.Qt.TextElideMode.ElideRight,
                                        body.width()))
+
+    inline = getattr(self, "_aime_inline", None)
+    if inline:
+        _paint_inline(painter, rect, self, inline)
 
     progress = getattr(self, "_aime_progress", None)
     if progress:
@@ -160,6 +170,41 @@ def _flat_paint(self, painter, option, widget) -> None:  # noqa: ANN001
         painter.drawRoundedRect(QtCore.QRectF(6, rect.height() - 5,
                                               (rect.width() - 12) * float(progress), 3), 1.5, 1.5)
     painter.restore()
+
+
+def _paint_inline(painter, rect, item, rows: list) -> None:  # noqa: ANN001
+    """The stage's design under its body: the kind, then one row per block."""
+    top = HEADER_H + 14.0 + _rows(item) * ROW_H
+    pen = QtGui.QPen(QtGui.QColor(_T["NODE_BORDER"]), 1.0)
+    pen.setStyle(QtCore.Qt.PenStyle.DashLine)
+    painter.setPen(pen)
+    painter.drawLine(QtCore.QPointF(6, top), QtCore.QPointF(rect.width() - 6, top))
+    painter.setFont(_font(8.5))
+    painter.setPen(QtGui.QColor(_T["NODE_SUBTEXT"]))
+    fm = QtGui.QFontMetricsF(painter.font())
+    title = getattr(item, "_aime_inline_title", "") or ""
+    painter.drawText(QtCore.QRectF(10, top + 2, rect.width() - 20, INLINE_HEAD - 4),
+                     QtCore.Qt.AlignmentFlag.AlignVCenter,
+                     fm.elidedText(title, QtCore.Qt.TextElideMode.ElideRight, rect.width() - 20))
+    y = top + INLINE_HEAD
+    for name, color, summary, model in rows:
+        painter.setPen(QtCore.Qt.PenStyle.NoPen)
+        painter.setBrush(QtGui.QColor(color))
+        painter.drawRoundedRect(QtCore.QRectF(10, y + 4, 8, 8), 2, 2)
+        painter.setPen(QtGui.QColor(_T["NODE_TEXT"] if model else _T["NODE_SUBTEXT"]))
+        right = min(fm.horizontalAdvance(summary) + 4, (rect.width() - 34) * 0.5) \
+            if summary else 0
+        painter.drawText(QtCore.QRectF(24, y, rect.width() - 34 - right, INLINE_ROW),
+                         QtCore.Qt.AlignmentFlag.AlignVCenter,
+                         fm.elidedText(name, QtCore.Qt.TextElideMode.ElideRight,
+                                       rect.width() - 34 - right))
+        if summary:
+            painter.setPen(QtGui.QColor(_T["NODE_SUBTEXT"]))
+            painter.drawText(QtCore.QRectF(rect.width() - 10 - right, y, right, INLINE_ROW),
+                             QtCore.Qt.AlignmentFlag.AlignVCenter
+                             | QtCore.Qt.AlignmentFlag.AlignRight,
+                             fm.elidedText(summary, QtCore.Qt.TextElideMode.ElideRight, right))
+        y += INLINE_ROW
 
 
 def _paint_badge(painter, rect, badge: str) -> None:  # noqa: ANN001

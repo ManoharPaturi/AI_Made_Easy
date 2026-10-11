@@ -238,6 +238,21 @@ test("wizard: a flow learns the density of your own table", async ({ page }) => 
   }
 });
 
+test("a pipeline stage expands to show its design inline", async ({ page }) => {
+  await page.getByRole("button", { name: "Open" }).click();
+  await page.getByTestId("sample-pipeline_distill_quantize.json").click();
+  await expect(page.getByTestId("expand-train")).toHaveText("▸ digits_teacher · 13 blocks");
+  await expect(page.getByTestId("inline-train")).toHaveCount(0);
+  await page.getByTestId("expand-train").click();
+  const inline = page.getByTestId("inline-train");
+  await expect(inline).toContainText("Neural network · Multi-class classification");
+  await expect(inline.locator(".inline-block").first()).toContainText("Input[64]");
+  await expect(inline.locator(".inline-block", { hasText: "Dense / Linear" })).toHaveCount(3);
+  await expect(page.getByTestId("expand-distill")).toContainText("digits_student");
+  await page.getByTestId("expand-train").click();               // collapse again
+  await expect(page.getByTestId("inline-train")).toHaveCount(0);
+});
+
 test("pipeline samples open with the pipeline panel", async ({ page }) => {
   for (const sample of ["pipeline_distill_quantize.json", "pipeline_finetune_prune_ensemble.json"]) {
     await page.getByRole("button", { name: "Open" }).click();

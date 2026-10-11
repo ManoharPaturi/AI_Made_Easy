@@ -94,6 +94,13 @@ Gaps that most limit users today, in order:
   `predict_proba`).
 - **Composite blocks:** show an embedded design inline on the canvas (expand / collapse),
   on desktop and web.
+- **Status:** done. Fine-tune gets `lr_decay` and `layer_groups`. The new QAT stage
+  reports float, dynamic int8 and QAT int8 metrics; on digits, QAT int8 scored 96.6%
+  against 96.1% float, at 0.05 MB against 0.20 MB. Cross-validate saves out-of-fold
+  predictions and can refit; Ensemble `stack` matched the best member (96.6%) and beat
+  the plain average (95.5%). A random-forest teacher distilled into an MLP reached 92.7%.
+  Stages expand on the canvas to show their design. New sample:
+  `pipeline_advanced.json`.
 
 ## Phase 5 — Block coverage
 Prioritised by what users reach for. Each block gets a runtime shape test and a

@@ -28,7 +28,8 @@ class Stage:
 
     @property
     def produces_model(self) -> bool:
-        return self.kind in B.MODEL_STAGES or self.kind in PASS_THROUGH
+        return self.kind in B.MODEL_STAGES or self.kind in PASS_THROUGH or (
+            self.kind == "pipeline.cross_validate" and bool(self.params.get("refit")))
 
 
 @dataclass
@@ -64,10 +65,12 @@ def build_plan(graph, base=None) -> Plan:  # noqa: ANN001
             except DesignError as exc:
                 stage.error = str(exc)
         upstream = stages.get(stage.inputs[0]) if stage.inputs else None
-        if stage.kind in ("pipeline.train", "pipeline.distill"):
+        if stage.kind in ("pipeline.train", "pipeline.distill") or stage.produces_model \
+                and stage.kind == "pipeline.cross_validate":
             stage.model = stage.design
         elif stage.kind == "pipeline.finetune":
             stage.model = stage.design or (upstream.model if upstream else None)
-        elif stage.kind in ("pipeline.prune", "pipeline.quantize", *PASS_THROUGH):
+        elif stage.kind in ("pipeline.prune", "pipeline.quantize", "pipeline.qat",
+                            *PASS_THROUGH):
             stage.model = upstream.model if upstream else None
     return Plan(stages, order)

@@ -287,9 +287,10 @@ class PipelineRunner:
             return self._start(_with_epochs(stage.design, p["epochs"]), stage)
         if stage.kind == "pipeline.cross_validate":
             design = _with_epochs(stage.design, p["epochs"])
-            design = _with_kfold(design, int(p["k"]))
+            design = _with_kfold(design, int(p["k"]), bool(p.get("refit")))
             result = self._start(design, stage)
-            result["output"] = {}                            # scores only, no model
+            if not p.get("refit"):
+                result["output"] = {}                        # scores only, no model
             return result
         if stage.kind == "pipeline.finetune":
             return self._start_stage(stage.model, stage, lambda wd: S.finetune(
@@ -301,6 +302,8 @@ class PipelineRunner:
             return self._start_stage(stage.model, stage, lambda wd: S.prune(wd, source, p))
         if stage.kind == "pipeline.quantize":
             return self._start_stage(stage.model, stage, lambda wd: S.quantize(wd, source, p))
+        if stage.kind == "pipeline.qat":
+            return self._start_stage(stage.model, stage, lambda wd: S.qat(wd, source, p))
         if stage.kind == "pipeline.evaluate":
             classification = task not in ("regression", "distribution")
             result = self._start_stage(stage.model, stage, lambda wd: S.evaluate(
@@ -373,15 +376,16 @@ def _with_epochs(design, epochs: int):  # noqa: ANN001, ANN202
     return design
 
 
-def _with_kfold(design, k: int):  # noqa: ANN001, ANN202
+def _with_kfold(design, k: int, refit: bool = False):  # noqa: ANN001, ANN202
     from ai_made_easy.core.graph import NodeInstance
 
     design = copy.deepcopy(design)
     existing = [n for n in design.nodes.values() if n.type_id == "train.kfold"]
     if existing:
-        existing[0].params["k"] = k
+        existing[0].params.update(k=k, refit=refit)
     else:
-        design.add_node(NodeInstance("pipeline_kfold", "train.kfold", {"k": k}, (0, 0)))
+        design.add_node(NodeInstance("pipeline_kfold", "train.kfold", {"k": k, "refit": refit},
+                                     (0, 0)))
     return design
 
 

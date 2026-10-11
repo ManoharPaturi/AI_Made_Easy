@@ -65,6 +65,7 @@ NORM_STD = {{ norm_std }}
 K_FOLDS = {{ spec.kfold.k }}
 STRATIFIED = {{ spec.kfold.stratified }}
 KFOLD_SEED = {{ spec.kfold.seed }}
+REFIT = {{ spec.kfold.refit | default(False) }}      # then train the final model as usual
 {% endif %}
 {% if timeseries %}
 TARGET_SCALING = {{ target_scaling }}
@@ -77,7 +78,9 @@ INIT_HOOK = None        # f(model): load weights / freeze layers before training
 EPOCH_HOOK = None       # f(epoch, model): e.g. unfreeze after some epochs
 LOSS_HOOK = None        # f(loss, out, xb, model) -> loss: e.g. knowledge distillation
 BEFORE_SAVE = None      # f(model): e.g. make pruning permanent
-QUANTIZE = ""           # "dynamic_int8": quantize Linear layers when serving
+PARAM_GROUPS = None     # f(model) -> optimizer groups ("lr_mult": discriminative rates)
+PREPARE_HOOK = None     # f(model) -> model: e.g. fake quantization for QAT
+QUANTIZE = ""           # "dynamic_int8" / "qat_int8": int8 weights when serving
 {% for helper in torch_helpers %}
 
 
@@ -429,9 +432,10 @@ def fit(model: nn.Module, train_loader, val_loader, device, log: bool = True):
 {% if prob and prob.kl %}
     kl_scale = 1.0 / max(len(train_loader.dataset), 1)   # ELBO per training example
 {% endif %}
-    optimizer = {{ optimizer_expr }}
+    params = PARAM_GROUPS(model) if PARAM_GROUPS is not None else model.parameters()
+    optimizer = {{ optimizer_expr | replace("model.parameters()", "params") }}
     for group in optimizer.param_groups:
-        group["lr"] *= LR_SCALE
+        group["lr"] *= LR_SCALE * group.get("lr_mult", 1.0)
 {% if scheduler_expr %}
     scheduler = {{ scheduler_expr }}
 {% endif %}
@@ -524,13 +528,17 @@ def cross_validate(device: torch.device) -> None:
             fold[members] = np.arange(len(members)) % K_FOLDS
     else:
         fold[rng.permutation(len(y))] = np.arange(len(y)) % K_FOLDS
-    scores = []
+    scores, oof = [], None
     for k in range(K_FOLDS):
         tr, va = fold != k, fold == k
         train_loader = DataLoader(ArrayDataset(x[tr], y[tr]), batch_size=BATCH_SIZE, shuffle=True)
         val_loader = DataLoader(ArrayDataset(x[va], y[va]), batch_size=BATCH_SIZE)
         model, loss_fn = fit({{ spec.class_name }}().to(device), train_loader, val_loader,
                              device, log=False)
+        outputs, _targets = predict(model, val_loader, device)
+        if oof is None:
+            oof = np.zeros((len(y), *outputs.shape[1:]), np.float32)
+        oof[va] = outputs
         val_loss, metrics = evaluate(model, loss_fn, val_loader, device)
         metrics = {"loss": val_loss, **metrics}
         scores.append(metrics)
@@ -543,7 +551,11 @@ def cross_validate(device: torch.device) -> None:
             print(f"cv {m}: {vals.mean():.4f} ± {vals.std(ddof=1):.4f}")
             summary[m] = float(vals.mean())
             summary[f"{m}_std"] = float(vals.std(ddof=1))
+    # out-of-fold predictions: every training / validation example, predicted by the fold
+    # model that did not see it (a stacking ensemble's meta-learner trains on these)
+    np.savez_compressed("oof.npz", outputs=oof, targets=y, fold=fold)
     Path("metrics.json").write_text(json.dumps({**summary, "folds": K_FOLDS}, indent=1))
+    return summary
 {% endif %}
 {% if spec.is_classification %}
 
@@ -620,15 +632,21 @@ def main() -> None:
     device = pick_device()
     print(f"device: {device}")
 {% if spec.kfold %}
-    cross_validate(device)
-    return
+    cv = cross_validate(device)
+    if not REFIT:
+        return
+    print("refit: training the final model")
 {% else %}
+    cv = {}
+{% endif %}
     train_loader, val_loader, test_loader = make_loaders()
     print(f"samples: train={len(train_loader.dataset)} val={len(val_loader.dataset)} "
           f"test={len(test_loader.dataset)}")
     model = {{ spec.class_name }}().to(device)
     if INIT_HOOK is not None:
         INIT_HOOK(model)
+    if PREPARE_HOOK is not None:
+        model = PREPARE_HOOK(model)
     print(f"parameters: {sum(p.numel() for p in model.parameters() if p.requires_grad):,}")
     model, loss_fn = fit(model, train_loader, val_loader, device)
     if BEFORE_SAVE is not None:
@@ -643,9 +661,9 @@ def main() -> None:
     save_inference_state()      # temperature, conformal quantiles, Laplace posterior
 {% endif %}
     print("test: " + " ".join(f"{k}={v:.4f}" for k, v in report.items()))
+    final = {**report, **test_metrics, **{f"cv_{m}": v for m, v in cv.items()}}
     Path("metrics.json").write_text(json.dumps(
-        {k: v for k, v in {**report, **test_metrics}.items()
-         if isinstance(v, (float, list))}, indent=1))
+        {k: v for k, v in final.items() if isinstance(v, (float, list))}, indent=1))
 {% if spec.predict %}
     preview_predictions(model, test_loader, device)
 {% endif %}
@@ -654,7 +672,6 @@ def main() -> None:
         dump_test_results(model, test_loader, device)
     except Exception as exc:  # noqa: BLE001 — artefacts are optional
         print(f"(could not save predictions: {exc})")
-{% endif %}
 {% endif %}
 
 

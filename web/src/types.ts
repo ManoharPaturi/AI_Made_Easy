@@ -81,10 +81,20 @@ export interface Issue {
   fix: { label: string; description: string } | null;
 }
 
+export interface InlineBlock {
+  id: string; type: string; name: string; color: string; summary: string; model: boolean;
+}
+
+/** The design a pipeline stage trains, drawn inside the stage (composite view). */
+export interface StageDesign {
+  ref: string; name: string; kind: string; blocks: InlineBlock[]; error: string;
+}
+
 export interface Validation {
   valid: boolean;
   issues: Issue[];
   shapes: Record<string, number[]>;
+  designs?: Record<string, StageDesign>;
 }
 
 export interface Summary {

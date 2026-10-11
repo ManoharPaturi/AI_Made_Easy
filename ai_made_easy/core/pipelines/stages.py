@@ -69,18 +69,42 @@ def _write(workdir: Path, kind: str, text: str) -> Path:
     return path
 
 
+def _require(script: Path, hook: str, what: str) -> None:
+    if f"{hook} = None" not in script.read_text():
+        raise ValueError(f"{what} needs a newer training script: retrain the model")
+
+
 def finetune(workdir: Path, source: Path, params: dict, design=None) -> Path:  # noqa: ANN001
     script = _model_script(workdir, script_of(source), design)
+    decay, groups = float(params.get("lr_decay", 1.0)), int(params.get("layer_groups", 0))
+    if decay != 1.0:
+        _require(script, "PARAM_GROUPS", "discriminative learning rates")
     body = f'''
 SOURCE = Path({str(source)!r})
 FREEZE = {params["freeze"]!r}
 UNFREEZE_AFTER = {int(params["unfreeze_after"])}
+LR_DECAY = {decay}          # each earlier layer group learns this much slower
+LAYER_GROUPS = {groups}     # 0: one group per layer
 model_module = load_module({script.name!r}, "model_under_training")
 state = torch.load(checkpoint(SOURCE), map_location="cpu")
 
 
 def layers_with_weights(model):
     return [m for m in model.modules() if any(True for _ in m.parameters(recurse=False))]
+
+
+def param_groups(model):
+    """Discriminative learning rates: the last group learns at the full rate, every group
+    before it LR_DECAY times slower (geometric decay towards the input)."""
+    layers = layers_with_weights(model)
+    n = min(LAYER_GROUPS, len(layers)) if LAYER_GROUPS else len(layers)
+    chunks = [layers[round(i * len(layers) / n):round((i + 1) * len(layers) / n)]
+              for i in range(n)]
+    groups = [{{"params": [p for m in chunk for p in m.parameters(recurse=False)],
+               "lr_mult": LR_DECAY ** (n - 1 - i)}} for i, chunk in enumerate(chunks)]
+    print("fine-tune: learning-rate multipliers per layer group: "
+          + ", ".join(f"{{g['lr_mult']:.3g}}" for g in groups))
+    return groups
 
 
 def init(model):
@@ -107,6 +131,8 @@ def unfreeze(epoch, model):
 
 model_module.INIT_HOOK = init
 model_module.EPOCH_HOOK = unfreeze
+if LR_DECAY != 1.0:
+    model_module.PARAM_GROUPS = param_groups
 model_module.LR_SCALE = {float(params["lr_scale"])}
 model_module.EPOCHS = {int(params["epochs"])}
 model_module.main()
@@ -114,7 +140,73 @@ model_module.main()
     return _write(workdir, "finetune", HEADER.format(title="Fine-tune") + body)
 
 
+def classic_script(run_dir: Path) -> Path | None:
+    """The scikit-learn / boosting training script of a classic run folder (None if not)."""
+    if not any(Path(run_dir).glob("*_model.joblib")):
+        return None
+    return next(iter(sorted(Path(run_dir).glob("*_train_sklearn.py"))), None)
+
+
+CLASSIC_TEACHER = '''
+def teacher_targets(student, teacher, predictor):
+    """The teacher's predictions for the student's training rows, keyed by the student's
+    preprocessed input row (the classic pipeline reads the same raw rows)."""
+    captured = {}
+    load_raw, split_indices = student.load_raw, student.split_indices
+
+    def capture_raw():
+        x, y, classes = load_raw()
+        captured["x"] = x
+        return x, y, classes
+
+    def capture_split(n, y):
+        parts = split_indices(n, y)
+        captured["train"], captured["n"] = parts[0], n
+        return parts
+
+    student.load_raw, student.split_indices = capture_raw, capture_split
+    try:
+        x_train = student.make_arrays()["train"][0]
+    finally:
+        student.load_raw, student.split_indices = load_raw, split_indices
+    raw = captured["x"]
+    if len(raw) != captured["n"]:
+        raise SystemExit("the student drops rows with missing values, so its rows no longer "
+                         "line up with the teacher's: impute instead of dropping rows")
+    train = captured["train"]
+    rows = raw.iloc[train] if hasattr(raw, "iloc") else np.asarray(raw)[train]
+    columns = getattr(teacher, "_COLUMNS", None)
+    if columns and not hasattr(rows, "columns"):
+        import pandas as pd
+
+        rows = pd.DataFrame(np.asarray(rows), columns=columns)
+    inputs = teacher.prepare_inputs(rows)
+    if TASK == "regression":
+        soft = np.asarray(predictor.predict(inputs), np.float32).reshape(len(x_train), -1)
+    else:
+        scores = np.asarray(teacher.predict_scores(predictor, inputs), np.float64)
+        if (scores < 0).any() or not np.allclose(scores.sum(axis=1), 1.0, atol=1e-3):
+            scores = np.exp(scores - scores.max(axis=1, keepdims=True))
+            scores /= scores.sum(axis=1, keepdims=True)
+        names = [str(c) for c in predictor.classes_]
+        wanted = [str(c) for c in (student.CLASS_NAMES or range(len(names)))]
+        if sorted(names) == sorted(wanted):
+            scores = scores[:, [names.index(c) for c in wanted]]
+        elif names != [str(i) for i in range(len(wanted))]:
+            raise SystemExit(f"the teacher's classes {names} do not match the student's "
+                             f"{wanted}")
+        scores = scores ** (1.0 / TEMPERATURE)            # soften like logits / T
+        scores /= scores.sum(axis=1, keepdims=True)
+        soft = scores[:, 1:2] if TASK == "binary" else scores
+    keys = np.ascontiguousarray(x_train.reshape(len(x_train), -1), dtype=np.float32)
+    index = {row.tobytes(): i for i, row in enumerate(keys)}
+    return index, torch.as_tensor(soft, dtype=torch.float32)
+'''
+
+
 def distill(workdir: Path, teacher: Path, student, params: dict, task: str) -> Path:  # noqa: ANN001
+    if classic_script(teacher) is not None:
+        return _distill_classic(workdir, teacher, student, params, task)
     from ai_made_easy.core.codegen import class_name_for
 
     script = _model_script(workdir, design=student)
@@ -290,27 +382,41 @@ Path("metrics.json").write_text(json.dumps(report, indent=1))
 
 
 def ensemble(workdir: Path, members: list[Path], params: dict, task: str) -> Path:
+    if params["method"] == "stack":
+        missing = [m.name for m in members if not (Path(m) / "oof.npz").is_file()]
+        if missing:
+            raise ValueError("stacking needs out-of-fold predictions: feed it Cross-validate "
+                             "stages with refit on")
     scripts = []
     for i, member in enumerate(members):
         target = workdir / f"member{i}_{script_of(member).name}"
         shutil.copy2(script_of(member), target)
         scripts.append(target.name)
-    body = EVALUATE_COMMON + f'''
+    body = EVALUATE_COMMON + STACK + f'''
 MEMBERS = {[str(m) for m in members]!r}
 SCRIPTS = {scripts!r}
 METHOD = {params["method"]!r}
 TASK = {task!r}
 device = torch.device("cpu")
-modules, scores, report = [], [], {{}}
+modules, scores, features, report = [], [], [], {{}}
 for i, (folder, script) in enumerate(zip(MEMBERS, SCRIPTS, strict=True)):
     module = load_module(script, f"member{{i}}")
     _model, outputs, targets = test_outputs(module, folder, device)
     modules.append(module)
     scores.append(module.to_scores(outputs) if TASK != "regression" else outputs)
+    features.append(stack_features(module, outputs))
     for k, v in metrics_of(module, outputs, targets).items():
         report[f"member{{i}}_{{k}}"] = v
 first = modules[0]
-if TASK == "regression":
+if METHOD == "stack":
+    mean = np.mean(scores, axis=0)
+    if TASK != "regression":
+        p = np.clip(mean, 1e-7, 1 - 1e-7)
+        mean = np.log(p) if TASK == "multiclass" else np.log(p / (1 - p))
+    for k, v in metrics_of(first, mean, targets).items():
+        report[f"average_{{k}}"] = v          # the plain average, for comparison
+    combined = stack(modules, MEMBERS, features, targets)
+elif TASK == "regression":
     combined = np.mean(scores, axis=0)
 elif METHOD == "vote" and TASK == "multiclass":
     votes = np.stack([s.argmax(axis=1) for s in scores])
@@ -324,3 +430,135 @@ print("ensemble: " + " ".join(f"{{k}}={{v:.4f}}" for k, v in report.items()))
 Path("metrics.json").write_text(json.dumps(report, indent=1))
 '''
     return _write(workdir, "ensemble", HEADER.format(title="Ensemble") + body)
+
+
+def qat(workdir: Path, source: Path, params: dict) -> Path:
+    """Quantization-aware training: prepare (fake-quantize) -> fine-tune -> convert to int8,
+    compared with the float model and post-training dynamic int8 on the test split."""
+    script = _copy_model(workdir, source, quantize="qat_int8")
+    _require(script, "PREPARE_HOOK", "quantization-aware training")
+    body = EVALUATE_COMMON + f'''
+SOURCE = Path({str(source)!r})
+module = load_module({script.name!r}, "qat_model")
+state = torch.load(checkpoint(SOURCE), map_location="cpu")
+
+
+def init(model):
+    model.load_state_dict(state)
+
+
+def prepare(model):
+    print("qat: fine-tuning with fake-quantized weights and activations")
+    return module.qat_prepare(model)
+
+
+module.DEVICE = "cpu"               # fake quantization and int8 kernels run on the CPU
+module.INIT_HOOK = init
+module.PREPARE_HOOK = prepare
+module.LR_SCALE = {float(params["lr_scale"])}
+module.EPOCHS = {int(params["epochs"])}
+module.main()                       # saves the fake-quantized weights
+
+device = torch.device("cpu")
+module.QUANTIZE = ""
+original, outputs, targets = test_outputs(module, SOURCE, device)
+before = metrics_of(module, outputs, targets)
+module.QUANTIZE = "dynamic_int8"
+dynamic, outputs, targets = test_outputs(module, SOURCE, device)
+ptq = metrics_of(module, outputs, targets)
+module.QUANTIZE = "qat_int8"
+quantized, outputs, targets = test_outputs(module, ".", device)
+after = metrics_of(module, outputs, targets)
+report = {{**after, "size_mb": size_mb(quantized), "size_mb_float": size_mb(original),
+          "size_mb_dynamic_int8": size_mb(dynamic),
+          **{{f"{{k}}_float": v for k, v in before.items()}},
+          **{{f"{{k}}_dynamic_int8": v for k, v in ptq.items()}}}}
+print("qat: " + " ".join(f"{{k}}={{v:.4f}}" for k, v in report.items()))
+Path("metrics.json").write_text(json.dumps(report, indent=1))
+'''
+    return _write(workdir, "qat", HEADER.format(title="Quantization-aware training") + body)
+
+
+STACK = '''
+def stack_features(module, outputs):
+    """What the meta-learner reads from one member: probabilities, or the predictions."""
+    if TASK == "regression":
+        return np.asarray(outputs, np.float64).reshape(len(outputs), -1)
+    return np.asarray(module.to_scores(outputs), np.float64).reshape(len(outputs), -1)
+
+
+def stack(modules, folders, test_features, targets):
+    """Fit the meta-learner on the members' out-of-fold predictions; predict the test split."""
+    from sklearn.linear_model import LogisticRegression, Ridge
+
+    oof, labels = [], None
+    for module, folder in zip(modules, folders, strict=True):
+        saved = np.load(Path(folder) / "oof.npz")
+        if labels is not None and not np.array_equal(labels, saved["targets"]):
+            raise SystemExit("the members' out-of-fold predictions are not aligned: give every "
+                             "Cross-validate stage the same data and K-fold settings")
+        labels = saved["targets"]
+        oof.append(stack_features(module, saved["outputs"]))
+    x, x_test = np.hstack(oof), np.hstack(test_features)
+    if TASK == "regression":
+        meta = Ridge(alpha=1.0).fit(x, labels.reshape(len(labels), -1))
+        print(f"stack: ridge weights {np.round(meta.coef_, 3).tolist()}")
+        return meta.predict(x_test).reshape(len(x_test), -1)
+    meta = LogisticRegression(max_iter=2000).fit(x, labels.reshape(-1).astype(int))
+    print(f"stack: logistic regression on {x.shape[1]} member scores")
+    proba = meta.predict_proba(x_test)
+    n_classes = max(int(labels.max()) + 1, 2)
+    full = np.full((len(x_test), n_classes), 1e-7)
+    full[:, meta.classes_.astype(int)] = proba
+    full = np.clip(full / full.sum(axis=1, keepdims=True), 1e-7, 1 - 1e-7)
+    if TASK == "multiclass":
+        return np.log(full)
+    return np.log(full[:, 1:2] / full[:, 0:1])
+'''
+
+
+def _distill_classic(workdir: Path, teacher: Path, student, params: dict, task: str) -> Path:  # noqa: ANN001
+    """Distill a scikit-learn / boosting teacher: its predict_proba (or predict) on the
+    student's training rows are the soft targets."""
+    script = _model_script(workdir, design=student)
+    epochs = int(params["epochs"])
+    body = CLASSIC_TEACHER + f'''
+TEACHER = Path({str(teacher)!r})
+TEMPERATURE = {float(params["temperature"])}
+ALPHA = {float(params["alpha"])}
+TASK = {task!r}
+student = load_module({script.name!r}, "student_model")
+teacher = load_module({str(classic_script(teacher))!r}, "teacher_model")
+predictor = teacher.load_predictor(TEACHER)
+INDEX, SOFT = teacher_targets(student, teacher, predictor)
+seen = {{"rows": 0, "matched": 0}}
+
+
+def distillation(loss, out, xb, model):
+    rows = xb.detach().float().cpu().reshape(len(xb), -1).numpy()
+    hits = [INDEX.get(np.ascontiguousarray(r).tobytes(), -1) for r in rows]
+    keep = torch.tensor([h >= 0 for h in hits], device=out.device)
+    seen["rows"] += len(hits)
+    seen["matched"] += int(keep.sum())
+    if not bool(keep.any()):
+        return loss
+    target = SOFT[[h for h in hits if h >= 0]].to(out.device)
+    o, t = out[keep], TEMPERATURE
+    if TASK == "multiclass":
+        soft = nn.functional.kl_div(nn.functional.log_softmax(o / t, dim=-1), target,
+                                    reduction="batchmean") * t * t
+    elif TASK in ("binary", "multilabel"):
+        soft = nn.functional.binary_cross_entropy_with_logits(
+            o / t, target.reshape(o.shape)) * t * t
+    else:
+        soft = nn.functional.mse_loss(o, target.reshape(o.shape))
+    return ALPHA * loss + (1 - ALPHA) * soft * keep.float().mean()
+
+
+print(f"distill: classic teacher {{TEACHER.name}}, temperature {{TEMPERATURE}}, alpha {{ALPHA}}")
+student.LOSS_HOOK = distillation
+{"student.EPOCHS = %d" % epochs if epochs else ""}
+student.main()
+update_metrics(teacher_coverage=seen["matched"] / max(seen["rows"], 1))
+'''
+    return _write(workdir, "distill", HEADER.format(title="Distill") + body)

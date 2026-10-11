@@ -107,20 +107,59 @@ INFERENCE_TORCH = r'''
 _PREDICTOR = None
 
 
+def quantized_engine() -> str:
+    """A quantized-kernel backend this machine supports (fbgemm / x86 / qnnpack)."""
+    engines = torch.backends.quantized.supported_engines
+    if torch.backends.quantized.engine == "none" or torch.backends.quantized.engine \
+            not in engines:
+        torch.backends.quantized.engine = next(e for e in ("fbgemm", "x86", "qnnpack")
+                                               if e in engines)
+    return torch.backends.quantized.engine
+
+
+def qat_prepare(model: nn.Module) -> nn.Module:
+    """Fake-quantized copy of the model for quantization-aware training (FX graph mode)."""
+    from torch.ao.quantization import get_default_qat_qconfig_mapping
+    from torch.ao.quantization.quantize_fx import prepare_qat_fx
+
+    example = (torch.zeros(1, *INPUT_SHAPE),)
+    return prepare_qat_fx(model.cpu().train(),
+                          get_default_qat_qconfig_mapping(quantized_engine()), example)
+
+
+def qat_convert(model: nn.Module) -> nn.Module:
+    """The int8 model from a fake-quantized one (CPU)."""
+    from torch.ao.quantization.quantize_fx import convert_fx
+
+    return convert_fx(model.cpu().eval())
+
+
+def model_device(model: nn.Module) -> torch.device:
+    """Where the model lives (quantized models may have no float parameters)."""
+    tensor = next(iter(model.parameters()), None)
+    if tensor is None:
+        tensor = next(iter(model.buffers()), None)
+    return tensor.device if tensor is not None else torch.device("cpu")
+
+
 def load_predictor(folder: str | Path = ".", device: str = "cpu") -> nn.Module:
     """Load the trained weights and preprocessing state from a run folder."""
     global _PREDICTOR
     load_inference_state(folder)
     model = {{ spec.class_name }}()
-    model.load_state_dict(torch.load(Path(folder) / CHECKPOINT, map_location=device))
+    state = torch.load(Path(folder) / CHECKPOINT, map_location="cpu")
+    if QUANTIZE == "qat_int8":           # set by a pipeline's QAT stage: int8 on the CPU
+        model = qat_prepare(model)
+        model.load_state_dict(state)
+        _PREDICTOR = qat_convert(model)
+        return _PREDICTOR
+    model.load_state_dict(state)
     model.eval()
     if QUANTIZE == "dynamic_int8":       # set by a pipeline's Quantize stage (CPU serving)
-        engines = torch.backends.quantized.supported_engines
-        if torch.backends.quantized.engine == "none" or torch.backends.quantized.engine \
-                not in engines:
-            torch.backends.quantized.engine = next(e for e in ("fbgemm", "x86", "qnnpack")
-                                                   if e in engines)
+        quantized_engine()
         model = torch.ao.quantization.quantize_dynamic(model, {nn.Linear}, dtype=torch.qint8)
+        _PREDICTOR = model
+        return _PREDICTOR
     _PREDICTOR = model.to(device)
     return _PREDICTOR
 
@@ -130,7 +169,7 @@ def infer(raw: list) -> list[dict]:
     """Predictions for a list of raw inputs (see ``prepare_inputs``)."""
     if _PREDICTOR is None:
         raise RuntimeError("call load_predictor(folder) first")
-    device = next(_PREDICTOR.parameters()).device
+    device = model_device(_PREDICTOR)
     x = torch.from_numpy(np.ascontiguousarray(prepare_inputs(raw))).to(device)
 {% if prob %}
     return serve(_PREDICTOR, x)

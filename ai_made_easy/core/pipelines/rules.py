@@ -19,6 +19,16 @@ def _task(design):  # noqa: ANN001, ANN202
     return task_of(design)
 
 
+def _classic(design) -> bool:  # noqa: ANN001
+    from ai_made_easy.core.families import family_of
+
+    return design is not None and family_of(design).id == "classic"
+
+
+def _datasets(design) -> list:  # noqa: ANN001
+    return [row for row in data_signature(design) if row[0].startswith("data.")]
+
+
 def pipeline_issues(graph) -> list:  # noqa: ANN001
     plan = build_plan(graph)
     out = []
@@ -45,12 +55,15 @@ def pipeline_issues(graph) -> list:  # noqa: ANN001
         sources = [plan.stages[i] for i in stage.inputs]
         bad = [s for s in sources if not s.produces_model]
         if bad:
-            what = "only reports cross-validation scores" \
-                if bad[0].kind == "pipeline.cross_validate" else "does not pass on a model"
+            what = "only reports cross-validation scores: set its refit to true to pass on " \
+                "a model" if bad[0].kind == "pipeline.cross_validate" else \
+                "does not pass on a model"
             out.append(_issue("error", f"{name}: {bad[0].label} {what}", stage.id))
             continue
         if stage.kind in B.TORCH_STAGES:
             for source in sources:
+                if stage.kind == "pipeline.distill" and _classic(source.model):
+                    continue            # scikit-learn / boosting teachers give soft labels
                 why = torch_supervised(source.model) if source.model is not None else ""
                 if why:
                     out.append(_issue("error", f"{name} works inside a supervised PyTorch "
@@ -70,6 +83,8 @@ def _stage_rules(stage, sources) -> list:  # noqa: ANN001
         if why:
             return [_issue("error", f"Distill trains a supervised PyTorch student; the "
                                     f"student is {why}", stage.id)]
+        if _classic(first):
+            return out + _classic_teacher(stage, first, student)
         if data_signature(student) != data_signature(first):
             out.append(_issue("error", "Distill: the student must read the same dataset with "
                                        "the same preprocessing as the teacher", stage.id))
@@ -80,6 +95,25 @@ def _stage_rules(stage, sources) -> list:  # noqa: ANN001
         if teacher_task and student_task and teacher_task.id != student_task.id:
             out.append(_issue("error", f"Distill: the teacher does {teacher_task.label} but "
                                        f"the student {student_task.label}", stage.id))
+    if stage.kind == "pipeline.finetune" and float(stage.params.get("lr_decay", 1.0)) < 1.0 \
+            and stage.params["freeze"] == "all_but_last" and not stage.params["unfreeze_after"]:
+        out.append(_issue("info", "Fine-tune: only the last layer trains, so lr_decay changes "
+                                  "nothing: set unfreeze_after, or set freeze to none",
+                          stage.id))
+    if stage.kind == "pipeline.qat" and first is not None:
+        inputs = [n for n in first.nodes.values() if n.type_id == "core.input"]
+        if inputs and str(inputs[0].resolved_params().get("dtype", "")).startswith("int"):
+            out.append(_issue("error", "Quantization-aware training needs float inputs; "
+                                       "token-id models (embeddings) are not supported",
+                              stage.id))
+        try:
+            kinds = {n.type_id for n in first.model_nodes()}
+        except Exception:  # noqa: BLE001 — not a network (reported above)
+            kinds = set()
+        if kinds & FLOAT_ONLY:
+            out.append(_issue("info", "QAT quantizes linear and convolution layers; "
+                                      "recurrent and attention layers stay in float",
+                              stage.id))
     if stage.kind == "pipeline.finetune" and stage.design is not None and first is not None:
         new, old = layers(stage.design), layers(first)
         if new[:-1] != old[:-1]:
@@ -89,6 +123,8 @@ def _stage_rules(stage, sources) -> list:  # noqa: ANN001
         elif new[-1:] != old[-1:]:
             out.append(_issue("info", "Fine-tune: the last layer differs from the input "
                                       "model's and starts from new weights", stage.id))
+    if stage.kind == "pipeline.ensemble" and stage.params["method"] == "stack":
+        out += _stacking(stage, sources)
     if stage.kind == "pipeline.ensemble":
         models = [s.model for s in sources if s.model is not None]
         if len({str(data_signature(m)) for m in models}) > 1:
@@ -115,6 +151,48 @@ def _stage_rules(stage, sources) -> list:  # noqa: ANN001
             out.append(_issue("error", f"Export: {', '.join(unknown)} not available for "
                                        f"{framework} models; choose from "
                                        f"{', '.join(FORMATS.get(framework, ()))}", stage.id))
+    return out
+
+
+FLOAT_ONLY = {"core.lstm", "core.gru", "core.rnn", "core.multihead_attention",
+              "core.transformer_encoder", "core.transformer_decoder"}
+
+
+def _classic_teacher(stage, teacher, student) -> list:  # noqa: ANN001
+    """A scikit-learn / boosting teacher: a classifier or regressor on the same dataset."""
+    out = []
+    teacher_task, student_task = _task(teacher), _task(student)
+    if teacher_task is None or teacher_task.id not in ("binary", "multiclass", "regression"):
+        return [_issue("error", "Distill: a classic teacher must be a classifier or a "
+                                "regressor", stage.id)]
+    if student_task is not None and teacher_task.id != student_task.id and not (
+            {teacher_task.id, student_task.id} <= {"binary", "multiclass"}):
+        out.append(_issue("error", f"Distill: the teacher does {teacher_task.label} but the "
+                                   f"student {student_task.label}", stage.id))
+    if _datasets(student) != _datasets(teacher):
+        out.append(_issue("error", "Distill: the student must read the same dataset as the "
+                                   "classic teacher (the same rows get the teacher's soft "
+                                   "labels)", stage.id))
+    return out
+
+
+def _stacking(stage, sources) -> list:  # noqa: ANN001
+    import importlib.util
+
+    out = []
+    plain = [s for s in sources if s.kind != "pipeline.cross_validate"]
+    if plain:
+        out.append(_issue("error", f"Ensemble (stack) learns from out-of-fold predictions: "
+                                   f"replace {plain[0].label} with a Cross-validate stage "
+                                   "(refit on)", stage.id))
+    if len({int(s.params.get("k", 0)) for s in sources
+            if s.kind == "pipeline.cross_validate"}) > 1:
+        out.append(_issue("error", "Ensemble (stack): give every Cross-validate stage the same "
+                                   "number of folds so their out-of-fold predictions line up",
+                          stage.id))
+    if importlib.util.find_spec("sklearn") is None:
+        out.append(_issue("error", "Ensemble (stack) fits its meta-learner with scikit-learn: "
+                                   "pip install 'ai-made-easy[classic]'", stage.id))
     return out
 
 
