@@ -53,8 +53,10 @@ def train(data: dict | Graph, workdir: Path) -> tuple[dict, Path]:
 
 
 def serve(workdir: Path, script: Path, items: list, *args) -> list:
+    (workdir / "items.json").write_text(json.dumps(items))   # too long for a command line
     code = (f"import sys, json; sys.path.insert(0, '.'); import {script.stem} as m; "
-            f"m.load_predictor('.', *{args!r}); print('OUT ' + json.dumps(m.infer({items!r})))")
+            f"m.load_predictor('.', *{args!r}); items = json.load(open('items.json')); "
+            f"print('OUT ' + json.dumps(m.infer(items)))")
     done = subprocess.run([sys.executable, "-c", code], cwd=workdir, capture_output=True,
                           text=True, timeout=600)
     assert "OUT " in done.stdout, done.stderr[-3000:]
@@ -166,7 +168,7 @@ def test_tft_lite_forecasts_with_future_covariates(tmp_path):
         elif n["id"] == "input":
             n["params"]["shape"] = "72, 2"
         elif n["id"] == "trainer":
-            n["params"]["epochs"] = 3
+            n["params"].update(epochs=3, device="cpu")    # CI's virtual MPS learns nothing
     assert messages(data) == []
     metrics, _script = train(data, tmp_path)
     assert metrics["mase"] < metrics["naive_mase"]
@@ -398,6 +400,10 @@ def test_stable_diffusion_lora_trains_offline(tmp_path):
 # ================================================================ reinforcement learning
 
 def test_pixel_and_box2d_environment_rules():
+    def messages(data: dict) -> list[str]:                 # the design rules, not installs
+        return [i.message for i in Graph.from_dict(data).validate()
+                if "not installed" not in i.message]
+
     data = api.read_sample("rl_pixel_chase_cnn.json")
     assert messages(data) == []
     flat = json.loads(json.dumps(data))
