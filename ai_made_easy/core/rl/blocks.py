@@ -11,15 +11,29 @@ from ai_made_easy.core.spec import BlockDefinition
 CATEGORY = "Reinforcement Learning"
 REQUIRES = ("gymnasium", "stable_baselines3")
 EXTRA = "rl"
-# env id -> (observation size, action kind, number of actions or action size, solved score,
-#            description)
+# env id -> (observation shape the Input sees, action kind, number of actions or action
+#            size, solved score, description); images are channels-first [C, H, W]
 ENVS = {
-    "CartPole-v1": (4, "discrete", 2, 475.0, "balance a pole on a cart (2 actions)"),
-    "Acrobot-v1": (6, "discrete", 3, -100.0, "swing a two-link arm above a line (3 actions)"),
-    "MountainCar-v0": (2, "discrete", 3, -110.0, "drive an underpowered car up a hill"),
-    "Pendulum-v1": (3, "continuous", 1, -200.0, "swing a pendulum up and hold it (torque)"),
-    "MountainCarContinuous-v0": (2, "continuous", 1, 90.0, "the hill climb with throttle"),
+    "CartPole-v1": ((4,), "discrete", 2, 475.0, "balance a pole on a cart (2 actions)"),
+    "Acrobot-v1": ((6,), "discrete", 3, -100.0, "swing a two-link arm above a line (3 actions)"),
+    "MountainCar-v0": ((2,), "discrete", 3, -110.0, "drive an underpowered car up a hill"),
+    "Pendulum-v1": ((3,), "continuous", 1, -200.0, "swing a pendulum up and hold it (torque)"),
+    "MountainCarContinuous-v0": ((2,), "continuous", 1, 90.0, "the hill climb with throttle"),
+    "AIME/PixelChase-v0": ((1, 21, 21), "discrete", 4, 1.0,
+                           "steer a dot to its target in a 21×21 picture: the starter for "
+                           "convolutional policies (built in, nothing to install)"),
+    "LunarLander-v3": ((8,), "discrete", 4, 200.0,
+                       "land between the flags with three engines (Box2D, 4 actions)"),
+    "LunarLanderContinuous-v3": ((8,), "continuous", 2, 200.0,
+                                 "the lander with throttled engines (Box2D)"),
+    "BipedalWalker-v3": ((24,), "continuous", 4, 300.0,
+                         "walk a two-legged robot over rough ground (Box2D)"),
+    "CarRacing-v3": ((3, 96, 96), "continuous", 3, 900.0,
+                     "drive round a track from 96×96 top-down pixels (Box2D)"),
 }
+BOX2D = {"LunarLander-v3", "LunarLanderContinuous-v3", "BipedalWalker-v3", "CarRacing-v3"}
+IMAGE_ENVS = {k for k, v in ENVS.items() if len(v[0]) == 3}
+BUILT_IN = {"AIME/PixelChase-v0"}   # defined in the generated script
 TRAIN_FREQ = P("train_freq", "int", 1, lo=1, hi=100_000, help="Update every n steps")
 GRADIENT_STEPS = P("gradient_steps", "int", -1, lo=-1, hi=10_000,
                    help="Gradient steps per update (-1: one per environment step collected)")
@@ -55,8 +69,10 @@ def _blocks() -> list[BlockDefinition]:
                     P("n_envs", "int", 4, lo=1, hi=256, help="Parallel copies collecting "
                                                             "experience"),
                     P("seed", "int", 0, lo=0)),
-            description="The world the agent acts in: classic-control tasks with known "
-                        "observation and action spaces, or any registered Gymnasium id.",
+            description="The world the agent acts in: classic-control and Box2D tasks, a "
+                        "built-in pixel task for convolutional policies, or any registered "
+                        "Gymnasium id. Image observations reach the network as [C, H, W] "
+                        "scaled to 0–1.",
             meta={"rl": "env"}),
         _algo("rl.ppo", "PPO",
               (lr(3e-4), P("n_steps", "int", 1024, lo=8, hi=100_000,

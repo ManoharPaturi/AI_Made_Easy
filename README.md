@@ -25,7 +25,7 @@ boilerplate. It runs on the desktop or in the browser.
   and classes, and ranks
   ready-to-train recipes for your data size and hardware budget, each explaining why
   every block is there. Or let **AutoML** try the recipes and tune them for you.
-- **529 blocks in 8 families** ([docs/FAMILIES.md](docs/FAMILIES.md) lists every
+- **544 blocks in 9 families** ([docs/FAMILIES.md](docs/FAMILIES.md) lists every
   family, task, block and design rule) across every major library: `torch.nn` layers, Keras 3
   equivalents, torchvision / `keras.applications` / timm pretrained backbones,
   Hugging Face text and image encoders, scikit-learn, XGBoost, LightGBM and CatBoost,
@@ -116,7 +116,9 @@ Install only what you need with the optional extras:
 | `text` | Hugging Face text encoders (DistilBERT, BERT, RoBERTa, MiniLM, ...) and tokenizers |
 | `probabilistic` | pgmpy, hmmlearn, PyMC, GPyTorch and statsmodels (graphical models, probabilistic programs, Gaussian processes, state-space models) |
 | `graph` | PyTorch Geometric (graph neural networks) |
+| `generative` | diffusers and peft (Stable Diffusion LoRA fine-tuning) |
 | `rl` | Gymnasium and stable-baselines3 (reinforcement learning) |
+| `rl-box2d` | The Box2D environments (LunarLander, BipedalWalker, CarRacing); wheels exist up to Python 3.12 |
 | `data` | pandas-backed table files (CSV, TSV, Parquet, Excel, JSON) |
 | `classic` | scikit-learn, XGBoost, LightGBM, CatBoost |
 | `keras` | Keras 3 for running exported Keras code |
@@ -233,11 +235,13 @@ cd web && npm ci && npm run build && npx playwright test   # web UI
 UPDATE_GOLDEN=1 pytest tests/test_golden.py
 python scripts/build_examples.py        # regenerate example projects
 python scripts/verify_codegen.py --keras
+python scripts/verify_codegen.py --coverage   # which blocks the codegen harness runs, per family
 python scripts/gen_families.py          # regenerate docs/FAMILIES.md
 AIME_ONLINE=1 pytest tests/test_online.py   # downloads real pretrained weights (nightly CI)
 ```
 
-Architecture and design rules: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+Architecture and design rules: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Adding a block:
+[CONTRIBUTING.md](CONTRIBUTING.md#adding-a-block).
 Web version: [docs/WEB.md](docs/WEB.md). Roadmap: [docs/ROADMAP_3.0.md](docs/ROADMAP_3.0.md).
 Release notes: [CHANGELOG.md](CHANGELOG.md).
 

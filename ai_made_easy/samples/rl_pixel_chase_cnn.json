@@ -1,0 +1,186 @@
+{
+ "schema_version": 1,
+ "name": "rl_pixel_chase_cnn",
+ "meta": {
+  "title": "Reinforcement Learning \u2014 a CNN policy that sees pixels",
+  "description": "PPO learns to steer a dot to its target from a 21\u00d721 picture. Two strided convolutions read the image and a dense layer turns it into features; stable-baselines3 adds the action and value heads. Try replacing the convolutions with Flatten + Dense to see why policies that look at pixels need them."
+ },
+ "nodes": [
+  {
+   "id": "input",
+   "type": "core.input",
+   "params": {
+    "shape": "1, 21, 21"
+   },
+   "position": [
+    0,
+    0
+   ]
+  },
+  {
+   "id": "conv2d_0",
+   "type": "core.conv2d",
+   "params": {
+    "out_channels": 16,
+    "kernel_size": 3,
+    "stride": 2,
+    "padding": 1
+   },
+   "position": [
+    0,
+    90
+   ]
+  },
+  {
+   "id": "relu_1",
+   "type": "core.relu",
+   "params": {},
+   "position": [
+    0,
+    180
+   ]
+  },
+  {
+   "id": "conv2d_2",
+   "type": "core.conv2d",
+   "params": {
+    "out_channels": 32,
+    "kernel_size": 3,
+    "stride": 2,
+    "padding": 1
+   },
+   "position": [
+    0,
+    270
+   ]
+  },
+  {
+   "id": "relu_3",
+   "type": "core.relu",
+   "params": {},
+   "position": [
+    0,
+    360
+   ]
+  },
+  {
+   "id": "flatten_4",
+   "type": "core.flatten",
+   "params": {},
+   "position": [
+    0,
+    450
+   ]
+  },
+  {
+   "id": "dense_5",
+   "type": "core.dense",
+   "params": {
+    "units": 64
+   },
+   "position": [
+    0,
+    540
+   ]
+  },
+  {
+   "id": "relu_6",
+   "type": "core.relu",
+   "params": {},
+   "position": [
+    0,
+    630
+   ]
+  },
+  {
+   "id": "output",
+   "type": "core.output",
+   "params": {},
+   "position": [
+    0,
+    720
+   ]
+  },
+  {
+   "id": "env",
+   "type": "rl.env",
+   "params": {
+    "env_id": "AIME/PixelChase-v0",
+    "custom_id": "",
+    "n_envs": 8,
+    "seed": 0
+   },
+   "position": [
+    300,
+    0
+   ]
+  },
+  {
+   "id": "algo",
+   "type": "rl.ppo",
+   "params": {
+    "total_timesteps": 60000,
+    "learning_rate": 0.001,
+    "n_steps": 128,
+    "batch_size": 256,
+    "n_epochs": 10,
+    "gamma": 0.95,
+    "gae_lambda": 0.95,
+    "clip_range": 0.2,
+    "ent_coef": 0.01,
+    "head": "64",
+    "evaluations": 10,
+    "eval_episodes": 20
+   },
+   "position": [
+    300,
+    90
+   ]
+  },
+  {
+   "id": "trainer",
+   "type": "train.trainer",
+   "params": {
+    "device": "cpu"
+   },
+   "position": [
+    300,
+    180
+   ]
+  }
+ ],
+ "edges": [
+  {
+   "from": "input/out",
+   "to": "conv2d_0/in"
+  },
+  {
+   "from": "conv2d_0/out",
+   "to": "relu_1/in"
+  },
+  {
+   "from": "relu_1/out",
+   "to": "conv2d_2/in"
+  },
+  {
+   "from": "conv2d_2/out",
+   "to": "relu_3/in"
+  },
+  {
+   "from": "relu_3/out",
+   "to": "flatten_4/in"
+  },
+  {
+   "from": "flatten_4/out",
+   "to": "dense_5/in"
+  },
+  {
+   "from": "dense_5/out",
+   "to": "relu_6/in"
+  },
+  {
+   "from": "relu_6/out",
+   "to": "output/in"
+  }
+ ]
+}

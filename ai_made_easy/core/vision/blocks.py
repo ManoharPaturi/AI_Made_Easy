@@ -24,6 +24,7 @@ KEYPOINT_DETECTORS = tuple(r["name"] for r in catalog("torchvision_detection")
 SEGMENTERS = tuple(r["name"] for r in catalog("torchvision_segmentation"))
 HF_DETECTORS = ("detr", "conditional_detr", "rt_detr")
 HF_SEGMENTERS = ("segformer_b0", "segformer_b1", "segformer_b2")
+MASK2FORMERS = ("mask2former_swin_tiny", "mask2former_swin_small")
 UNET_VARIANTS = ("unet", "unet_plus_plus", "attention_unet", "resunet")
 TIMM_MODELS = {r["name"]: r for r in catalog("timm_image")}
 HF_ENCODERS = {  # model id: (feature width, patch multiple or 0, fixed side or 0)
@@ -128,6 +129,43 @@ def _hf_encoder_shape(in_shapes, params):
     return [width]
 
 
+def _fpn_shape(in_shapes, params):
+    for s in in_shapes:
+        if len(s) != 3:
+            raise ShapeError(f"FPN takes feature maps [C, H, W], got {s}")
+    for finer, coarser in zip(in_shapes, in_shapes[1:], strict=False):
+        if coarser[1] > finer[1] or coarser[2] > finer[2]:
+            raise ShapeError("FPN inputs go from the finest feature map to the coarsest: "
+                             f"{finer[1]}×{finer[2]} is smaller than {coarser[1]}×{coarser[2]}"
+                             " (swap the wires)")
+    return [int(params["out_channels"]), in_shapes[0][1], in_shapes[0][2]]
+
+
+def _fpn_cost(in_shapes, params) -> tuple[int, int]:
+    out = int(params["out_channels"])
+    count = sum(s[0] * out + out for s in in_shapes) + out * out * 9 + out
+    macs = sum(s[0] * out * s[1] * s[2] for s in in_shapes) + \
+        out * out * 9 * in_shapes[0][1] * in_shapes[0][2]
+    return count, 2 * macs
+
+
+def _yolo_shape(in_shapes, params):
+    s = in_shapes[0]
+    if len(s) != 3:
+        raise ShapeError(f"YOLO-style Head takes a feature map [C, H, W] from convolution "
+                         f"blocks or an FPN neck, got {s}")
+    return [int(params["max_detections"]), 6]
+
+
+def _yolo_cost(in_shapes, params) -> tuple[int, int]:
+    c, h, w = in_shapes[0]
+    width, k = int(params["width"]), int(params["num_classes"])
+    count = c * width + 3 * width + 4 * (9 * width * width + 3 * width) + \
+        width * (k + 5) + k + 5
+    macs = h * w * (c * width + 36 * width * width + width * (k + 5))
+    return count, 2 * macs
+
+
 # ------------------------------------------------------------------ cost hooks
 # meta["cost"](in_shapes, params) -> (parameters, forward FLOPs); used by the summary and
 # core.budget for blocks whose cost does not follow a single-layer formula.
@@ -160,6 +198,7 @@ HF_COSTS = {
     "facebook/dinov2-small": (22.1, 5.5, 224), "facebook/dinov2-base": (86.6, 21.9, 224),
     "openai/clip-vit-base-patch32": (87.8, 4.4, 224),
     "google/siglip-base-patch16-224": (92.9, 17.5, 224),
+    "mask2former_swin_tiny": (47.4, 37.0, 512), "mask2former_swin_small": (68.7, 49.0, 512),
 }
 
 
@@ -195,11 +234,12 @@ _WEIGHTS_HELP = ("none: random init (no download); imagenet: pretrained backbone
 
 
 def _head(type_id: str, name: str, *, task: str, params: tuple, shape, torch,
-          helpers: tuple, desc: str, cost=None, requires=(), extra="", role="boxes"):
+          helpers: tuple, desc: str, cost=None, requires=(), extra="", role="boxes",
+          meta: dict | None = None):
     defn = nn_block(type_id, name, CATEGORY, family="model", params=params, shape=shape,
                     torch=torch, torch_helpers=helpers, desc=desc,
                     param_fn=(lambda s, p: cost(s, p)[0]) if cost else None)
-    meta = {"task": task, "cost": cost}
+    meta = {"task": task, "cost": cost, **(meta or {})}
     defn = _replace(defn, meta=meta, requires=tuple(requires), extra=extra,
                     outputs=(PortSpec("out", role=role),), library="PyTorch")
     TASK_BLOCKS[type_id] = task
@@ -320,6 +360,59 @@ def _blocks() -> list[BlockDefinition]:
               helpers=("UNet",),
               desc="U-Net family trained from scratch: encoder-decoder with skip connections "
                    "→ [C, H, W]."),
+        _head("vision.hf_mask2former", "Mask2Former", task="semantic_segmentation",
+              params=(P("arch", "enum", "mask2former_swin_tiny", options=MASK2FORMERS),
+                      P("num_classes", "int", 21, lo=2,
+                        help="Classes per pixel, including background"),
+                      P("weights", "enum", "none", options=("none", "ade"),
+                        help="ade: Hugging Face checkpoint trained on ADE20k (150 classes; "
+                             "the class head is replaced)"),
+                      P("num_queries", "int", 100, lo=4, hi=300,
+                        help="Mask proposals per image: more than the regions you expect")),
+              shape=_class_map("Mask2Former"), role="masks", cost=_hf_cost("arch"),
+              torch=lambda c: (f"HFMask2Former(\"{c['arch']}\", "
+                               f"num_classes={int(c['num_classes'])}, "
+                               f"weights=\"{c['weights']}\", "
+                               f"num_queries={int(c['num_queries'])})"),
+              helpers=("skip_pretrained", "imagenet_normalize", "HFMask2Former"),
+              requires=("transformers", "scipy"), extra="vision-tasks",
+              meta={"default_loss": None, "default_optimizer": "AdamW (lr = 1e-4)",
+                    "default_lr": 1e-4},
+              desc="Hugging Face Mask2Former (Swin backbone): mask classification with a "
+                   "transformer decoder; trains with its own matching loss."),
+        _head("vision.yolo_head", "YOLO-style Head", task="detection",
+              params=(P("num_classes", "int", 3, lo=1, help="Object classes in the dataset"),
+                      P("width", "int", 64, lo=8, hi=512, help="Channels in the head's convs"),
+                      P("box_loss", "enum", "giou", options=("giou", "diou", "ciou"),
+                        help="IoU loss for the boxes; a GIoU / DIoU / CIoU Loss block "
+                             "overrides it"),
+                      P("max_detections", "int", 100, lo=1, hi=1000),
+                      P("score_threshold", "float", 0.05, lo=0.0, hi=1.0),
+                      P("iou_threshold", "float", 0.6, lo=0.1, hi=0.95,
+                        help="Non-maximum suppression: overlapping boxes above this IoU are "
+                             "merged")),
+              shape=_yolo_shape, cost=_yolo_cost,
+              torch=lambda c: (f"YOLOHead({c['input_shape'][0]}, "
+                               f"{int(c['num_classes'])}, width={int(c['width'])}, "
+                               f"max_detections={int(c['max_detections'])}, "
+                               f"score_threshold={float(c['score_threshold'])}, "
+                               f"iou_threshold={float(c['iou_threshold'])}, "
+                               f"box_loss=\"{c['box_loss']}\")"),
+              helpers=("pad_detections", "YOLOHead"),
+              desc="Anchor-free YOLO-style detection head (objectness, classes and box "
+                   "distances per cell) on features from your own convolution blocks or an "
+                   "FPN neck → [max_detections, 6]."),
+        _replace(nn_block(
+            "vision.fpn", "FPN Neck", CATEGORY, family="model", inputs=("fine", "mid", "coarse"),
+            params=(P("out_channels", "int", 64, lo=8, hi=1024),),
+            shape=_fpn_shape, param_fn=lambda s, p: _fpn_cost(s, p)[0],
+            torch=lambda c: (f"FPN([{', '.join(str(s[0]) for s in c['in_shapes'])}], "
+                             f"{int(c['out_channels'])})"),
+            torch_expr="self.{self_var}({i0}, {i1}, {i2})",
+            torch_helpers=("FPN",),
+            desc="Feature pyramid: fuses three feature maps (finest → coarsest) top-down so "
+                 "fine features see wide context → [out_channels, H, W] of the finest."),
+            meta={"cost": _fpn_cost}),
         _replace(nn_block(
             "vision.timm_backbone", "timm Image Backbone", "Pretrained Models", family="model",
             params=(P("model", "enum", "convnext_atto", options=tuple(TIMM_MODELS)),
@@ -437,6 +530,17 @@ def _metric(type_id: str, name: str, key: str, tasks: tuple, desc: str,
 
 
 BOX_TASKS = ("detection", "instance_segmentation", "keypoints")
+BOX_LOSSES: dict[str, str] = {}   # block -> YOLOHead box_loss
+
+
+def _box_loss(type_id: str, name: str, kind: str, desc: str) -> BlockDefinition:
+    BOX_LOSSES[type_id] = kind
+    return BlockDefinition(
+        type_id=type_id, display_name=name, category="Loss", color=family_color("training"),
+        params=(P("weight", "float", 5.0, lo=0.0,
+                  help="Weight of the box term against objectness and classes"),),
+        description=desc, library="PyTorch",
+        meta={"kind": "loss", "task": "detection", "vision": True, "box_loss": kind})
 
 
 def _loss_metric_blocks() -> list[BlockDefinition]:
@@ -452,6 +556,15 @@ def _loss_metric_blocks() -> list[BlockDefinition]:
         _loss("vision.loss_focal_pixel", "Pixel Focal Loss",
               (P("gamma", "float", 2.0, lo=0.0),),
               "Cross-entropy that down-weights easy pixels (rare classes, thin structures)."),
+        _box_loss("vision.loss_giou", "GIoU Loss", "giou",
+                  "1 − generalized IoU: still has a gradient when boxes do not overlap "
+                  "(Rezatofighi et al., 2019). Trains the YOLO-style head's boxes."),
+        _box_loss("vision.loss_diou", "DIoU Loss", "diou",
+                  "IoU loss plus the distance between box centres: converges faster than "
+                  "GIoU (Zheng et al., 2020). Trains the YOLO-style head's boxes."),
+        _box_loss("vision.loss_ciou", "CIoU Loss", "ciou",
+                  "DIoU plus an aspect-ratio term (Zheng et al., 2020). Trains the YOLO-style "
+                  "head's boxes."),
         _metric("eval.map", "mAP@[.5:.95]", "map", BOX_TASKS,
                 "COCO mean average precision over IoU 0.50–0.95."),
         _metric("eval.map50", "mAP@.5", "map50", BOX_TASKS,

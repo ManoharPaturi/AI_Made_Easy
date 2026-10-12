@@ -15,6 +15,7 @@ MC_SAMPLES = {{ prob.mc_samples }}
 LOSS_INPUT = "{{ loss_input or 'logits' }}"
 CLASS_TASK = {{ "True" if spec.task in ("multiclass", "binary") else "False" }}
 MDN = {{ prob.mdn | repr }}                # None or {"k": components, "d": targets}
+QUANTILES = {{ prob.quantile | repr }}      # None or {"levels": [...], "d": targets}
 LAPLACE = {{ prob.laplace | repr }}
 ECE_BINS = {{ prob.ece_bins }}
 TEMPERATURE = {{ "True" if prob.temperature else "False" }}
@@ -56,6 +57,32 @@ def mdn_point(out: np.ndarray) -> np.ndarray:
     return mean[:, 0] if mean.shape[1] == 1 else mean
 
 
+def quantile_split(out):
+    """[N, D * Q] -> [N, D, Q] (levels ascending)."""
+    return out.reshape(len(out), QUANTILES["d"], len(QUANTILES["levels"]))
+
+
+def quantile_loss(out: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+    """Pinball loss averaged over the quantile levels."""
+    q = quantile_split(out.float())
+    levels = torch.tensor(QUANTILES["levels"], device=q.device)
+    diff = y.float().reshape(len(y), -1, 1) - q
+    return torch.maximum(levels * diff, (levels - 1) * diff).mean()
+
+
+def quantile_point(out: np.ndarray) -> np.ndarray:
+    """The quantile nearest the median is the point prediction."""
+    levels = np.asarray(QUANTILES["levels"])
+    mid = quantile_split(np.asarray(out))[..., int(np.abs(levels - 0.5).argmin())]
+    return mid[:, 0] if mid.shape[1] == 1 else mid
+
+
+def quantile_interval(out: np.ndarray) -> tuple:
+    """(lower, upper) [N, D]: the outermost quantiles."""
+    q = quantile_split(np.asarray(out))
+    return q[..., 0], q[..., -1]
+
+
 def probabilities(outputs: np.ndarray) -> np.ndarray:
     """Model outputs -> class probabilities [N, C] (binary: two columns)."""
     p = np.asarray(to_scores(np.asarray(outputs, dtype=np.float32)), dtype=np.float64)
@@ -81,7 +108,7 @@ def encode(probs: np.ndarray) -> np.ndarray:
 def mc_forward(model: nn.Module, x: torch.Tensor) -> torch.Tensor:
     """The predictive mean over MC_SAMPLES stochastic passes (probabilities are averaged,
     not logits)."""
-    if MC_SAMPLES <= 1 or MDN:
+    if MC_SAMPLES <= 1 or MDN or QUANTILES:
         return model(x)
     outs = [model(x).float().cpu().numpy() for _ in range(MC_SAMPLES)]
     if CLASS_TASK:
@@ -242,7 +269,7 @@ def predictive(model: nn.Module, loader, device) -> tuple:
     model.eval()
     for xb, yb in loader:
         x = xb.to(device)
-        if not CLASS_TASK and not MDN and MC_SAMPLES > 1:
+        if not CLASS_TASK and not MDN and not QUANTILES and MC_SAMPLES > 1:
             draws = torch.stack([model(x).float() for _ in range(MC_SAMPLES)])
             outs.append(draws.mean(0).cpu())
             stds.append(draws.std(0).cpu())
@@ -257,6 +284,14 @@ def regression_moments(outputs, eps_std, noise: float | None):
     if MDN:
         mean, std = mdn_moments(outputs)
         return mean.reshape(len(mean), -1), std.reshape(len(std), -1)
+    if QUANTILES:   # a Gaussian with the same outer quantiles
+        from statistics import NormalDist
+
+        lo, hi = quantile_interval(outputs)
+        z = NormalDist().inv_cdf(QUANTILES["levels"][-1]) - NormalDist().inv_cdf(
+            QUANTILES["levels"][0])
+        mean = quantile_point(outputs).reshape(len(outputs), -1)
+        return mean, np.clip((hi - lo) / max(z, 1e-6), 1e-12, None)
     mean = outputs.reshape(len(outputs), -1)
     if eps_std is None:
         return mean, None if noise is None else np.full_like(mean, math.sqrt(noise))
@@ -309,6 +344,24 @@ def probabilistic_report(model: nn.Module, train_loader, val_loader, test_loader
             out["conformal_set_size"] = float(sets.sum(1).mean())
         return out
     noise = None
+    if QUANTILES:
+        yv, yt = val_y.reshape(len(val_y), -1), test_y.reshape(len(test_y), -1)
+        lo_t, hi_t = quantile_interval(test_out)
+        level = QUANTILES["levels"][-1] - QUANTILES["levels"][0]
+        out[f"interval_coverage_{round(100 * level)}"] = float(
+            ((yt >= lo_t) & (yt <= hi_t)).all(1).mean())
+        out["interval_width"] = float((hi_t - lo_t).mean())
+        if CONFORMAL_ALPHA and len(yv):   # conformalized quantile regression
+            lo_v, hi_v = quantile_interval(val_out)
+            scores = np.maximum(lo_v - yv, yv - hi_v).max(1)
+            rank = min(1.0, math.ceil((len(scores) + 1) * (1 - CONFORMAL_ALPHA)) / len(scores))
+            q = float(np.quantile(scores, rank, method="higher"))
+            INFERENCE_STATE["cqr_q"] = q
+            out["conformal_coverage"] = float(((yt >= lo_t - q) & (yt <= hi_t + q)).all(1)
+                                              .mean())
+            out["conformal_width"] = float((hi_t - lo_t + 2 * q).mean())
+            out["cqr_adjustment"] = q
+        return out
     if not MDN and val_std is not None:            # aleatoric noise left over by MC averaging
         resid = (val_out.reshape(len(val_out), -1) - val_y.reshape(len(val_y), -1)) ** 2
         noise = max(float(resid.mean() - (val_std ** 2).mean()), 1e-12)
@@ -379,13 +432,27 @@ def serve(model: nn.Module, x: torch.Tensor) -> list[dict]:
         mean, std = laplace_predict(post, captured[0].float().cpu().numpy(), post["prior"],
                                     LAPLACE["samples"])
     else:
-        if not MDN and MC_SAMPLES > 1:
+        if not MDN and not QUANTILES and MC_SAMPLES > 1:
             draws = torch.stack([model(x).float() for _ in range(MC_SAMPLES)]).cpu().numpy()
             outputs, eps_std = draws.mean(0), draws.std(0)
         else:
             outputs = model(x).float().cpu().numpy()
         mean, std = regression_moments(outputs, eps_std, state.get("mc_noise"))
     results = []
+    if QUANTILES:
+        quantiles = quantile_split(outputs)
+        lo, hi = quantile_interval(outputs)
+        q = state.get("cqr_q", 0.0)
+        for i in range(len(mean)):
+            row = {"prediction": float(mean[i, 0]) if mean.shape[1] == 1
+                   else [float(v) for v in mean[i]],
+                   "quantiles": {str(level): [float(v) for v in quantiles[i, :, j]]
+                                 if mean.shape[1] > 1 else float(quantiles[i, 0, j])
+                                 for j, level in enumerate(QUANTILES["levels"])}}
+            interval = [[float(a - q), float(b + q)] for a, b in zip(lo[i], hi[i])]
+            row["interval"] = interval[0] if mean.shape[1] == 1 else interval
+            results.append(row)
+        return results
     for i in range(len(mean)):
         row = {"prediction": float(mean[i, 0]) if mean.shape[1] == 1
                else [float(v) for v in mean[i]]}

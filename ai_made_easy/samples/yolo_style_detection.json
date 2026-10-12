@@ -1,0 +1,390 @@
+{
+ "schema_version": 1,
+ "name": "yolo_style_detection",
+ "meta": {
+  "title": "Shapes \u2014 YOLO-style Detector from Blocks",
+  "description": "A detector you can read end to end: five strided convolution stages, an FPN neck that fuses the stride 8 / 16 / 32 features and an anchor-free YOLO-style head trained with the GIoU box loss. Trains from scratch in minutes on generated shapes; swap Synthetic Shapes for a COCO or YOLO dataset to detect your own objects."
+ },
+ "nodes": [
+  {
+   "id": "input",
+   "type": "core.input",
+   "params": {
+    "shape": "3, 128, 128",
+    "dtype": "float32"
+   },
+   "position": [
+    0,
+    0
+   ]
+  },
+  {
+   "id": "conv1",
+   "type": "core.conv2d",
+   "params": {
+    "out_channels": 16,
+    "kernel_size": 3,
+    "stride": 2,
+    "padding": 1,
+    "bias": false
+   },
+   "position": [
+    0,
+    90
+   ]
+  },
+  {
+   "id": "bn1",
+   "type": "core.batch_norm2d",
+   "params": {},
+   "position": [
+    0,
+    160
+   ]
+  },
+  {
+   "id": "act1",
+   "type": "core.silu",
+   "params": {},
+   "position": [
+    0,
+    230
+   ]
+  },
+  {
+   "id": "conv2",
+   "type": "core.conv2d",
+   "params": {
+    "out_channels": 32,
+    "kernel_size": 3,
+    "stride": 2,
+    "padding": 1,
+    "bias": false
+   },
+   "position": [
+    0,
+    300
+   ]
+  },
+  {
+   "id": "bn2",
+   "type": "core.batch_norm2d",
+   "params": {},
+   "position": [
+    0,
+    370
+   ]
+  },
+  {
+   "id": "act2",
+   "type": "core.silu",
+   "params": {},
+   "position": [
+    0,
+    440
+   ]
+  },
+  {
+   "id": "conv3",
+   "type": "core.conv2d",
+   "params": {
+    "out_channels": 64,
+    "kernel_size": 3,
+    "stride": 2,
+    "padding": 1,
+    "bias": false
+   },
+   "position": [
+    0,
+    510
+   ]
+  },
+  {
+   "id": "bn3",
+   "type": "core.batch_norm2d",
+   "params": {},
+   "position": [
+    0,
+    580
+   ]
+  },
+  {
+   "id": "act3",
+   "type": "core.silu",
+   "params": {},
+   "position": [
+    0,
+    650
+   ]
+  },
+  {
+   "id": "conv4",
+   "type": "core.conv2d",
+   "params": {
+    "out_channels": 96,
+    "kernel_size": 3,
+    "stride": 2,
+    "padding": 1,
+    "bias": false
+   },
+   "position": [
+    0,
+    720
+   ]
+  },
+  {
+   "id": "bn4",
+   "type": "core.batch_norm2d",
+   "params": {},
+   "position": [
+    0,
+    790
+   ]
+  },
+  {
+   "id": "act4",
+   "type": "core.silu",
+   "params": {},
+   "position": [
+    0,
+    860
+   ]
+  },
+  {
+   "id": "conv5",
+   "type": "core.conv2d",
+   "params": {
+    "out_channels": 128,
+    "kernel_size": 3,
+    "stride": 2,
+    "padding": 1,
+    "bias": false
+   },
+   "position": [
+    0,
+    930
+   ]
+  },
+  {
+   "id": "bn5",
+   "type": "core.batch_norm2d",
+   "params": {},
+   "position": [
+    0,
+    1000
+   ]
+  },
+  {
+   "id": "act5",
+   "type": "core.silu",
+   "params": {},
+   "position": [
+    0,
+    1070
+   ]
+  },
+  {
+   "id": "fpn",
+   "type": "vision.fpn",
+   "params": {
+    "out_channels": 64
+   },
+   "position": [
+    260,
+    1140
+   ]
+  },
+  {
+   "id": "head",
+   "type": "vision.yolo_head",
+   "params": {
+    "num_classes": 3,
+    "width": 64,
+    "box_loss": "giou",
+    "max_detections": 50,
+    "score_threshold": 0.05,
+    "iou_threshold": 0.6
+   },
+   "position": [
+    260,
+    1230
+   ]
+  },
+  {
+   "id": "output",
+   "type": "core.output",
+   "params": {},
+   "position": [
+    260,
+    1320
+   ]
+  },
+  {
+   "id": "shapes",
+   "type": "data.synthetic_shapes",
+   "params": {
+    "n_images": 400,
+    "image_size": 128,
+    "max_objects": 3,
+    "seed": 0
+   },
+   "position": [
+    520,
+    0
+   ]
+  },
+  {
+   "id": "flip",
+   "type": "prep.random_flip",
+   "params": {},
+   "position": [
+    520,
+    90
+   ]
+  },
+  {
+   "id": "box_loss",
+   "type": "vision.loss_giou",
+   "params": {
+    "weight": 5.0
+   },
+   "position": [
+    520,
+    180
+   ]
+  },
+  {
+   "id": "optimizer",
+   "type": "train.adamw",
+   "params": {
+    "lr": 0.002
+   },
+   "position": [
+    520,
+    270
+   ]
+  },
+  {
+   "id": "scheduler",
+   "type": "train.cosine_annealing_lr",
+   "params": {},
+   "position": [
+    520,
+    360
+   ]
+  },
+  {
+   "id": "trainer",
+   "type": "train.trainer",
+   "params": {
+    "epochs": 30,
+    "batch_size": 16,
+    "early_stopping_patience": 8
+   },
+   "position": [
+    520,
+    450
+   ]
+  },
+  {
+   "id": "map",
+   "type": "eval.map",
+   "params": {},
+   "position": [
+    520,
+    540
+   ]
+  },
+  {
+   "id": "map50",
+   "type": "eval.map50",
+   "params": {},
+   "position": [
+    520,
+    630
+   ]
+  }
+ ],
+ "edges": [
+  {
+   "from": "input/out",
+   "to": "conv1/in"
+  },
+  {
+   "from": "conv1/out",
+   "to": "bn1/in"
+  },
+  {
+   "from": "bn1/out",
+   "to": "act1/in"
+  },
+  {
+   "from": "act1/out",
+   "to": "conv2/in"
+  },
+  {
+   "from": "conv2/out",
+   "to": "bn2/in"
+  },
+  {
+   "from": "bn2/out",
+   "to": "act2/in"
+  },
+  {
+   "from": "act2/out",
+   "to": "conv3/in"
+  },
+  {
+   "from": "conv3/out",
+   "to": "bn3/in"
+  },
+  {
+   "from": "bn3/out",
+   "to": "act3/in"
+  },
+  {
+   "from": "act3/out",
+   "to": "conv4/in"
+  },
+  {
+   "from": "conv4/out",
+   "to": "bn4/in"
+  },
+  {
+   "from": "bn4/out",
+   "to": "act4/in"
+  },
+  {
+   "from": "act4/out",
+   "to": "conv5/in"
+  },
+  {
+   "from": "conv5/out",
+   "to": "bn5/in"
+  },
+  {
+   "from": "bn5/out",
+   "to": "act5/in"
+  },
+  {
+   "from": "act3/out",
+   "to": "fpn/fine"
+  },
+  {
+   "from": "act4/out",
+   "to": "fpn/mid"
+  },
+  {
+   "from": "act5/out",
+   "to": "fpn/coarse"
+  },
+  {
+   "from": "fpn/out",
+   "to": "head/in"
+  },
+  {
+   "from": "head/out",
+   "to": "output/in"
+  }
+ ]
+}

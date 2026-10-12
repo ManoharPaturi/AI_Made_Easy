@@ -215,6 +215,10 @@ def pgm_issues(graph: Graph) -> list[ValidationIssue]:
         out.append(_issue("info", "with structure learning every probability table is "
                                   "learned from the data; the tables in the design are "
                                   "ignored", structure.instance_id))
+    if structure is not None and "gaussian" in kinds and \
+            structure.resolved_params()["method"] == "mmhc":
+        out.append(_issue("error", "mmhc learns discrete networks: use ges, hill_climb or pc "
+                                   "for Gaussian variables", structure.instance_id))
     if structure is not None and data is None:
         out.append(_issue("error", "structure learning needs data: add a dataset",
                           structure.instance_id))

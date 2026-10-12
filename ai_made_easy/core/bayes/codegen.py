@@ -1,13 +1,19 @@
 """Context for the probabilistic section of supervised PyTorch scripts (None: not needed)."""
 from __future__ import annotations
 
-from ai_made_easy.core.bayes.blocks import CALIBRATION, KL_LAYERS, STOCHASTIC
+from ai_made_easy.core.bayes.blocks import (
+    CALIBRATION,
+    KL_LAYERS,
+    STOCHASTIC,
+    quantile_levels,
+)
 
 
 def probabilistic_context(graph) -> dict | None:  # noqa: ANN001
     nodes = list(graph.nodes.values())
     types = {n.type_id for n in nodes}
-    if not types & {*STOCHASTIC, "bayes.mdn", "bayes.laplace", *CALIBRATION}:
+    if not types & {*STOCHASTIC, "bayes.mdn", "bayes.quantile_head", "bayes.laplace",
+                    *CALIBRATION}:
         return None
 
     def params(type_id: str) -> dict | None:
@@ -18,9 +24,12 @@ def probabilistic_context(graph) -> dict | None:  # noqa: ANN001
     mdn = params("bayes.mdn")
     ece = params("eval.ece")
     conformal = params("eval.conformal")
+    quantile = params("bayes.quantile_head")
     return {"mc_samples": max(samples) if samples else 1,
             "kl": bool(types & set(KL_LAYERS)),
             "mdn": {"k": int(mdn["components"]), "d": int(mdn["targets"])} if mdn else None,
+            "quantile": ({"levels": list(quantile_levels(quantile)),
+                          "d": int(quantile["targets"])} if quantile else None),
             "laplace": params("bayes.laplace"),
             "ece_bins": int(ece["bins"]) if ece else 15,
             "temperature": "eval.temperature_scaling" in types,

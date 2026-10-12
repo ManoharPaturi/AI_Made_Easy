@@ -56,6 +56,7 @@ COLUMNS = {{ columns | repr }}              # data columns the model reads
 GROUPS = {{ groups | repr }}                # columns with one parameter per level
 OBSERVED = {{ observed | repr }}            # variable -> (column, kind)
 CATEGORICAL = {{ categorical | repr }}      # observed columns of categories
+REPORT = {{ report | repr }}                # derived quantities summarized with the posterior
 DRAWS_FILE = "{{ name }}_draws.npz"
 STATE_FILE = "{{ name }}_state.json"
 SAMPLES_DIR = Path("eval_samples")
@@ -184,6 +185,7 @@ def sample(model) -> dict:
                               progressbar=False, compute_convergence_checks=False, **kwargs)
             stats["divergences"] = int(np.asarray(trace["sample_stats"]["diverging"]).sum())
     posterior = trace["posterior"]
+    stats["report"] = {n: np.asarray(posterior[n]) for n in REPORT if n in posterior}
     return {n: np.asarray(posterior[n]) for n in free_names(model)}, stats
 
 
@@ -286,7 +288,7 @@ def main() -> None:
     print(f"rows: train={len(train)} test={n_test}; method={SAMPLER['method']}", flush=True)
     model = build_model(to_model_data(train))
     draws, stats = sample(model)
-    rows = summarize(draws) if SAMPLER["method"] != "map" else [
+    rows = summarize({**draws, **stats.get("report", {})}) if SAMPLER["method"] != "map" else [
         {"name": k, "mean": float(np.asarray(v).mean()), "sd": 0.0} for k, v in draws.items()]
     metrics: dict = {"divergences": float(stats["divergences"])}
     if SAMPLER["method"] in ("nuts", "smc"):     # chain diagnostics need real chains
@@ -381,6 +383,10 @@ def render(graph: Graph) -> str:
         data_comment=_comment(dataset), dataset=dataset, sampler=sampler,
         columns=info["columns"], groups=info["groups"], observed=observed,
         categorical=compiled["categorical"], coord_expr=coord_expr, model_lines=model_lines,
+        report=[f"{v.name}_{part}" for v in vars_ if v.type_id == "ppl.lkj_cholesky"
+                for part in ("corr", "stds")] + [
+            v.name for v in vars_ if v.type_id == "ppl.mv_normal" and v.non_centered
+            and v.group and v.params["chol"][0] == "var"],
         data_code=runtime.DATA_CODE, diagnostics_code=runtime.DIAGNOSTICS_CODE,
         plot_code=runtime.PLOT_CODE)
 

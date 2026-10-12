@@ -381,7 +381,11 @@ class Graph:
                 task = task_of(self)
             except Exception:  # noqa: BLE001 — incomplete designs
                 task = None
-            meta = task.meta if task is not None else {}
+            meta = dict(task.meta) if task is not None else {}
+            for n in self.nodes.values():   # a block that trains itself overrides the task
+                block_meta = n.definition().meta or {}
+                meta.update({k: block_meta[k] for k in ("default_loss", "default_optimizer")
+                             if k in block_meta})
             default_loss = meta.get("default_loss", "CrossEntropyLoss")
             default_opt = meta.get("default_optimizer", "Adam (lr = 1e-3)")
             if not losses and default_loss:

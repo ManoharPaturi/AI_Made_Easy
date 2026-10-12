@@ -98,8 +98,8 @@ def collect_spec(graph: Graph) -> TrainingSpec:
         input_dtype=str(head.resolved_params().get("dtype", "float32")),
         output_shape=list(shapes[out_node.instance_id]),
     )
-    mdn = [n for n in chain if n.type_id == "bayes.mdn"]
-    if mdn:  # the head emits mixture parameters; the targets are `targets` wide
+    mdn = [n for n in chain if n.type_id in ("bayes.mdn", "bayes.quantile_head")]
+    if mdn:  # the head emits mixture parameters / quantiles; the targets are `targets` wide
         spec.output_shape = [int(mdn[-1].resolved_params()["targets"])]
 
     def pick(ids: tuple[str, ...], label: str):

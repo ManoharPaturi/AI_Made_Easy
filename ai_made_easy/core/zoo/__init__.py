@@ -39,6 +39,7 @@ DOWNLOADS = {
     "vision.hf_image_encoder": ("weights", "pretrained", "hf_encoders", "model_id"),
     "audio.hf_encoder": ("weights", "pretrained", "hf_encoders", "model_id"),
     "core.hf_text_encoder": ("weights", "pretrained", "hf_encoders", "model_id"),
+    "gen.sd_lora": ("weights", "pretrained", "diffusion", "base_model"),
 }
 
 

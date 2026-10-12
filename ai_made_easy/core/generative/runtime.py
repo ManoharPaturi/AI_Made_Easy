@@ -197,6 +197,19 @@ def frechet_distance(a: np.ndarray, b: np.ndarray) -> float:
     return float(np.sum((mu_a - mu_b) ** 2) + np.trace(sa) + np.trace(sb) - 2 * np.trace(cross))
 
 
+def inception_score(probs: np.ndarray, splits: int = 10) -> tuple[float, float]:
+    """Inception Score (Salimans et al., 2016): exp of the mean KL divergence between each
+    image's class distribution p(y|x) and the marginal p(y), averaged over ``splits``
+    groups (mean, std). High when images are confidently classified and varied."""
+    probs = np.clip(np.asarray(probs, dtype=np.float64), 1e-12, 1.0)
+    scores = []
+    for part in np.array_split(probs, max(1, min(splits, len(probs)))):
+        marginal = part.mean(0, keepdims=True)
+        kl = (part * (np.log(part) - np.log(marginal))).sum(1).mean()
+        scores.append(float(np.exp(kl)))
+    return float(np.mean(scores)), float(np.std(scores))
+
+
 def kernel_distance(a: np.ndarray, b: np.ndarray) -> float:
     """KID: unbiased MMD^2 with the cubic polynomial kernel (x.y / d + 1)^3."""
     d = a.shape[1]
@@ -322,3 +335,97 @@ def namespace() -> dict:
     for code in (DATA_CODE, METRICS_CODE, PLOT_CODE):
         exec(compile(code, "<generative-runtime>", "exec"), ns)  # noqa: S102 — our own source
     return ns
+
+TOKENIZER_CODE = r'''
+# ======================================================================== BPE tokenizer
+import heapq
+import re
+from collections import Counter, defaultdict
+
+# GPT-2 style pre-tokenizer: words keep their leading space; every character is covered
+BPE_SPLIT = re.compile(r" ?[^\W\d_]+| ?\d+| ?(?:[^\s\w]|_)+|\s+(?!\S)|\s+")
+
+
+def train_bpe(text: str, vocab_size: int, min_frequency: int = 2) -> list:
+    """Byte-level BPE merges learned on ``text``: ids 0-255 are bytes, every merge adds
+    one token (most frequent adjacent pair first, ties broken by the smaller pair)."""
+    counts = Counter(BPE_SPLIT.findall(text))
+    words = [list(w.encode("utf-8")) for w in counts]
+    freq = list(counts.values())
+    pairs: Counter = Counter()
+    where: dict = defaultdict(set)
+    for i, w in enumerate(words):
+        for pair in zip(w, w[1:]):
+            pairs[pair] += freq[i]
+            where[pair].add(i)
+    heap = [(-c, p) for p, c in pairs.items()]
+    heapq.heapify(heap)
+    merges: list = []
+    while 256 + len(merges) < vocab_size and heap:
+        count, pair = heapq.heappop(heap)
+        if pairs.get(pair, 0) != -count:      # stale heap entry
+            continue
+        if -count < min_frequency:
+            break
+        new = 256 + len(merges)
+        merges.append(pair)
+        for i in where.pop(pair, ()):
+            w, f = words[i], freq[i]
+            for old in zip(w, w[1:]):
+                pairs[old] -= f
+            merged, j = [], 0
+            while j < len(w):
+                if j + 1 < len(w) and (w[j], w[j + 1]) == pair:
+                    merged.append(new)
+                    j += 2
+                else:
+                    merged.append(w[j])
+                    j += 1
+            words[i] = merged
+            for p in zip(merged, merged[1:]):
+                pairs[p] += f
+                where[p].add(i)
+                heapq.heappush(heap, (-pairs[p], p))
+        pairs.pop(pair, None)
+    return merges
+
+
+class BPE:
+    """Encode / decode with learned merges (lowest-ranked pair merged first)."""
+
+    def __init__(self, merges: list) -> None:
+        self.ranks = {tuple(p): 256 + i for i, p in enumerate(merges)}
+        self.vocab = {i: bytes([i]) for i in range(256)}
+        for (a, b), new in self.ranks.items():
+            self.vocab[new] = self.vocab[a] + self.vocab[b]
+        self.cache: dict = {}
+
+    def _word(self, word: str) -> list:
+        if word in self.cache:
+            return self.cache[word]
+        ids = list(word.encode("utf-8"))
+        while len(ids) > 1:
+            pair = min(zip(ids, ids[1:]), key=lambda p: self.ranks.get(p, 1 << 30))
+            new = self.ranks.get(pair)
+            if new is None:
+                break
+            merged, j = [], 0
+            while j < len(ids):
+                if j + 1 < len(ids) and (ids[j], ids[j + 1]) == pair:
+                    merged.append(new)
+                    j += 2
+                else:
+                    merged.append(ids[j])
+                    j += 1
+            ids = merged
+        self.cache[word] = ids
+        return ids
+
+    def encode(self, text: str) -> np.ndarray:
+        return np.asarray([i for w in BPE_SPLIT.findall(text) for i in self._word(w)],
+                          np.int64)
+
+    def decode(self, ids) -> str:
+        return b"".join(self.vocab.get(int(i), b"") for i in ids).decode("utf-8",
+                                                                        errors="replace")
+'''

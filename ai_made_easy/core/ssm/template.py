@@ -50,6 +50,7 @@ KIND = "{{ kind }}"                       # structural | sarimax
 SPEC = {{ spec | repr }}
 TARGET = {{ target | repr }}
 EXOG = {{ exog | repr }}
+TIME_VARYING = {{ time_varying }}               # regression coefficients follow random walks
 HORIZON = {{ horizon }}
 INTERVAL = {{ interval }}
 MAX_ITER = {{ max_iter }}
@@ -93,11 +94,82 @@ def load_data():
 
 
 # ======================================================================== model
+{% if time_varying and kind == "structural" %}
+from statsmodels.tsa.statespace.mlemodel import MLEModel  # noqa: E402
+from statsmodels.tsa.statespace.structural import UnobservedComponents  # noqa: E402
+
+
+class _ExtraNoise(MLEModel):
+    """Adds one state-noise column per regression coefficient (UC passes k_posdef here)."""
+
+    def __init__(self, endog, k_states, k_posdef=1, **kwargs):
+        super().__init__(endog, k_states, k_posdef=k_posdef + self._extra, **kwargs)
+
+
+class TimeVaryingUC(UnobservedComponents, _ExtraNoise):
+    """Unobserved components whose regression coefficients follow random walks: each
+    coefficient is a state with its own variance (sigma2.beta.<column>)."""
+
+    def __init__(self, endog, exog=None, **spec):
+        spec.pop("mle_regression", None)
+        self._extra = np.asarray(exog).reshape(len(endog), -1).shape[1]
+        super().__init__(endog, exog=exog, mle_regression=False, **spec)
+
+    def setup(self):
+        super().setup()
+        k, cols = self.k_exog, self.ssm.k_posdef
+        stochastic = int(np.sum(self._var_repetitions)) if self.k_state_cov else 0
+        first = self.k_states - k - int(self._unused_state)
+        for i in range(k):
+            self.ssm["selection", first + i, cols - k + i] = 1.0
+        self.parameters_state_cov["reg_var"] = k
+        self.parameters = {}
+        for group in (self.parameters_obs_cov, self.parameters_state_cov,
+                      self.parameters_transition, self.parameters_obs_intercept):
+            self.parameters.update(group)
+        self.k_state_cov = sum(self.parameters_state_cov.values())
+        self.k_params = sum(self.parameters.values())
+        idx = np.r_[np.arange(stochastic), np.arange(cols - k, cols)]
+        self._idx_state_cov = ("state_cov", idx, idx)
+        self._var_repetitions = np.r_[self._var_repetitions, np.ones(k, int)].astype(int)
+        self._repeat_any_var = bool(np.any(self._var_repetitions > 1))
+
+    def _without_reg(self, fn):
+        saved = self.parameters
+        self.parameters = {k: v for k, v in saved.items() if k != "reg_var"}
+        try:
+            return list(fn())
+        finally:
+            self.parameters = saved
+
+    @property
+    def start_params(self):
+        base = self._without_reg(lambda: UnobservedComponents.start_params.fget(self))
+        at = self.k_obs_cov + self.k_state_cov - self.k_exog
+        scale = np.var(np.diff(np.asarray(self.endog).ravel())) or 1.0
+        betas = [1e-3 * scale / max(float(np.var(x)), 1e-12) for x in np.asarray(self.exog).T]
+        return np.array(base[:at] + betas + base[at:])
+
+    @property
+    def param_names(self):
+        base = self._without_reg(lambda: UnobservedComponents.param_names.fget(self))
+        at = self.k_obs_cov + self.k_state_cov - self.k_exog
+        return base[:at] + [f"sigma2.beta.{n}" for n in self.exog_names] + base[at:]
+
+
+{% endif %}
 def build(endog: np.ndarray, exog: np.ndarray | None):
     if KIND == "sarimax":
         from statsmodels.tsa.statespace.sarimax import SARIMAX
 
+        if TIME_VARYING and exog is not None:
+            return SARIMAX(endog, exog=exog, mle_regression=False,
+                           time_varying_regression=True, **SPEC)
         return SARIMAX(endog, exog=exog, **SPEC)
+{% if time_varying and kind == "structural" %}
+    if exog is not None:
+        return TimeVaryingUC(endog, exog=exog, **SPEC)
+{% endif %}
     from statsmodels.tsa.statespace.structural import UnobservedComponents
 
     return UnobservedComponents(endog, exog=exog, **SPEC)
@@ -130,9 +202,18 @@ def forecast(result, steps: int, exog_future: np.ndarray | None) -> dict:
             "upper": frame["mean_ci_upper"].to_numpy()}
 
 
+def coefficient_paths(result) -> dict:
+    """Smoothed time-varying regression coefficients: column -> path over time."""
+    if not TIME_VARYING:
+        return {}
+    names = list(result.model.state_names)
+    return {col: np.asarray(result.smoothed_state[names.index(f"beta.x{i + 1}")])
+            for i, col in enumerate(EXOG) if f"beta.x{i + 1}" in names}
+
+
 def components(result) -> dict:
-    """Smoothed structural components (empty for SARIMAX)."""
-    out = {}
+    """Smoothed structural components (SARIMAX: only time-varying coefficients)."""
+    out = {f"coefficient {col}": path for col, path in coefficient_paths(result).items()}
     if KIND != "structural":
         return out
     for name in ("level", "seasonal", "cycle", "autoregressive"):
@@ -286,6 +367,9 @@ def main() -> None:
     metrics.update({"aic": float(result.aic), "bic": float(result.bic),
                     "log_likelihood": float(result.llf)})
     parts = components(result)
+    for col, path in coefficient_paths(result).items():
+        metrics[f"coef_{col}_first"] = float(path[0])
+        metrics[f"coef_{col}_last"] = float(path[-1])
     if truth is not None and "level" in parts:
         metrics["trend_rmse"] = float(np.sqrt(np.mean((parts["level"] - truth["trend"][:cut])
                                                       ** 2)))
@@ -416,12 +500,17 @@ def render(graph: Graph) -> str:
                                                       "freq_seasonal", "cycle",
                                                       "autoregressive", "irregular")
                                           if spec.get(k)))
+    regression = next((n for n in wired(graph) if n.type_id == "ssm.regression"), None)
+    time_varying = bool(exog and regression is not None
+                        and regression.resolved_params()["time_varying"])
     if exog:
-        comment += f" + regression on {', '.join(exog)}"
+        comment += (f" + {'time-varying ' if time_varying else ''}regression on "
+                    f"{', '.join(exog)}")
     data_comment = (f"{dataset['length']} generated steps (trend + season + noise)"
                     if dataset["block"] == "data.structural_series" else str(dataset["path"]))
     return _env.from_string(TEMPLATE).render(
         title=graph.name, filename=f"{name}_train_statsmodels.py", name=name, kind=kind,
         spec=spec, target=target_of(graph), exog=exog, horizon=int(p["horizon"]),
         interval=float(p["interval"]), max_iter=int(p["max_iterations"]), season=season,
-        dataset=dataset, model_comment=comment, data_comment=data_comment)
+        dataset=dataset, model_comment=comment, data_comment=data_comment,
+        time_varying=time_varying)

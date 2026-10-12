@@ -76,13 +76,17 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
-          pip install -e ".[dev,vision-tasks,serve]"
+          pip install -e ".[dev,vision-tasks,generative,serve]"
       - name: Test
         run: >-
           pytest -q -p no:cacheprovider tests/test_vision.py
           tests/test_codegen_runtime.py -k "vision or exercised or Vision"
       - name: Pretrained image recipes (random weights)
         run: pytest -q -p no:cacheprovider tests/test_pretrained_recipes.py -k "image or budget"
+      - name: Detectors from blocks, Mask2Former, Stable Diffusion LoRA (tiny, offline)
+        run: >-
+          pytest -q -p no:cacheprovider tests/test_block_coverage.py
+          -k "yolo or mask2former or stable_diffusion or inception or every_layer"
 
   test-probabilistic:
     # the probabilistic extra: graphical models, HMMs and their generated scripts
@@ -110,6 +114,10 @@ jobs:
         run: pytest -q -p no:cacheprovider tests/test_pgm.py tests/test_ppl.py tests/test_gp.py tests/test_ssm.py
       - name: Your series and grouped tables
         run: pytest -q -p no:cacheprovider tests/test_your_data.py -k "series_recipes or grouped_table"
+      - name: MvNormal / LKJ, MMHC, time-varying coefficients
+        run: >-
+          pytest -q -p no:cacheprovider tests/test_block_coverage.py
+          -k "multivariate or lkj or mmhc or time_varying"
 
   test-graph-rl:
     # the graph and rl extras: PyTorch Geometric, Gymnasium and stable-baselines3
@@ -132,13 +140,17 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install torch --index-url https://download.pytorch.org/whl/cpu
-          pip install -e ".[dev,graph,rl,serve]"
+          pip install -e ".[dev,graph,rl,rl-box2d,serve]"
       - name: Test
         run: >-
           pytest -q -p no:cacheprovider tests/test_gnn.py tests/test_rl.py
           tests/test_codegen_runtime.py -k "graph or exercised"
       - name: Your graphs and interaction tables
         run: pytest -q -p no:cacheprovider tests/test_your_data.py -k "recommender_and_graph"
+      - name: CNN policies on pixels and Box2D
+        run: >-
+          pytest -q -p no:cacheprovider tests/test_block_coverage.py
+          -k "pixel or cnn_policy or lunar"
 
   test-audio:
     # the audio extra (Hugging Face speech encoders): speech and sequence blocks, their
@@ -169,6 +181,8 @@ jobs:
           tests/test_codegen_runtime.py -k "audio or exercised or hf_text"
       - name: Pretrained text and audio recipes (random weights)
         run: pytest -q -p no:cacheprovider tests/test_pretrained_recipes.py -k "not image"
+      - name: AST filterbanks
+        run: pytest -q -p no:cacheprovider tests/test_block_coverage.py -k "test_ast"
 
   web:
     needs: lint

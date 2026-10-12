@@ -3,7 +3,15 @@ to <value>" are Quick Fixes)."""
 from __future__ import annotations
 
 from ai_made_easy.core.lints import LintContext, _issue, _name, register_rule
-from ai_made_easy.core.rl.blocks import CONTINUOUS_ONLY, DISCRETE_ONLY, ENVS
+import importlib.util
+
+from ai_made_easy.core.rl.blocks import (
+    BOX2D,
+    CONTINUOUS_ONLY,
+    DISCRETE_ONLY,
+    ENVS,
+    IMAGE_ENVS,
+)
 from ai_made_easy.core.rl.tasks import algorithm_node, env_node, rl_task
 from ai_made_easy.core.training import catalog as cat
 
@@ -28,9 +36,32 @@ def rl_rules(ctx: LintContext) -> list:
     head = ctx.chain[0] if ctx.chain else None
     last = ctx.last_compute()
     if info is not None and head is not None and head.instance_id in ctx.shapes:
-        if list(ctx.shapes[head.instance_id]) != [info[0]]:
-            out.append(_issue("error", f"{ep['env_id']} observations have {info[0]} values: "
-                                       f"Set the Input shape to '{info[0]}'", head.instance_id))
+        want = list(info[0])
+        if list(ctx.shapes[head.instance_id]) != want:
+            what = (f"are {want[0]}-channel {want[1]}×{want[2]} images" if len(want) == 3
+                    else f"have {want[0]} values")
+            out.append(_issue("error", f"{ep['env_id']} observations {what}: Set the Input "
+                                       f"shape to '{', '.join(map(str, want))}'",
+                              head.instance_id))
+    if ep["env_id"] in BOX2D and importlib.util.find_spec("Box2D") is None:
+        out.append(_issue("warning", f"{ep['env_id']} needs Box2D, which is not installed "
+                                     "(pip install 'ai-made-easy[rl-box2d]')", env.instance_id))
+    if ep["env_id"] in IMAGE_ENVS:
+        if head is not None and not any(n.type_id.startswith(("core.conv", "core.depthwise",
+                                                              "core.separable"))
+                                        for n in ctx.chain):
+            out.append(_issue("warning", f"{ep['env_id']} observes pixels: add Conv2D layers "
+                                         "(a CNN policy) before Flatten, or the network must "
+                                         "learn from every pixel separately",
+                              head.instance_id))
+        if algo is not None and "buffer_size" in algo.resolved_params():
+            frame = int(__import__("math").prod(info[0]))
+            size = int(algo.resolved_params()["buffer_size"]) * frame * 2 / 2**30
+            if size > 2:
+                fit = max(1000, int(2 * 2**30 / (2 * frame)) // 1000 * 1000)
+                out.append(_issue("warning", f"the replay buffer would hold about {size:.0f} GB "
+                                             f"of images: set buffer_size to {fit}",
+                                  algo.instance_id))
     if last is not None and last.instance_id in ctx.shapes and \
             len(ctx.shapes[last.instance_id]) != 1:
         out.append(_issue("error", "the policy network must output a feature vector [F]: "

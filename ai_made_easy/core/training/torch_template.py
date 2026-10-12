@@ -402,7 +402,7 @@ def evaluate(model: nn.Module, loss_fn, loader: DataLoader, device: torch.device
     with torch.no_grad():
         out_t, y_t = adapt(torch.from_numpy(outputs), torch.from_numpy(targets))
         loss = float(loss_fn(out_t, y_t))
-    return loss, compute_metrics({{ "mdn_point(outputs)" if prob and prob.mdn else "outputs" }}, targets)
+    return loss, compute_metrics({{ "mdn_point(outputs)" if prob and prob.mdn else ("quantile_point(outputs)" if prob and prob.quantile else "outputs") }}, targets)
 
 
 def reset_peak_memory(device: torch.device) -> None:
@@ -428,6 +428,8 @@ def fit(model: nn.Module, train_loader, val_loader, device, log: bool = True):
         loss_fn = loss_fn.to(device)
 {% if prob and prob.mdn %}
     loss_fn = mdn_nll          # the mixture density head trains on its likelihood
+{% elif prob and prob.quantile %}
+    loss_fn = quantile_loss    # the quantile head trains on the pinball loss
 {% endif %}
 {% if prob and prob.kl %}
     kl_scale = 1.0 / max(len(train_loader.dataset), 1)   # ELBO per training example

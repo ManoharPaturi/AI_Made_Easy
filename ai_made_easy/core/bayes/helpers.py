@@ -104,8 +104,27 @@ class MDNHead(nn.Module):
         return logits, mu, log_sigma
 '''
 
+QUANTILE = '''\
+class QuantileHead(nn.Module):
+    """Quantiles of each target that never cross: output [B, D * Q] (levels ascending per
+    target): the lowest quantile plus positive increments."""
+
+    is_quantile = True
+
+    def __init__(self, in_features: int, quantiles: tuple = (0.05, 0.5, 0.95),
+                 targets: int = 1) -> None:
+        super().__init__()
+        self.quantiles, self.d = tuple(quantiles), targets
+        self.proj = nn.Linear(in_features, targets * len(quantiles))
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        raw = self.proj(x).reshape(len(x), self.d, len(self.quantiles))
+        steps = torch.cat([raw[..., :1], nn.functional.softplus(raw[..., 1:])], dim=-1)
+        return steps.cumsum(-1).reshape(len(x), -1)
+'''
+
 BAYES_HELPERS = {"MCDropout": MC_DROPOUT, "BayesLinear": BAYES_LAYERS,
-                 "BayesConv2d": BAYES_LAYERS, "MDNHead": MDN}
+                 "BayesConv2d": BAYES_LAYERS, "MDNHead": MDN, "QuantileHead": QUANTILE}
 
 
 def register() -> None:

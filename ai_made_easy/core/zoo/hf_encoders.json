@@ -117,6 +117,15 @@
   "source": "huggingface"
  },
  {
+  "name": "MIT/ast-finetuned-audioset-10-10-0.4593",
+  "modality": "audio",
+  "feature_dim": 768,
+  "params_m": 86.2,
+  "download_mb": 346,
+  "license": "bsd-3-clause",
+  "source": "huggingface"
+ },
+ {
   "name": "facebook/dinov2-small",
   "modality": "image",
   "feature_dim": 384,
