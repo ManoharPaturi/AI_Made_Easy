@@ -5,7 +5,7 @@ import { LineChart, type Series } from "../components/LineChart";
 import { duration, metric, Modal, StatusChip } from "../components/Modal";
 import { useStore } from "../state";
 import { PipelinesList } from "../components/Pipeline";
-import type { RunRecord, RunSamples, SweepParam, SweepRecord } from "../types";
+import type { RunRecord, RunSamples, SweepParam, SweepRecord, SweepTrial } from "../types";
 
 function DeployModal({ run, onClose }: { run: RunRecord; onClose: () => void }) {
   const { notify } = useStore();
@@ -271,6 +271,48 @@ function SweepModal({ onClose, onStarted }: { onClose: () => void; onStarted: ()
   );
 }
 
+/** Trials no other trial beats on the metric and every cost (multi-objective AutoML). */
+export function paretoFront(sweep: SweepRecord): Set<number> {
+  const costs = sweep.spec.objectives ?? [];
+  if (!costs.length) return new Set();
+  const sign = sweep.spec.direction === "min" ? 1 : -1;
+  const points = sweep.trials
+    .filter((t) => t.score !== null && costs.every((c) => t.objectives?.[c] !== undefined))
+    .map((t) => ({ n: t.number, v: [sign * (t.score as number), ...costs.map((c) => t.objectives![c])] }));
+  const beats = (a: number[], b: number[]) =>
+    a.every((x, i) => x <= b[i]) && a.some((x, i) => x < b[i]);
+  return new Set(points.filter((p) => !points.some((q) => q !== p && beats(q.v, p.v))).map((p) => p.n));
+}
+
+function ParetoChart({ sweep, front }: { sweep: SweepRecord; front: Set<number> }) {
+  const cost = sweep.spec.objectives![0];
+  const pts = sweep.trials.filter((t): t is SweepTrial & { score: number } =>
+    t.score !== null && t.objectives?.[cost] !== undefined);
+  if (!pts.length) return null;
+  const W = 420, H = 220, P = 40;
+  const xs = pts.map((t) => t.objectives![cost]), ys = pts.map((t) => t.score);
+  const [x0, x1] = [Math.min(...xs), Math.max(...xs)], [y0, y1] = [Math.min(...ys), Math.max(...ys)];
+  const sx = (x: number) => P + ((x - x0) / (x1 - x0 || 1)) * (W - P - 10);
+  const sy = (y: number) => H - P + 10 - ((y - y0) / (y1 - y0 || 1)) * (H - P - 10);
+  const on = pts.filter((t) => front.has(t.number)).sort((a, b) => a.objectives![cost] - b.objectives![cost]);
+  return (
+    <svg width={W} height={H} data-testid="pareto-chart" style={{ display: "block", margin: "8px 0" }}>
+      <line x1={P} y1={H - P + 10} x2={W - 10} y2={H - P + 10} stroke="var(--border)" />
+      <line x1={P} y1={10} x2={P} y2={H - P + 10} stroke="var(--border)" />
+      <text x={W / 2} y={H - 4} textAnchor="middle" fill="var(--text-dim)" fontSize="11">{cost} (lower is better)</text>
+      <text x={12} y={H / 2} textAnchor="middle" fontSize="11" fill="var(--text-dim)"
+            transform={`rotate(-90 12 ${H / 2})`}>{sweep.spec.metric}</text>
+      <polyline fill="none" stroke="var(--accent)" strokeWidth={2}
+                points={on.map((t) => `${sx(t.objectives![cost])},${sy(t.score)}`).join(" ")} />
+      {pts.map((t) => (
+        <circle key={t.number} cx={sx(t.objectives![cost])} cy={sy(t.score)} r={front.has(t.number) ? 5 : 3.5}
+                fill={front.has(t.number) ? "var(--accent)" : "var(--text-muted)"}>
+          <title>{`#${t.number} ${String(t.values.recipe ?? "")}: ${sweep.spec.metric} ${metric(t.score)}, ${cost} ${metric(t.objectives![cost])}`}</title>
+        </circle>))}
+    </svg>
+  );
+}
+
 function Sweeps() {
   const { load, notify } = useStore();
   const [sweeps, setSweeps] = useState<SweepRecord[]>([]);
@@ -294,6 +336,7 @@ function Sweeps() {
     }
   };
   const sweep = sweeps.find((s) => s.sweep_id === open);
+  const front = sweep ? paretoFront(sweep) : new Set<number>();
   return (
     <>
       <div className="toolbar" style={{ marginBottom: 8 }}>
@@ -309,7 +352,9 @@ function Sweeps() {
                 onClick={() => setOpen(s.sweep_id)} style={{ cursor: "pointer" }}>
               <td>{s.name} <span className="muted">{s.sweep_id}</span></td>
               <td><StatusChip status={s.state} /></td>
-              <td>{s.spec.metric} ({s.spec.direction || "auto"})</td>
+              <td>{s.spec.metric} ({s.spec.direction || "auto"})
+                {(s.spec.objectives ?? []).map((o) => <span key={o} className="chip" title={`minimised on ${s.spec.device}`}>
+                  + {o}</span>)}</td>
               <td>{s.spec.automl ? <span className="chip run" title={(s.spec.candidates ?? []).join(", ")}>
                 AutoML · {s.spec.candidates?.length ?? 0} recipes</span> : s.spec.strategy}</td>
               <td className="num">{s.trials.length}/{s.spec.max_trials}</td>
@@ -326,13 +371,25 @@ function Sweeps() {
       {sweep && (
         <>
           <h3>Trials of {sweep.name}</h3>
+          {!!sweep.spec.objectives?.length && (
+            <>
+              <p className="dim">◆ Pareto front: no other trial is better on {sweep.spec.metric} and
+                {" "}{sweep.spec.objectives.join(" and ")} (estimated on {sweep.spec.device}).</p>
+              <ParetoChart sweep={sweep} front={front} />
+            </>)}
           <table>
-            <thead><tr><th>#</th><th>State</th><th>Values</th><th className="num">Score</th><th>Run</th></tr></thead>
+            <thead><tr><th>#</th><th>State</th><th>Values</th><th className="num">Score</th>
+              {!!sweep.spec.objectives?.length && <th>Costs</th>}<th>Run</th></tr></thead>
             <tbody>
               {sweep.trials.map((t) => (
-                <tr key={t.number}><td>{t.number}</td><td><StatusChip status={t.state} /></td>
+                <tr key={t.number} data-pareto={front.has(t.number) || undefined}>
+                  <td>{t.number}{front.has(t.number) && <span title="on the Pareto front"> ◆</span>}</td>
+                  <td><StatusChip status={t.state} /></td>
                   <td className="dim">{Object.entries(t.values).map(([k, v]) => `${k}=${metric(v) === "—" ? String(v) : metric(v)}`).join(", ")}</td>
-                  <td className="num">{metric(t.score)}</td><td className="muted">{t.run_id || t.message}</td></tr>
+                  <td className="num">{metric(t.score)}</td>
+                  {!!sweep.spec.objectives?.length && <td className="dim">
+                    {sweep.spec.objectives.map((o) => `${o}=${metric(t.objectives?.[o])}`).join(", ")}</td>}
+                  <td className="muted">{t.run_id || t.message}</td></tr>
               ))}
             </tbody>
           </table>

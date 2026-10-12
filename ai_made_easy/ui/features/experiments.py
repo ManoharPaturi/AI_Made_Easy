@@ -266,8 +266,22 @@ class ExperimentsPage(QtWidgets.QWidget):
         self.sweeps_table.setSelectionMode(
             QtWidgets.QAbstractItemView.SelectionMode.SingleSelection)
         self.sweeps_table.itemSelectionChanged.connect(self._show_trials)
-        self.trials_table = _readonly_table(["#", "State", "Score", "Values", "Note"])
-        split.addWidget(self.sweeps_table)
+        self.trials_table = _readonly_table(["#", "State", "Score", "Costs", "Values", "Note"])
+        # multi-objective AutoML: the metric against the first cost, Pareto front joined
+        self.pareto_plot = pg.PlotWidget(background=None)
+        self.pareto_plot.showGrid(x=True, y=True, alpha=0.2)
+        self.pareto_plot.setMinimumHeight(150)
+        self.pareto_plot.setVisible(False)
+        self.pareto_plot.setLogMode(x=True)        # costs span orders of magnitude
+        for side in ("left", "bottom"):
+            self.pareto_plot.getAxis(side).enableAutoSIPrefix(False)
+        left = QtWidgets.QSplitter(QtCore.Qt.Orientation.Vertical)    # under the sweep list
+        left.addWidget(self.sweeps_table)
+        left.addWidget(self.pareto_plot)
+        left.setStretchFactor(0, 1)
+        left.setStretchFactor(1, 2)
+        left.setSizes([110, 220])
+        split.addWidget(left)
         split.addWidget(self.trials_table)
         split.setSizes([380, 520])
         box.addWidget(split, 1)
@@ -309,9 +323,11 @@ class ExperimentsPage(QtWidgets.QWidget):
             first = _Item(f"{sw.name}  {_when(sw.created_at)}", sw.created_at)
             first.setData(QtCore.Qt.ItemDataRole.UserRole, sw.sweep_id)
             first.setToolTip(sw.sweep_id + (f"\n{sw.message}" if sw.message else ""))
+            objective = " + ".join([f"{spec.get('metric', '')} {direction}".strip(),
+                                    *(f"{o} min" for o in spec.get("objectives") or [])])
             cells = [first, _Item(sw.state), _Item(spec.get("strategy", "")),
                      _Item(f"{done}/{spec.get('max_trials', '?')}", done),
-                     _Item(f"{spec.get('metric', '')} {direction}".strip()),
+                     _Item(objective),
                      _Item(_fmt(sw.best["score"]) if sw.best else "—",
                            sw.best["score"] if sw.best else None)]
             for col, item in enumerate(cells):
@@ -326,21 +342,63 @@ class ExperimentsPage(QtWidgets.QWidget):
         sweep = self.selected_sweep()
         trials = sweep.trials if sweep else []
         best = sweep.best["number"] if sweep and sweep.best else None
+        objectives = list(sweep.spec.get("objectives") or []) if sweep else []
+        front: set[int] = set()
+        if objectives:
+            from ai_made_easy.core.automl import leaderboard
+
+            front = {r["number"] for r in leaderboard(sweep) if r["pareto"]}
+        self._plot_pareto(sweep, objectives, front)
         table = self.trials_table
         table.setSortingEnabled(False)
         table.setRowCount(len(trials))
         for row, t in enumerate(trials):
             values = ", ".join(f"{k.split('.', 1)[-1]}={_fmt(v)}" for k, v in t["values"].items())
-            cells = [_Item(str(t["number"]) + ("  ★" if t["number"] == best else ""),
-                           t["number"]),
+            costs = t.get("objectives") or {}
+            mark = ("  ★" if t["number"] == best else "") + ("  ◆" if t["number"] in front
+                                                             else "")
+            cells = [_Item(str(t["number"]) + mark, t["number"]),
                      _Item(t["state"]), _Item(_fmt(t["score"]), t["score"]),
+                     _Item(", ".join(f"{k}={_fmt(costs[k])}" for k in objectives
+                                     if k in costs)),
                      _Item(values), _Item(t.get("message", ""))]
-            cells[3].setToolTip("\n".join(f"{k} = {v}" for k, v in t["values"].items()))
+            if t["number"] in front:
+                cells[0].setToolTip("on the Pareto front: no other trial is better on "
+                                    "every objective")
+            cells[3].setToolTip("\n".join(f"{k} = {v}" for k, v in costs.items()))
+            cells[4].setToolTip("\n".join(f"{k} = {v}" for k, v in t["values"].items()))
             for col, item in enumerate(cells):
                 table.setItem(row, col, item)
         table.setSortingEnabled(True)
         table.resizeColumnsToContents()
         self._update_sweep_buttons()
+
+    def _plot_pareto(self, sweep, objectives: list[str], front: set[int]) -> None:  # noqa: ANN001
+        plot = self.pareto_plot
+        plot.clear()
+        plot.setVisible(bool(objectives))
+        if not objectives:
+            return
+        cost = objectives[0]
+        points = [(t["objectives"][cost], t["score"], t["number"]) for t in sweep.trials
+                  if t["score"] is not None and (t.get("objectives") or {}).get(cost, 0) > 0]
+        plot.setLabel("bottom", f"{cost} (log scale, lower is better)")
+        plot.setLabel("left", sweep.spec.get("metric", "score"))
+        if points:                                 # label 1-2-5 steps of each decade
+            import math
+
+            low = math.floor(math.log10(min(p[0] for p in points)))
+            high = math.ceil(math.log10(max(p[0] for p in points)))
+            ticks = [m * 10.0 ** e for e in range(low, high + 1) for m in (1, 2, 5)]
+            plot.getAxis("bottom").setTicks([[(math.log10(t), f"{t:g}") for t in ticks]])
+        others = [p for p in points if p[2] not in front]
+        on = sorted(p for p in points if p[2] in front)
+        if others:
+            plot.plot([p[0] for p in others], [p[1] for p in others], pen=None,
+                      symbol="o", symbolSize=7, symbolBrush=(140, 140, 150, 160))
+        if on:
+            plot.plot([p[0] for p in on], [p[1] for p in on], pen=pg.mkPen("#e8833a", width=2),
+                      symbol="d", symbolSize=10, symbolBrush="#e8833a")
 
     # ---------------------------------------------------------- pipelines tab
     def _build_pipelines(self) -> QtWidgets.QWidget:

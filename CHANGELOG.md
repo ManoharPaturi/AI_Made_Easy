@@ -1,6 +1,13 @@
 # Changelog
 
-## Unreleased
+## 3.1.0
+
+3.1 finishes what 3.0 put off rather than opening new model areas. Every design now has a
+task. Every family's recipes train on your own data, not just the demo datasets. The
+wizard offers pretrained text and audio models. Pipelines add quantization-aware
+training, discriminative learning rates, stacking and classic teachers. 544 blocks fill
+the gaps across vision, sequences, probabilistic models, generative models and RL. AutoML
+can trade accuracy against latency or size.
 
 ### Added
 - Every design now has a task, so the wizard, Explain, the status bar and the project
@@ -110,8 +117,29 @@
   - `scripts/verify_codegen.py --coverage` reports, per family, which blocks the codegen
     harness runs; every layer block has a case. New `CONTRIBUTING.md` with a guide to
     adding a block.
+- **Multi-objective AutoML:** `objectives` (`latency_ms`, `params_m`, `model_mb`) makes a
+  search trade the task's metric against design costs, estimated on the budget's device
+  (or `device`).
+  - TPE samples towards the trade-off curve, and median pruning is off: a weaker but
+    faster trial may belong on the curve.
+  - Only neural recipes take part, since they are the ones with a cost model.
+  - The leaderboard marks the **Pareto front**, the trials that no other trial beats on
+    every objective, and lists it first. Every trial records its costs.
+  - Desktop: a trade-off menu in New from Task, a Costs column and ◆ marks in
+    Experiments ▸ Sweeps, and a scatter of the metric against latency with the front
+    joined.
+  - Web: the same menu, column and chart.
+  - CLI: `aime automl --objectives latency_ms --device raspberry_pi_5` prints the front.
+  - MCP: `start_automl(objectives=...)`.
+- `scripts/grab_ui.py automl` captures a multi-objective search on two spirals.
 
 ### Fixed
+- Budget estimates for tabular transformers.
+  - FT-Transformer and TabTransformer now count their layers once per column token, plus
+    attention, which brings them within 15% of PyTorch's FLOP counter. Before, they were
+    costed as one matrix-vector product, about 7× too low.
+  - Launch overhead is counted per kernel rather than per block, so a composite block
+    (a transformer, a ResNet, TabNet) no longer looks cheaper than a small MLP.
 - A folder of audio clips preselected keyword spotting in the wizard, a task no recipe
   could train on a folder; it now preselects multi-class (or binary) classification.
 - The graph recipes keep the node table's id and label columns instead of assuming `id`

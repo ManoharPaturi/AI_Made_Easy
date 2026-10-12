@@ -267,3 +267,27 @@ test("pipeline samples open with the pipeline panel", async ({ page }) => {
   await page.getByRole("button", { name: "Pipelines" }).click();
   await expect(page.getByTestId("experiments-page")).toContainText(/No pipelines yet|Pipeline/);
 });
+
+test("multi-objective AutoML: accuracy against latency, Pareto front", async ({ page }) => {
+  test.setTimeout(240_000);
+  await page.getByTestId("new-project").click();
+  await page.getByTestId("task-binary").click();
+  await page.getByTestId("wizard-next").click();
+  await page.getByTestId("wizard-next").click();
+  await page.getByTestId("wizard-next").click();
+  await expect(page.getByTestId("recipe-tabular_mlp")).toBeVisible();
+  const box = page.getByTestId("start-automl").locator("..");
+  await box.locator("input").nth(0).fill("3");                  // trials: one per neural recipe
+  await box.locator("input").nth(1).fill("1");                  // epochs
+  await page.getByTestId("automl-trade-off").selectOption("latency_ms");
+  await page.getByTestId("start-automl").click();
+  await expect(page.getByTestId("experiments-page")).toBeVisible();
+  await page.getByRole("button", { name: "Sweeps" }).click();
+  await expect(page.getByText("+ latency_ms").first()).toBeVisible();
+  await page.getByText(/automl_binary/).first().click();
+  await expect(async () => {
+    await page.getByRole("button", { name: "Refresh" }).click();
+    await expect(page.getByTestId("pareto-chart").locator("circle")).toHaveCount(3, { timeout: 2000 });
+  }).toPass({ timeout: 200_000 });
+  await expect(page.locator("tr[data-pareto]").first()).toContainText("◆");
+});

@@ -218,6 +218,7 @@ export function NewProjectWizard({ onClose, onCreated, onAutoml }: {
   const [chosen, setChosen] = useState("");
   const [knobs, setKnobs] = useState<Record<string, unknown>>({});
   const [trials, setTrials] = useState(12);
+  const [tradeOff, setTradeOff] = useState("");
   const [epochs, setEpochs] = useState(0);
   useEffect(() => {
     api.wizardTasks().then((r) => setTasks(r.tasks)).catch((e) => notify(String(e.message), true));
@@ -263,8 +264,10 @@ export function NewProjectWizard({ onClose, onCreated, onAutoml }: {
     if (!task) return;
     try {
       const r = await api.startAutoml({ task: task.id, facts: facts ?? {}, modality: facts ? "" : modality,
-                                        budget: budgetValues, max_trials: trials, epochs }, name);
-      notify(`AutoML started: ${r.candidates.length} recipes, optimising ${r.metric}`);
+                                        budget: budgetValues, max_trials: trials, epochs,
+                                        objectives: tradeOff ? tradeOff.split(",") : [] }, name);
+      const costs = r.objectives?.length ? ` against ${r.objectives.join(" and ")} on ${r.device}` : "";
+      notify(`AutoML started: ${r.candidates.length} recipes, optimising ${r.metric}${costs}`);
       onAutoml();
     } catch (e) {
       notify(String((e as Error).message), true);
@@ -285,6 +288,13 @@ export function NewProjectWizard({ onClose, onCreated, onAutoml }: {
                  <label className="dim">epochs <input type="number" min={0} value={epochs} style={{ width: 54 }}
                                                       title="0: each recipe's default"
                                                       onChange={(e) => setEpochs(Number(e.target.value))} /></label>
+                 <select value={tradeOff} onChange={(e) => setTradeOff(e.target.value)} data-testid="automl-trade-off"
+                         title="Also minimise latency or size on the budget's device: AutoML finds the Pareto front (neural recipes only)">
+                   <option value="">metric only</option>
+                   <option value="latency_ms">+ latency</option>
+                   <option value="model_mb">+ model size</option>
+                   <option value="latency_ms,model_mb">+ latency + size</option>
+                 </select>
                  <button onClick={automl} data-testid="start-automl"
                          disabled={!rows?.some((r) => r.ready)}>Run AutoML</button>
                </span>)}

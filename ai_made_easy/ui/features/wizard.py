@@ -64,6 +64,14 @@ class NewProjectWizard(QtWidgets.QDialog):
         self.trials = QtWidgets.QSpinBox(minimum=1, maximum=500, value=12)
         self.epochs = QtWidgets.QSpinBox(minimum=0, maximum=1000, value=0)
         self.epochs.setSpecialValueText("default")
+        self.trade_off = QtWidgets.QComboBox()
+        for label, objectives in (("metric only", []), ("+ latency", ["latency_ms"]),
+                                  ("+ model size", ["model_mb"]),
+                                  ("+ latency + size", ["latency_ms", "model_mb"])):
+            self.trade_off.addItem(label, objectives)
+        self.trade_off.setToolTip("Also minimise the design's latency or size on the budget's "
+                                  "device: AutoML then finds the Pareto front of trade-offs "
+                                  "(neural recipes only)")
         self.automl = QtWidgets.QPushButton("Run AutoML")
         self.automl.setToolTip("Train every recipe once, then tune recipes and settings; "
                                "weak trials stop early")
@@ -76,7 +84,7 @@ class NewProjectWizard(QtWidgets.QDialog):
         box = QtWidgets.QHBoxLayout(self._automl_box)
         box.setContentsMargins(0, 0, 0, 0)
         for widget in (QtWidgets.QLabel("trials"), self.trials, QtWidgets.QLabel("epochs"),
-                       self.epochs, self.automl):
+                       self.epochs, self.trade_off, self.automl):
             box.addWidget(widget)
         buttons.addWidget(self.back)
         buttons.addStretch(1)
@@ -423,7 +431,8 @@ class NewProjectWizard(QtWidgets.QDialog):
         self.automl_spec = {"task": self._task["id"], "facts": self._facts or {},
                             "modality": "" if self._facts else self.modality.currentText(),
                             "budget": self._budget(), "max_trials": self.trials.value(),
-                            "epochs": self.epochs.value()}
+                            "epochs": self.epochs.value(),
+                            "objectives": list(self.trade_off.currentData() or [])}
         self.accept()
 
     # ------------------------------------------------------------------ navigation

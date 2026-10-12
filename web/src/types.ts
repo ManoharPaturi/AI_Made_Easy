@@ -197,6 +197,7 @@ export interface SweepTrial {
   state: string;
   score: number | null;
   message: string;
+  objectives?: Record<string, number>;   // multi-objective AutoML: design costs
 }
 
 export interface SweepRecord {
@@ -204,7 +205,7 @@ export interface SweepRecord {
   name: string;
   spec: { dimensions: SweepDimension[]; metric: string; direction: string; strategy: string;
           max_trials: number; skip_over_budget?: boolean; automl?: { task: string };
-          candidates?: string[] };
+          candidates?: string[]; objectives?: string[]; device?: string };
   project: string;
   state: string;
   created_at: number;
@@ -377,6 +378,8 @@ export interface AutoMLStarted {
   candidates: string[];
   metric: string;
   direction: string;
+  objectives?: string[];
+  device?: string;
 }
 
 export interface PipelineStage {

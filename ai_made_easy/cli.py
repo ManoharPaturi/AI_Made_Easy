@@ -150,6 +150,9 @@ def main(argv: list[str] | None = None) -> int:
     p_aml.add_argument("--no-tune", action="store_true", help="every recipe once, defaults")
     p_aml.add_argument("--no-prune", action="store_true", help="never stop trials early")
     p_aml.add_argument("--seed", type=int, default=0)
+    p_aml.add_argument("--objectives", default="",
+                       help="also minimise these design costs on --device, comma-separated: "
+                            "latency_ms, params_m, model_mb (a Pareto front, not one best)")
     p_aml.add_argument("-o", "--out", default="", help="write the best design here")
     p_pipe = sub.add_parser("pipeline", help="run multi-stage pipelines")
     p_pipe.add_argument("action", choices=("run", "status", "list", "resume"))
@@ -471,7 +474,8 @@ def _wizard_command(args) -> int:  # noqa: ANN001
                 "modality": args.modality, "max_trials": args.trials, "epochs": args.epochs,
                 "recipes": [r for r in args.recipes.split(",") if r.strip()],
                 "metric": args.metric, "tune": not args.no_tune, "prune": not args.no_prune,
-                "budget": budget, "seed": args.seed}
+                "budget": budget, "seed": args.seed,
+                "objectives": [o.strip() for o in args.objectives.split(",") if o.strip()]}
         started = api.start_automl({k: v for k, v in spec.items() if v is not None})
     except (api.ApiError, KeyError, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr)
@@ -489,6 +493,11 @@ def _wizard_command(args) -> int:  # noqa: ANN001
             break
         _time.sleep(0.5)
     print(json.dumps({"type": "automl_" + record["state"], "best": record["best"]}), flush=True)
+    if started.get("objectives"):
+        front = [t for t in api.automl_leaderboard(sweep_id)["trials"] if t["pareto"]]
+        print(json.dumps({"type": "pareto_front", "trials": [
+            {k: t[k] for k in ("number", "recipe", "score", "objectives", "values")}
+            for t in front]}), flush=True)
     if record["best"] and args.out:
         with open(args.out, "w") as fh:
             json.dump(api.sweep_best_graph(sweep_id), fh, indent=2)

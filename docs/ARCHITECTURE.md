@@ -248,7 +248,9 @@ because those activations save their own output.
 Training memory = weights (+ fp16 copy under AMP) + gradients + optimizer state
 (Adam 2, SGD-momentum 1, plain SGD 0 per weight) + activations × batch + the
 device's runtime overhead. Latency (batch 1) = FLOPs at 35% of the device's peak
-+ memory traffic over its bandwidth + a per-layer launch cost. Device profiles
++ memory traffic over its bandwidth + a launch cost per kernel. Composite blocks give
+their own `meta["cost"]` (parameters, FLOPs) and `meta["kernels"]` (launches per
+forward), so a transformer counts every token and layer. Device profiles
 are `core/devices.json` plus `~/.aime/devices.json`.
 
 The project's budget is `graph.meta["budget"]` (device and limits; 0 = none).
@@ -279,6 +281,15 @@ candidate recipe with its defaults, then TPE proposes a recipe and its condition
 settings; the median rule stops trials that fall behind at the same epoch. Records are
 sweep records with `spec["automl"]`, so the Experiments page, `best_graph()` and the CLI
 handle them like sweeps.
+
+With `objectives` the search is multi-objective. `SweepRunner` has two hooks for this:
+- `_measure` records each trial's design costs (budget estimate on the target device)
+  before it trains.
+- `_told` passes `[metric, *costs]` to a multi-direction TPE study.
+
+Median pruning is off in this mode. `leaderboard()` marks the Pareto front
+(`pareto_front()`) and lists it first. The desktop and web Sweeps views draw the
+metric against the first cost.
 
 ## Pipelines
 

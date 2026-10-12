@@ -20,11 +20,13 @@ boilerplate. It runs on the desktop or in the browser.
   discriminative learning rates, stack models on their out-of-fold predictions, distill a
   random forest into a network, and expand any stage on the canvas to see its design.
 - **Start from a task, not a blank canvas:** **File ▸ New from Task** asks what you want
-  to do (34 tasks, from classification and forecasting to clustering, anomaly detection
+  to do (35 tasks, from classification and forecasting to clustering, anomaly detection
   and retrieval-augmented answering) and where your data is, detects its format, target
   and classes, and ranks
   ready-to-train recipes for your data size and hardware budget, each explaining why
-  every block is there. Or let **AutoML** try the recipes and tune them for you.
+  every block is there. Or let **AutoML** try the recipes and tune them for you,
+  optionally trading accuracy against latency or model size on your target device: the
+  result is a Pareto front of models to choose from.
 - **544 blocks in 9 families** ([docs/FAMILIES.md](docs/FAMILIES.md) lists every
   family, task, block and design rule) across every major library: `torch.nn` layers, Keras 3
   equivalents, torchvision / `keras.applications` / timm pretrained backbones,
@@ -93,6 +95,11 @@ boilerplate. It runs on the desktop or in the browser.
   workflow scripts and portable `.aime` project archives.
 
 ![Data workspace](docs/images/data_workspace_full.png)
+
+Multi-objective AutoML: two spirals searched for accuracy against latency on a
+Raspberry Pi 5. The front runs from a 0.06 ms MLP at 63% to a 0.23 ms ResNet at 99%.
+
+![AutoML Pareto front](docs/images/automl_pareto_full.png)
 
 ## Installation
 
@@ -194,6 +201,7 @@ aime runs list | show ID | compare A B         # run history
 aime sweep project.json -p opt.lr=log:1e-4:1e-1 -p d1.units=choice:32,64 -n 12
 aime new --task binary --data churn.csv -o churn.json   # best recipe for the data
 aime automl --task binary --data churn.csv -n 12 -o best.json   # search the recipes
+aime automl --task binary --data churn.csv --objectives latency_ms --device raspberry_pi_5
 aime recipes --task forecasting                # recipes per task
 aime pipeline run pipeline.json                # run a pipeline (resumes finished stages)
 aime data profile data.csv --target label      # dataset profile and findings
@@ -242,7 +250,8 @@ AIME_ONLINE=1 pytest tests/test_online.py   # downloads real pretrained weights 
 
 Architecture and design rules: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Adding a block:
 [CONTRIBUTING.md](CONTRIBUTING.md#adding-a-block).
-Web version: [docs/WEB.md](docs/WEB.md). Roadmap: [docs/ROADMAP_3.0.md](docs/ROADMAP_3.0.md).
+Web version: [docs/WEB.md](docs/WEB.md). Roadmaps: [docs/ROADMAP_3.0.md](docs/ROADMAP_3.0.md),
+[docs/ROADMAP_3.1.md](docs/ROADMAP_3.1.md).
 Release notes: [CHANGELOG.md](CHANGELOG.md).
 
 ## License

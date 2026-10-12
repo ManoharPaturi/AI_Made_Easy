@@ -497,7 +497,8 @@ def start_automl(spec: dict, project: str = "", listener=None) -> dict:  # noqa:
         raise ApiError(str(exc)) from exc
     _sweeps[runner.sweep_id] = runner
     return {"sweep_id": runner.sweep_id, "candidates": [r.id for r in runner.recipes],
-            "metric": runner.spec.metric, "direction": runner.spec.direction}
+            "metric": runner.spec.metric, "direction": runner.spec.direction,
+            "objectives": runner.automl.objectives, "device": runner.automl.target_device()}
 
 
 def automl_leaderboard(sweep_id: str) -> dict:
@@ -506,7 +507,8 @@ def automl_leaderboard(sweep_id: str) -> dict:
     record = sweep_store().get(sweep_id)
     return {"sweep_id": sweep_id, "state": record.state, "metric": record.spec.get("metric"),
             "direction": record.spec.get("direction"), "best": record.best,
-            "trials": leaderboard(record)}
+            "objectives": record.spec.get("objectives") or [],
+            "device": record.spec.get("device"), "trials": leaderboard(record)}
 
 
 # ------------------------------------------------------------------ pipelines

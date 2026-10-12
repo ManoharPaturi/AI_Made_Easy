@@ -79,7 +79,11 @@ def test_wizard_demo_data_and_automl_spec(app):  # noqa: F811
     dialog.trials.setValue(4)
     dialog.automl.click()
     assert dialog.automl_spec == {"task": "multiclass", "facts": {}, "modality": "image",
-                                  "budget": {}, "max_trials": 4, "epochs": 0}
+                                  "budget": {}, "max_trials": 4, "epochs": 0,
+                                  "objectives": []}
+    dialog.trade_off.setCurrentIndex(1)
+    dialog.automl.click()
+    assert dialog.automl_spec["objectives"] == ["latency_ms"]
 
 
 def test_recipe_notes_in_properties_and_explain(ctx, app, monkeypatch):  # noqa: F811
