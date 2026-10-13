@@ -62,9 +62,11 @@ def _impl_expand(graph: dict, node_id: str) -> dict:
     return api.expand(graph, node_id)
 
 
-def _impl_start_training(graph: dict, framework: str = "auto") -> dict:
-    result = api.start_training(graph, framework)
-    result["hint"] = "poll get_run_status(run_id); metrics arrive per epoch"
+def _impl_start_training(graph: dict, framework: str = "auto", on: str = "") -> dict:
+    result = api.start_training(graph, framework, on=on or None)
+    result["hint"] = ("poll get_run_status(run_id); metrics arrive per epoch"
+                      + ("" if not on or on == "local" else
+                         " (Kaggle and Colab: when the remote run reports back)"))
     return result
 
 
@@ -132,11 +134,62 @@ def expand_architecture(graph: dict[str, Any], node_id: str) -> str:
 
 
 @mcp.tool()
-def start_training(graph: dict[str, Any], framework: str = "auto") -> str:
-    """Start training the graph in a managed subprocess (framework: auto,
-    pytorch, keras or sklearn). Returns a run_id; poll get_run_status /
-    get_run_metrics; stop with stop_run. Every run is kept in the run history."""
-    return json.dumps(_impl_start_training(graph, framework))
+def start_training(graph: dict[str, Any], framework: str = "auto", on: str = "") -> str:
+    """Start training the graph (framework: auto, pytorch, keras or sklearn). ``on`` picks
+    where: "" / local (this computer), ssh:<host from ~/.ssh/config>, kaggle, colab, modal,
+    container or a saved backend's name (see list_backends). Returns a run_id; poll
+    get_run_status / get_run_metrics; stop with stop_run. Every run is kept in the run
+    history."""
+    try:
+        return json.dumps(_impl_start_training(graph, framework, on))
+    except api.ApiError as exc:
+        return _err(exc)
+
+
+@mcp.tool()
+def list_backends() -> str:
+    """Where runs can train (this computer, SSH hosts, Kaggle, Colab, Modal, containers),
+    the saved backends and every kind's options. Sign-in is each tool's own (~/.ssh,
+    ~/.kaggle/kaggle.json, modal token, Google Drive for desktop): never pass secrets."""
+    return json.dumps(api.list_backends())
+
+
+@mcp.tool()
+def test_backend(on: str) -> str:
+    """Check a backend works (connection / sign-in) and report its accelerator and the
+    device profile budget checks will use."""
+    try:
+        return json.dumps(api.test_backend(on))
+    except api.ApiError as exc:
+        return _err(exc)
+
+
+@mcp.tool()
+def save_backend(name: str, kind: str, options: dict[str, Any] | None = None) -> str:
+    """Save a backend under a name, e.g. kind "ssh" with {"host": "gpu-box"}, or "kaggle"
+    with {"accelerator": "P100"}. Options only (hosts, GPU types); never secrets."""
+    try:
+        return json.dumps(api.save_backend(name, kind, options))
+    except api.ApiError as exc:
+        return _err(exc)
+
+
+@mcp.tool()
+def attach_run(run_id: str) -> str:
+    """Follow a remote run again after the app restarted or the connection dropped."""
+    try:
+        return json.dumps(api.attach_run(run_id), default=str)
+    except api.ApiError as exc:
+        return _err(exc)
+
+
+@mcp.tool()
+def import_run_results(path: str) -> str:
+    """Complete a Colab hand-off run from the results zip its notebook downloaded."""
+    try:
+        return json.dumps(api.import_run_results(path), default=str)
+    except api.ApiError as exc:
+        return _err(exc)
 
 
 @mcp.tool()
@@ -286,12 +339,13 @@ def automl_leaderboard(sweep_id: str) -> str:
 
 
 @mcp.tool()
-def start_pipeline(graph: dict[str, Any], project: str = "") -> str:
+def start_pipeline(graph: dict[str, Any], project: str = "", on: str = "") -> str:
     """Run a pipeline design (Train → Fine-tune / Distill / Prune / Quantize → Evaluate →
     Export / Register stages). Finished, unchanged stages from earlier attempts are
-    reused. Returns a pipeline_id; poll get_pipeline."""
+    reused; ``on`` sends the training stages to a backend. Returns a pipeline_id; poll
+    get_pipeline."""
     try:
-        return json.dumps(api.start_pipeline(graph, project))
+        return json.dumps(api.start_pipeline(graph, project, on=on))
     except api.ApiError as exc:
         return _err(exc)
 

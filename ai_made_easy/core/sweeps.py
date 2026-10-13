@@ -110,6 +110,7 @@ class SweepSpec:
     seed: int = 0
     framework: str = "auto"
     skip_over_budget: bool = True  # trials that break the project's resource budget
+    on: str = ""  # where trials train (a backend: ssh:<host>, kaggle, …); "" = here
 
     @property
     def minimize(self) -> bool:
@@ -457,7 +458,7 @@ class SweepRunner:
                 try:
                     row.run_id = self.manager.start(
                         trial_graph, self.spec.framework, project=self.record.project,
-                        parent=self.sweep_id, trial=values)
+                        parent=self.sweep_id, trial=values, on=self.spec.on or None)
                 except Exception as exc:  # noqa: BLE001 — recorded on the trial
                     row.state, row.message = "failed", str(exc)
                     self._save_trial(row)

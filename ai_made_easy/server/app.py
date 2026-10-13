@@ -237,11 +237,44 @@ def create_app(*, token: str | None = None, projects_dir: str | Path | None = No
         try:
             return api.start_training(_graph_body(payload), str(payload.get("framework", "auto")),
                                       str(payload.get("project", "")),
-                                      tags=payload.get("tags"))
+                                      tags=payload.get("tags"), on=payload.get("on") or None)
         except api.ApiError:
             raise
         except Exception as exc:  # noqa: BLE001 — e.g. codegen errors
             raise HTTPException(400, str(exc)) from exc
+
+    @app.post("/api/runs/import", dependencies=guard)
+    async def import_results(request: Request) -> dict:
+        """A Colab hand-off run's results zip, as the raw request body."""
+        data = await request.body()
+        if not data:
+            raise HTTPException(400, "send the results .zip as the request body")
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "results.zip"
+            path.write_bytes(data)
+            return api.import_run_results(str(path))
+
+    @app.post("/api/runs/{run_id}/attach", dependencies=guard)
+    def attach(run_id: str) -> dict:
+        return api.attach_run(run_id)
+
+    # ---------------------------------------------------------------- backends
+    @app.get("/api/backends", dependencies=guard)
+    def list_backends() -> dict:
+        return api.list_backends()
+
+    @app.post("/api/backends", dependencies=guard)
+    def save_backend(payload: dict = Body(...)) -> dict:  # noqa: B008
+        return api.save_backend(str(payload.get("name", "")), str(payload.get("kind", "")),
+                                payload.get("options") or {})
+
+    @app.post("/api/backends/test", dependencies=guard)
+    def test_backend(payload: dict = Body(...)) -> dict:  # noqa: B008
+        return api.test_backend(str(payload.get("on") or "local"))
+
+    @app.delete("/api/backends/{name}", dependencies=guard)
+    def delete_backend(name: str) -> dict:
+        return api.delete_backend(name)
 
     @app.get("/api/runs", dependencies=guard)
     def runs(project: str | None = None, parent: str | None = None) -> dict:
@@ -294,8 +327,15 @@ def create_app(*, token: str | None = None, projects_dir: str | Path | None = No
             if rid == run_id:
                 loop.call_soon_threadsafe(queue.put_nowait, event)
 
+        # a run in progress replays its log lines so far (a remote run's first lines say
+        # where it went and what to do); a finished one replays epochs and its status
+        live = mgr.get(run_id) if mgr.is_live(run_id) else None
+        earlier = (list(live.logs[-300:]) if live is not None
+                   and live.state not in ("finished", "failed", "stopped") else [])
         mgr.subscribe(listener)
         try:
+            for line in earlier:
+                await ws.send_json({"type": "log", "line": line})
             for epoch in mgr.history.epochs(run_id):  # replay what happened so far
                 await ws.send_json({"type": "epoch", **epoch})
             if (samples := mgr.latest_samples(run_id)) is not None:
@@ -373,7 +413,8 @@ def create_app(*, token: str | None = None, projects_dir: str | Path | None = No
     # -------------------------------------------------------------- pipelines
     @app.post("/api/pipelines", dependencies=guard)
     def start_pipeline(payload: dict = Body(...)) -> dict:  # noqa: B008
-        return api.start_pipeline(_graph_body(payload), project=str(payload.get("project") or ""))
+        return api.start_pipeline(_graph_body(payload), project=str(payload.get("project") or ""),
+                                  on=str(payload.get("on") or ""))
 
     @app.get("/api/pipelines", dependencies=guard)
     def pipelines(project: str | None = None) -> dict:

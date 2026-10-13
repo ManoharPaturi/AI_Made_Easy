@@ -150,9 +150,33 @@ export interface RunRecord {
   trial: Record<string, unknown>;
   error: string;
   data_fingerprint: string;
+  backend?: string;   // "" = this computer; else ssh:<host>, kaggle, a saved backend, …
+  remote?: Record<string, unknown>;
   params?: Record<string, unknown>;
   graph?: Project;
   duration?: number | null;
+}
+
+export interface BackendInfo {
+  name: string;
+  kind: string;
+  remote: boolean;
+  live: boolean;      // false: curves arrive per poll / when the run reports back
+  options: Record<string, unknown>;
+}
+
+export interface BackendList {
+  backends: BackendInfo[];
+  kinds: string[];
+  options: Record<string, Record<string, string>>;   // kind -> option -> help
+}
+
+export interface BackendTest {
+  ok: boolean;
+  message: string;
+  backend: string;
+  kind: string;
+  accelerator: { gpu?: string; device?: string; memory_gb?: number | null };
 }
 
 export interface EpochEvent {

@@ -7,15 +7,19 @@ folder is also the training script's working directory, so checkpoints and
 """
 from __future__ import annotations
 
+import json
 import subprocess
+import tempfile
 import threading
 import time
+import zipfile
 from pathlib import Path
 from typing import Any, Callable
 
 from ai_made_easy.core.codegen import export_training
 from ai_made_easy.core.graph import Graph
-from ai_made_easy.core.runner.protocol import parse_event, worker_script_path
+from ai_made_easy.core.runner import backends
+from ai_made_easy.core.runner.protocol import worker_script_path  # noqa: F401 — re-exported
 from ai_made_easy.core.runs.history import FINAL_STATES, RunHistory
 
 Listener = Callable[[str, dict], None]
@@ -66,6 +70,17 @@ class TrainingRun:
         self.process: subprocess.Popen | None = None
         self.listeners: list[Listener] = []
         self._lock = threading.Lock()
+        self.name = workdir.name
+        # where it trains (see core.runner.backends) and what remote backends keep
+        self.backend: backends.Backend = backends.LocalBackend()
+        self.bundle = None             # the run bundle, for remote backends
+        self.remote_offset = 0         # events.jsonl lines received so far
+        self.held_done: dict | None = None
+        self.accelerator: dict = {}
+        self.remote_dir = ""
+        self.remote_url = ""
+        self.slug = ""
+        self.graph: Graph | None = None  # the design, for budget checks on the backend's GPU
 
     def record(self, event: dict) -> None:
         finished = False
@@ -122,6 +137,9 @@ class TrainingRun:
                 "latest_metrics": self.epochs[-1].get("metrics") if self.epochs else None,
                 "error": self.error,
                 "workspace": str(self.workdir),
+                "backend": self.backend.spec,
+                "live": self.backend.live,
+                "accelerator": self.accelerator,
                 "elapsed_seconds": round(time.time() - self.started_at, 1),
                 "log_tail": self.logs[-10:],
             }
@@ -146,19 +164,28 @@ class RunManager:
 
     def start(self, graph: Graph, framework: str = "auto", *, project: str = "",
               parent: str = "", trial: dict | None = None,
-              tags: list[str] | None = None) -> str:
+              tags: list[str] | None = None, on: str | None = None) -> str:
+        """Train the design; ``on`` picks where (see :func:`backends.resolve`)."""
+        backend = backends.resolve(on)
         framework = resolve_framework(graph, framework)
         record = self.history.create(graph.to_dict(), framework=framework,
                                      project=project, parent=parent, trial=trial,
                                      tags=tags)
         workdir = self.history.path(record.run_id)
+        bundle = None
         try:
-            script = export_training(graph, framework, workdir)
+            if backend.remote:
+                from ai_made_easy.core.runner.backends.bundle import prepare
+
+                bundle = prepare(graph, framework, record.run_id, workdir)
+                script = workdir / bundle.script
+            else:
+                script = export_training(graph, framework, workdir)
         except Exception as exc:
             self.history.finalize(record.run_id, "failed", None,
                                   f"could not generate the training script: {exc}")
             raise
-        return self._launch(record.run_id, script, workdir)
+        return self._launch(record.run_id, script, workdir, backend, bundle, graph)
 
     def start_stage(self, graph: Graph, write, *, framework: str = "pytorch",
                     kind: str = "stage", project: str = "", parent: str = "",
@@ -176,44 +203,89 @@ class RunManager:
             raise
         return self._launch(record.run_id, script, workdir)
 
-    def _launch(self, run_id: str, script, workdir) -> str:  # noqa: ANN001
+    def _launch(self, run_id: str, script, workdir,  # noqa: ANN001
+                backend: backends.Backend | None = None, bundle=None,  # noqa: ANN001
+                graph: Graph | None = None) -> str:
         record = self.history.get(run_id)
         run = TrainingRun(record.run_id, script, workdir, self.history)
+        run.name = record.name
         run.listeners = self._listeners
+        run.backend = backend or backends.LocalBackend()
+        run.bundle = bundle
+        run.graph = graph
         self._runs[record.run_id] = run
-
-        proc = subprocess.Popen(
-            [self.python or python_executable(), str(worker_script_path()), str(script)],
-            cwd=str(workdir),
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            bufsize=1,
-        )
-        run.process = proc
         run.state = "running"
-        self.history.update(record.run_id, status="running", pid=proc.pid)
-
-        def pump_stderr() -> None:
-            assert proc.stderr is not None
-            for line in proc.stderr:
-                run.record({"type": "log", "line": line.rstrip(), "stream": "stderr"})
-
-        err_thread = threading.Thread(target=pump_stderr, daemon=True)
-
-        def pump_stdout() -> None:
-            assert proc.stdout is not None
-            for line in proc.stdout:
-                event = parse_event(line)
-                if event is not None:
-                    run.record(event)
-            code = proc.wait()
-            err_thread.join(timeout=5)
-            run.process_exited(code)
-
-        err_thread.start()
-        threading.Thread(target=pump_stdout, daemon=True).start()
+        self.history.update(record.run_id, status="running",
+                            backend="" if run.backend.kind == "local" else run.backend.spec)
+        try:
+            run.backend.launch(run, self.python or python_executable())
+        except Exception as exc:
+            run.record({"type": "error", "traceback": str(exc)})
+            run.process_exited(1)
         return record.run_id
+
+    def attach(self, run_id: str) -> dict:
+        """Follow a remote run again (after the app restarted or the link dropped)."""
+        if run_id in self._runs and self._runs[run_id].state not in FINAL_STATES:
+            return self._runs[run_id].status()
+        record = self.history.get(run_id)
+        if record.backend in ("", "local"):
+            raise backends.BackendError("only remote runs can be followed again")
+        if record.status in FINAL_STATES:
+            raise backends.BackendError(f"run {run_id} already {record.status}")
+        backend = backends.resolve(record.backend)
+        workdir = self.history.path(run_id)
+        run = TrainingRun(run_id, workdir / "script.py", workdir, self.history)
+        run.name = record.name
+        run.listeners = self._listeners
+        run.backend = backend
+        run.state = "running"
+        remote = record.remote or {}
+        run.accelerator = remote.get("accelerator") or {}
+        run.remote_dir = remote.get("dir", "")
+        run.remote_url = remote.get("url") or remote.get("notebook", "")
+        run.slug = remote.get("slug", "")
+        self.history.reset_epochs(run_id)
+        self._runs[run_id] = run
+        backend.reattach(run)
+        return run.status()
+
+    def import_results(self, path: str | Path) -> dict:
+        """Complete a hand-off run (Colab without Drive) from its results zip."""
+        from ai_made_easy.core.runner.backends.bundle import merge_folder
+
+        with tempfile.TemporaryDirectory() as tmp, zipfile.ZipFile(path) as archive:
+            root = Path(tmp).resolve()
+            for member in archive.namelist():
+                if not (root / member).resolve().is_relative_to(root):
+                    raise ValueError(f"unsafe path in the zip: {member}")
+            archive.extractall(root)
+            meta_files = sorted(root.rglob("bundle.json"), key=lambda p: len(p.parts))
+            if not meta_files:
+                raise ValueError("not an AI Made Easy results zip (no bundle.json)")
+            folder = meta_files[0].parent
+            run_id = json.loads(meta_files[0].read_text())["run_id"]
+            record = self.history.get(run_id)
+            if record.status in FINAL_STATES:
+                raise ValueError(f"run {run_id} is already {record.status}")
+            workdir = self.history.path(run_id)
+            merge_folder(folder, workdir)
+        run = self._runs.get(run_id)
+        if run is None or run.state in FINAL_STATES:
+            run = TrainingRun(run_id, workdir / "script.py", workdir, self.history)
+            run.listeners = self._listeners
+            run.state = "running"
+            self._runs[run_id] = run
+        self.history.reset_epochs(run_id)
+        replay = backends.RemoteBackend()
+        run.remote_offset = 0
+        events = workdir / "events.jsonl"
+        for line in events.read_text().splitlines() if events.exists() else []:
+            replay.feed(run, line)
+        exit_file = workdir / "exit_code"
+        code = exit_file.read_text().strip() if exit_file.exists() else "1"
+        replay.finish(run, int(code) if code.lstrip("-").isdigit() else 1)
+        return run.status()
 
     def get(self, run_id: str) -> TrainingRun:
         try:
@@ -246,13 +318,9 @@ class RunManager:
 
     def stop(self, run_id: str) -> dict:
         run = self.get(run_id)
-        if run.process and run.process.poll() is None:
+        if run.state not in FINAL_STATES:
             run.state = "stopped"
-            run.process.terminate()
-            try:
-                run.process.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                run.process.kill()
+            run.backend.stop(run)
         return run.status()
 
     def stop_all(self) -> None:

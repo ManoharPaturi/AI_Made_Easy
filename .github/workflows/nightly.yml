@@ -14,6 +14,7 @@ jobs:
     env:
       QT_QPA_PLATFORM: offscreen
       KERAS_BACKEND: torch
+      HAS_KAGGLE: ${{ secrets.KAGGLE_KEY != '' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -43,6 +44,14 @@ jobs:
         run: pytest -q -p no:cacheprovider
       - name: Every sample and recipe trains and deploys
         run: python scripts/sweep_e2e.py --train --deploy --online --json sweep.json
+      - name: A real Kaggle kernel (only when the KAGGLE_KEY secret is set)
+        env:
+          KAGGLE_USERNAME: ${{ secrets.KAGGLE_USERNAME }}
+          KAGGLE_KEY: ${{ secrets.KAGGLE_KEY }}
+        if: env.HAS_KAGGLE == 'true'
+        run: |
+          pip install -e ".[kaggle]"
+          AIME_ONLINE=1 pytest -q -p no:cacheprovider tests/test_backends.py -k real_kaggle
       - uses: actions/upload-artifact@v4
         if: always()
         with:

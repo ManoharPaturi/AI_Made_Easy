@@ -17,7 +17,7 @@ ai_made_easy/
 │   ├── api.py            headless facade used by the CLI, MCP server and web server
 │   ├── paths.py          $AIME_HOME (default ~/.aime) and its sub-folders
 │   ├── runs/             persistent run history: run.json, epochs.jsonl, artefacts
-│   ├── runner/           RunManager: training subprocesses + event listeners
+│   ├── runner/           RunManager, run backends (local, SSH, Kaggle, Colab, Modal, Docker)
 │   ├── sweeps.py         grid / random / Optuna sweeps over design parameters
 │   ├── deploy/           serving packages (FastAPI + Dockerfile), exports, model registry
 │   ├── importers/        PyTorch (torch.fx), ONNX and Keras importers (run in a subprocess)
@@ -319,6 +319,24 @@ SweepRunner ─► for each trial: apply values ─► validate ─► RunManage
 build_package(run dir) ─► app.py + model + inference state + Dockerfile (+ ONNX / TorchScript / Core ML)
 ModelRegistry.register(run dir) ─► $AIME_HOME/models/<name>/<version>/ with a stage
 ```
+
+**Where a run trains** is a backend (`core/runner/backends/`): `local` (the worker as a
+subprocess), `ssh`, `kaggle`, `colab`, `modal` or `container`. A remote backend gets a
+**bundle** (`bundle.py`), which holds:
+- the training script, with local data paths rewritten to `data/…`
+- the worker
+- `requirements.txt`
+- the data files
+
+On the far side it runs `worker/aime_launch.py` (standard library only). The launcher
+unpacks the bundle, runs the worker, and writes `events.jsonl` and an `exit_code`.
+
+The backend feeds those event lines into the same `TrainingRun`, so listeners cannot
+tell where a run trains. A run's `done` event is held back until its outputs are
+downloaded, so the record finalises with `metrics.json`. `RunRecord.backend` and
+`RunRecord.remote` let `RunManager.attach` follow a remote run again after a restart.
+`RunManager.import_results` completes a Colab hand-off run from its results zip.
+See [REMOTE.md](REMOTE.md).
 
 Generated training scripts save `inference_state.pkl` (the preprocessing fitted
 on the training split) and define `load_predictor()` / `infer()`, which the

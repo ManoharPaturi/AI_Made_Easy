@@ -6,6 +6,7 @@ import "@xyflow/react/dist/style.css";
 import { type DragEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { api, streamRun } from "../api";
+import { RunOnSelect, useRunOn } from "../components/Backends";
 import { LineChart, metricSeries } from "../components/LineChart";
 import { PipelinePanel } from "../components/Pipeline";
 import { edgeId, shapeLabel } from "../project";
@@ -139,6 +140,7 @@ function Problems() {
 
 function Training() {
   const { project, name, validation, notify } = useStore();
+  const [on] = useRunOn();
   const [runId, setRunId] = useState<string | null>(null);
   const [status, setStatus] = useState("idle");
   const [epochs, setEpochs] = useState<{ epoch: number; metrics: Record<string, number> }[]>([]);
@@ -171,10 +173,10 @@ function Training() {
 
   const train = async () => {
     try {
-      const { run_id } = await api.train(project(), name);
+      const { run_id } = await api.train(project(), name, "auto", on);
       setRunId(run_id);
       setStatus("running");
-      notify(`Training started — run ${run_id}`);
+      notify(`Training started${on === "local" ? "" : ` on ${on}`} — run ${run_id}`);
     } catch (e) {
       notify(String((e as Error).message), true);
     }
@@ -192,6 +194,7 @@ function Training() {
                   disabled={status === "running" || !validation?.valid}
                   data-testid="train">▶ Train</button>
           <button onClick={stop} disabled={status !== "running"}>Stop</button>
+          <RunOnSelect />
           <span className="dim">{runId ? `run ${runId} · ${status}` : "No run yet"}
             {last && ` · epoch ${last.epoch}`}</span>
         </div>

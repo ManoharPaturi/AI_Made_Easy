@@ -57,10 +57,23 @@ def main(argv: list[str] | None = None) -> int:
     p_run.add_argument("project", help="path to project .json")
     p_run.add_argument("-f", "--framework", default="auto",
                        help="auto (the design's framework), pytorch, keras, sklearn, ...")
+    on_help = ("where to train: local (default), ssh:<host>, kaggle, colab, modal, "
+               "container or a saved backend (see `aime backends`)")
+    p_run.add_argument("--on", default=None, metavar="BACKEND", help=on_help)
     p_runs = sub.add_parser("runs", help="run history")
     p_runs.add_argument("action", nargs="?", default="list",
-                        choices=("list", "show", "compare", "delete"))
-    p_runs.add_argument("ids", nargs="*", help="run id(s)")
+                        choices=("list", "show", "compare", "delete", "attach", "import"))
+    p_runs.add_argument("ids", nargs="*", help="run id(s); import: the results .zip")
+    p_be = sub.add_parser("backends", help="where runs train: list, add, test, remove")
+    p_be.add_argument("action", nargs="?", default="list",
+                      choices=("list", "add", "test", "remove"))
+    p_be.add_argument("name", nargs="?", default="",
+                      help="backend name (test: also ssh:<host>, kaggle, …)")
+    p_be.add_argument("--kind", default="", help="add: ssh, kaggle, colab, modal, container")
+    p_be.add_argument("-s", "--set", action="append", default=[], metavar="OPTION=VALUE",
+                      help="add: a backend option, e.g. host=gpu-box (repeatable; "
+                           "`aime backends list --options` shows them)")
+    p_be.add_argument("--options", action="store_true", help="list: show every kind's options")
     p_runs.add_argument("--project", default=None, help="filter by project name")
     p_sw = sub.add_parser("sweep", help="hyperparameter sweep (trials go to the run history)")
     p_sw.add_argument("project", help="path to project .json")
@@ -73,6 +86,7 @@ def main(argv: list[str] | None = None) -> int:
     p_sw.add_argument("-n", "--trials", type=int, default=10)
     p_sw.add_argument("--points", type=int, default=3, help="grid points per range")
     p_sw.add_argument("--seed", type=int, default=0)
+    p_sw.add_argument("--on", default=None, metavar="BACKEND", help="where trials train")
     p_sw.add_argument("--list-params", action="store_true",
                       help="print the parameters that can be swept and exit")
     p_dep = sub.add_parser("deploy", help="build a model-server package from a finished run")
@@ -159,6 +173,8 @@ def main(argv: list[str] | None = None) -> int:
     p_pipe.add_argument("target", nargs="?", default="",
                         help="pipeline project .json (run) or pipeline id (status, resume)")
     p_pipe.add_argument("--no-wait", action="store_true", help="start and return the id")
+    p_pipe.add_argument("--on", default="", metavar="BACKEND",
+                        help="where training stages run (the other stages run here)")
     p_llm = sub.add_parser("llm", help="generate an LLM workflow script")
     p_llm.add_argument("project", help="path to project .json")
     p_llm.add_argument("-o", "--out", default="exports", help="output directory")
@@ -178,6 +194,8 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "runs":
         return _runs_command(args)
+    if args.command == "backends":
+        return _backends_command(args)
     if args.command in ("deploy", "models", "serve"):
         return _deploy_command(args)
     if args.command == "import":
@@ -254,7 +272,7 @@ def main(argv: list[str] | None = None) -> int:
 
         mgr = RunManager()
         try:
-            run_id = mgr.start(graph, args.framework)
+            run_id = mgr.start(graph, args.framework, on=args.on)
         except Exception as exc:
             print(f"error: {exc}", file=sys.stderr)
             return 1
@@ -399,7 +417,8 @@ def _sweep_command(args, graph) -> int:  # noqa: ANN001
     try:
         spec = {"dimensions": [parse_space(t, args.points) for t in args.param],
                 "metric": args.metric, "direction": args.direction,
-                "strategy": args.strategy, "max_trials": args.trials, "seed": args.seed}
+                "strategy": args.strategy, "max_trials": args.trials, "seed": args.seed,
+                "on": args.on or ""}
         sweep_id = api.start_sweep(graph, spec)["sweep_id"]
     except (ValueError, KeyError) as exc:
         print(f"error: {exc}", file=sys.stderr)
@@ -528,7 +547,7 @@ def _pipeline_command(args) -> int:  # noqa: ANN001
         if args.action == "run":
             path = Path(args.target)
             graph = json.loads(path.read_text())
-            started = api.start_pipeline(graph, base=str(path.resolve().parent))
+            started = api.start_pipeline(graph, base=str(path.resolve().parent), on=args.on)
         else:
             started = api.resume_pipeline(args.target)
     except (api.ApiError, KeyError, OSError, ValueError) as exc:
@@ -703,6 +722,16 @@ def _runs_command(args) -> int:  # noqa: ANN001
         if not args.ids:
             print("error: give a run id", file=sys.stderr)
             return 2
+        if args.action in ("attach", "import"):
+            if args.action == "attach":
+                status = api.attach_run(args.ids[0])
+            else:
+                status = api.import_run_results(args.ids[0])
+            run_id = status["run_id"]
+            if status["state"] not in ("finished", "failed", "stopped"):
+                status = api.manager().wait(run_id, timeout=7 * 24 * 3600)
+            print(f"{run_id}  {status['state']}  {status.get('latest_metrics') or ''}")
+            return 0 if status["state"] == "finished" else 1
         if args.action == "show":
             print(json.dumps(api.get_run(args.ids[0]), indent=2, default=str))
         elif args.action == "compare":
@@ -713,6 +742,60 @@ def _runs_command(args) -> int:  # noqa: ANN001
                 print(f"deleted {run_id}")
         return 0
     except (KeyError, ValueError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+
+
+def _option_value(text: str):  # noqa: ANN202
+    """``true`` / numbers / JSON lists become values; anything else stays a string."""
+    try:
+        return json.loads(text)
+    except ValueError:
+        return text
+
+
+def _backends_command(args) -> int:  # noqa: ANN001
+    from ai_made_easy.core import api
+
+    try:
+        if args.action == "list":
+            listed = api.list_backends()
+            for b in listed["backends"]:
+                options = " ".join(f"{k}={v}" for k, v in b["options"].items())
+                live = "" if b["live"] else "  (curves per poll)"
+                print(f"{b['name']:<16} {b['kind']:<10} {options}{live}")
+            if args.options:
+                for kind, options in listed["options"].items():
+                    print(f"\n{kind}:")
+                    for name, text in options.items():
+                        print(f"  {name:<16} {text}")
+            return 0
+        if not args.name:
+            print("error: give a backend name", file=sys.stderr)
+            return 2
+        if args.action == "add":
+            options = {}
+            for item in args.set:
+                key, sep, value = item.partition("=")
+                if not sep:
+                    print(f"error: --set needs OPTION=VALUE, got {item!r}", file=sys.stderr)
+                    return 2
+                options[key.strip()] = _option_value(value)
+            entry = api.save_backend(args.name, args.kind, options)
+            print(f"saved {entry['name']} ({entry['kind']}); test it: aime backends test "
+                  f"{entry['name']}")
+        elif args.action == "test":
+            result = api.test_backend(args.name)
+            accel = result.get("accelerator") or {}
+            gpu = f"  gpu: {accel['gpu']}" if accel.get("gpu") else ""
+            device = f"  budget device: {accel['device']}" if accel.get("device") else ""
+            print(f"{'ok' if result['ok'] else 'FAILED'}: {result['message']}{gpu}{device}")
+            return 0 if result["ok"] else 1
+        elif args.action == "remove":
+            api.delete_backend(args.name)
+            print(f"removed {args.name}")
+        return 0
+    except (api.ApiError, KeyError, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
 

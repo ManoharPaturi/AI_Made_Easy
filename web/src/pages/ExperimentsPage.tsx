@@ -4,6 +4,7 @@ import { api } from "../api";
 import { LineChart, type Series } from "../components/LineChart";
 import { duration, metric, Modal, StatusChip } from "../components/Modal";
 import { useStore } from "../state";
+import { RunOnSelect, useRunOn } from "../components/Backends";
 import { PipelinesList } from "../components/Pipeline";
 import type { RunRecord, RunSamples, SweepParam, SweepRecord, SweepTrial } from "../types";
 
@@ -101,6 +102,26 @@ function Runs({ scope }: { scope: string }) {
     setSelected(new Set());
     refresh();
   };
+  const importZip = async (file: File | undefined) => {
+    if (!file) return;
+    try {
+      const r = await api.importResults(file);
+      notify(`Imported the results of run ${r.run_id} (${r.state})`);
+      refresh();
+    } catch (e) {
+      notify(String((e as Error).message), true);
+    }
+  };
+  const one = ids.length === 1 ? runs.find((r) => r.run_id === ids[0]) : undefined;
+  const follow = async () => {
+    if (!one) return;
+    try {
+      await api.attachRun(one.run_id);
+      notify(`Following run ${one.run_id} again`);
+    } catch (e) {
+      notify(String((e as Error).message), true);
+    }
+  };
   const metricKeys = [...new Set(runs.flatMap((r) => Object.keys(r.final_metrics)))].slice(0, 4);
   return (
     <>
@@ -109,11 +130,16 @@ function Runs({ scope }: { scope: string }) {
         <button disabled={ids.length !== 1} onClick={() => restore(ids[0])}>Restore design</button>
         <button disabled={ids.length !== 1 || runs.find((r) => r.run_id === ids[0])?.status !== "finished"}
                 onClick={() => setDeploying(runs.find((r) => r.run_id === ids[0]) ?? null)}>Deploy…</button>
+        <button disabled={!one || !one.backend || one.status !== "running"} onClick={follow}
+                title="Follow a remote run again after a restart or a lost connection">Follow again</button>
+        <label className="button" title="The results zip a Colab hand-off notebook downloaded">
+          Import results…<input type="file" accept=".zip" hidden data-testid="import-results"
+                                onChange={(e) => importZip(e.target.files?.[0])} /></label>
         <button className="danger" disabled={!ids.length} onClick={remove}>Delete</button>
         <span className="muted">{runs.length} run(s){ids.length > 1 && ` · comparing ${ids.length}`}</span>
       </div>
       <table data-testid="runs">
-        <thead><tr><th /><th>Run</th><th>Name</th><th>Status</th><th>Framework</th>
+        <thead><tr><th /><th>Run</th><th>Name</th><th>Status</th><th>Framework</th><th>Ran on</th>
           {metricKeys.map((k) => <th key={k} className="num">{k}</th>)}
           <th className="num">Epochs</th><th className="num">Duration</th><th>Tags</th></tr></thead>
         <tbody>
@@ -123,6 +149,7 @@ function Runs({ scope }: { scope: string }) {
               <td><input type="checkbox" readOnly checked={selected.has(r.run_id)} /></td>
               <td className="dim">{r.run_id}</td><td>{r.name}</td>
               <td><StatusChip status={r.status} /></td><td>{r.framework}</td>
+              <td className="dim">{r.backend || "here"}</td>
               {metricKeys.map((k) => <td key={k} className="num">{metric(r.final_metrics[k])}</td>)}
               <td className="num">{r.epochs_done}</td><td className="num">{duration(r.duration)}</td>
               <td>{r.tags.map((t) => <span key={t} className="chip">{t}</span>)}</td>
@@ -204,6 +231,7 @@ function SweepModal({ onClose, onStarted }: { onClose: () => void; onStarted: ()
   const [strategy, setStrategy] = useState("random");
   const [trials, setTrials] = useState(6);
   const [skipBudget, setSkipBudget] = useState(true);
+  const [on] = useRunOn();
   useEffect(() => {
     api.sweepParams(project()).then((r) => setParams(r.params)).catch((e) => notify(String(e.message), true));
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -214,7 +242,8 @@ function SweepModal({ onClose, onStarted }: { onClose: () => void; onStarted: ()
       : { node: p.node, param: p.param, kind: p.kind, low: p.low, high: p.high, log: p.log }));
     try {
       await api.startSweep(project(), { dimensions, metric: metricName, strategy,
-                                        max_trials: trials, skip_over_budget: skipBudget }, name);
+                                        max_trials: trials, skip_over_budget: skipBudget,
+                                        on: on === "local" ? "" : on }, name);
       notify("Sweep started");
       onStarted();
       onClose();
@@ -238,6 +267,7 @@ function SweepModal({ onClose, onStarted }: { onClose: () => void; onStarted: ()
         <label title="Trials that break the project's resource budget are recorded but not trained">
           <input type="checkbox" checked={skipBudget} onChange={(e) => setSkipBudget(e.target.checked)} />
           Skip over budget</label>
+        <RunOnSelect testId="sweep-run-on" />
       </div>
       <table>
         <thead><tr><th /><th>Block · parameter</th><th>Range</th></tr></thead>

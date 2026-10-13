@@ -1,7 +1,7 @@
 // Typed client for the AI Made Easy server. Every call goes to /api; errors carry the
 // server's user-facing message.
 import type {
-  PipelineRecord, SavedProject,
+  BackendList, BackendTest, PipelineRecord, SavedProject,
   AutoMLStarted, DataFacts, Explanation, RecipeInfo, RecipeSuggestion, WizardTask,
   BlockDef, BudgetReport, TableLayout, RunSamples, DataProfile, DeviceProfile, FamilyInfo, TaskInfo, ModelVersion, Project, RunEvent, RunRecord, SplitPreview, Summary,
   SweepParam, SweepRecord, Validation,
@@ -20,11 +20,11 @@ function headers(json: boolean): HeadersInit {
 }
 
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
-  const form = body instanceof FormData;
+  const raw = body instanceof FormData || body instanceof Blob;  // sent as is (uploads)
   const res = await fetch(`/api${path}`, {
     method,
-    headers: headers(body !== undefined && !form),
-    body: body === undefined ? undefined : form ? body : JSON.stringify(body),
+    headers: headers(body !== undefined && !raw),
+    body: body === undefined ? undefined : raw ? body : JSON.stringify(body),
   });
   if (!res.ok) {
     let message = `${res.status} ${res.statusText}`;
@@ -76,8 +76,17 @@ export const api = {
   deleteProject: (name: string) =>
     request<{ deleted: string }>("DELETE", `/projects/${encodeURIComponent(name)}`),
 
-  train: (graph: Project, project: string, framework = "auto") =>
-    post<{ run_id: string }>("/runs", { graph, project, framework }),
+  train: (graph: Project, project: string, framework = "auto", on = "local") =>
+    post<{ run_id: string; backend: string }>("/runs", { graph, project, framework, on }),
+  attachRun: (id: string) => post<Record<string, unknown>>(`/runs/${id}/attach`),
+  importResults: (zip: Blob) => post<{ run_id: string; state: string }>("/runs/import", zip),
+
+  backends: () => get<BackendList>("/backends"),
+  saveBackend: (name: string, kind: string, options: Record<string, unknown>) =>
+    post<Record<string, unknown>>("/backends", { name, kind, options }),
+  testBackend: (on: string) => post<BackendTest>("/backends/test", { on }),
+  deleteBackend: (name: string) =>
+    request<{ deleted: string }>("DELETE", `/backends/${encodeURIComponent(name)}`),
   runs: (project?: string) =>
     get<{ runs: RunRecord[] }>(`/runs${project ? `?project=${encodeURIComponent(project)}` : ""}`),
   run: (id: string) => get<RunRecord>(`/runs/${id}`),
@@ -98,8 +107,8 @@ export const api = {
   stopSweep: (id: string) => post<Record<string, unknown>>(`/sweeps/${id}/stop`),
   bestGraph: (id: string) => get<{ graph: Project }>(`/sweeps/${id}/best`),
 
-  startPipeline: (graph: Project, project = "") =>
-    post<{ pipeline_id: string; stages: string[] }>("/pipelines", { graph, project }),
+  startPipeline: (graph: Project, project = "", on = "local") =>
+    post<{ pipeline_id: string; stages: string[] }>("/pipelines", { graph, project, on }),
   pipelines: () => get<{ pipelines: PipelineRecord[] }>("/pipelines"),
   pipeline: (id: string) => get<PipelineRecord>(`/pipelines/${id}`),
   stopPipeline: (id: string) => post<Record<string, unknown>>(`/pipelines/${id}/stop`),
