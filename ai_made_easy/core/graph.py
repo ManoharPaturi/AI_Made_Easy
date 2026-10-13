@@ -8,8 +8,10 @@ Canonical conventions (framework quirks are resolved at codegen, never here):
 """
 from __future__ import annotations
 
+from collections import defaultdict, deque
+from contextlib import contextmanager
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Iterator
 
 from ai_made_easy.core.registry import get_registry
 from ai_made_easy.core.spec import BlockDefinition, parse_shape
@@ -65,6 +67,9 @@ class Graph:
     nodes: dict[str, NodeInstance] = field(default_factory=dict)
     edges: list[Edge] = field(default_factory=list)
     meta: dict[str, Any] = field(default_factory=dict)
+    # (incoming, outgoing) edges per node while a validation / shape walk runs; edges is a
+    # public list, so the index lives only as long as one read-only pass
+    _adjacency: tuple | None = field(default=None, init=False, repr=False, compare=False)
 
     # ---------------------------------------------------------------- build
 
@@ -93,10 +98,35 @@ class Graph:
 
     # ------------------------------------------------------------- traverse
 
+    def __getstate__(self) -> dict:
+        # copies (Quick Fixes deep-copy, then edit edges) never inherit a live index
+        return {**self.__dict__, "_adjacency": None}
+
+    @contextmanager
+    def _indexed(self) -> Iterator[None]:
+        """Index edges by node for one read-only pass, so lookups stop scanning every
+        edge (validating a 1000-node design was quadratic)."""
+        if self._adjacency is not None:          # nested: the outer pass owns the index
+            yield
+            return
+        incoming, outgoing = defaultdict(list), defaultdict(list)
+        for e in self.edges:
+            incoming[e.target_id].append(e)
+            outgoing[e.source_id].append(e)
+        self._adjacency = (incoming, outgoing)
+        try:
+            yield
+        finally:
+            self._adjacency = None
+
     def incoming(self, node_id: str) -> list[Edge]:
+        if self._adjacency is not None:
+            return list(self._adjacency[0].get(node_id, ()))
         return [e for e in self.edges if e.target_id == node_id]
 
     def outgoing(self, node_id: str) -> list[Edge]:
+        if self._adjacency is not None:
+            return list(self._adjacency[1].get(node_id, ()))
         return [e for e in self.edges if e.source_id == node_id]
 
     def topo_order(self) -> list[str]:
@@ -104,10 +134,10 @@ class Graph:
         indeg = {nid: 0 for nid in self.nodes}
         for e in self.edges:
             indeg[e.target_id] += 1
-        queue = sorted(nid for nid, d in indeg.items() if d == 0)
+        queue = deque(sorted(nid for nid, d in indeg.items() if d == 0))
         order: list[str] = []
         while queue:
-            nid = queue.pop(0)
+            nid = queue.popleft()
             order.append(nid)
             for e in self.outgoing(nid):
                 indeg[e.target_id] -= 1
@@ -119,8 +149,7 @@ class Graph:
         return order
 
     def input_edge_for(self, node_id: str, port_name: str) -> Edge | None:
-        matches = [e for e in self.edges if e.target_id == node_id and e.target_port == port_name]
-        return matches[0] if matches else None
+        return next((e for e in self.incoming(node_id) if e.target_port == port_name), None)
 
     def model_nodes(self) -> list[NodeInstance]:
         """Topo-ordered tensor-flow nodes: everything on a tensor path from
@@ -177,6 +206,11 @@ class Graph:
 
     def infer_shapes_detailed(self) -> tuple[dict[str, list[int]],
                                              list[ValidationIssue]]:
+        with self._indexed():
+            return self._infer_shapes_detailed()
+
+    def _infer_shapes_detailed(self) -> tuple[dict[str, list[int]],
+                                              list[ValidationIssue]]:
         """Shape walk that attributes failures to the failing node.
 
         Returns (shapes, issues): shapes for every node computed before the
@@ -417,6 +451,10 @@ class Graph:
         return issues, chain
 
     def validate(self) -> list[ValidationIssue]:
+        with self._indexed():
+            return self._validate()
+
+    def _validate(self) -> list[ValidationIssue]:
         issues: list[ValidationIssue] = []
         reg = get_registry()
         for node in self.nodes.values():

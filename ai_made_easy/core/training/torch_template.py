@@ -157,6 +157,11 @@ def image_datasets():
     """Raw (untransformed) datasets: (train pool, official test set or None)."""
 {% if d.block == "data.torchvision" %}
     root = str(Path({{ d.data_dir | repr }}).expanduser())
+{% if d.download %}
+    import socket
+
+    socket.setdefaulttimeout(60)   # a dead network fails the run instead of hanging it
+{% endif %}
 {% if tv_split_kw == "split" %}
     return (datasets.{{ tv_class }}(root, split="train", download={{ d.download }}),
             datasets.{{ tv_class }}(root, split="test", download={{ d.download }}))

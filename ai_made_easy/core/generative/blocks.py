@@ -295,8 +295,8 @@ def _config() -> list[BlockDefinition]:
             params=(P("base_model", "enum", SD_MODELS[0], options=SD_MODELS,
                       help="Pretrained text-to-image model the adapters are trained on"),
                     P("weights", "enum", "pretrained", options=("pretrained", "none"),
-                      help="none: a tiny random Stable Diffusion, to check a design offline "
-                           "(its images are noise)"),
+                      help="none: a tiny random Stable Diffusion at up to 64 px, to check a design "
+                           "offline (its images are noise)"),
                     P("resolution", "int", 512, lo=32, hi=1024,
                       help="Training and sampling size; the base models were trained at 512"),
                     P("rank", "int", 4, lo=1, hi=256,

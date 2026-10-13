@@ -48,6 +48,8 @@ _INPUT_HELP = {
     "windows": "a list of windows, each [time steps][feature columns]",
     "generation": "a list of requests: a count, or {\"n\": 4, \"seed\": 0, \"class\": "
                   "\"name\", \"steps\": 50, \"guidance\": 2.0}; returns base64 PNG images",
+    "text_to_image": "a list of prompts, or {\"prompt\", \"steps\", \"guidance\", \"seed\"}; "
+                     "returns base64 PNG images",
     "prompt": "a list of prompts (language model: text or {\"prompt\", \"max_new_tokens\", "
               "\"temperature\", \"top_k\", \"seed\"}) or source texts (seq2seq)",
     "evidence": "a list of evidence dicts {\"Variable\": \"state\"}, or {\"evidence\": {...}, "
@@ -98,6 +100,11 @@ def _artifacts(run_dir: Path, framework: str) -> tuple[Path, list[Path]]:
                 "keras": ("*_best.keras", "inference_state.pkl"),
                 "sklearn": ("*_model.joblib", "inference.json")}[framework]
     files = []
+    if framework == "pytorch" and (run_dir / "lora").is_dir():
+        # Stable Diffusion LoRA: the adapters (a diffusers folder) instead of a checkpoint,
+        # plus the random base model when it was trained offline (weights = none)
+        patterns = ("inference_state.pkl",)
+        files += [run_dir / "lora", *sorted(run_dir.glob("*_tiny_base.pt"))]
     for pattern in patterns:
         found = sorted(run_dir.glob(pattern))
         if not found:
@@ -139,7 +146,9 @@ def _describe(graph_dict: dict) -> dict:
         kind = "sequences" if task.id == "regime_detection" else "evidence"
         return {"task": task.id, "modality": "tabular", "dataset": data.type_id if data else "",
                 "input_kind": kind, "input_help": _INPUT_HELP[kind], "response": task.serving}
-    if task is not None and "image" in task.modalities and task.trainer_kind != "supervised":
+    # image-in tasks (detection, segmentation); generated images are described below
+    if task is not None and "image" in task.modalities and task.trainer_kind not in (
+            "supervised", "vae", "adversarial", "diffusion", "text_to_image"):
         from ai_made_easy.core.vision.tasks import dataset_of
 
         data = dataset_of(graph)
@@ -170,13 +179,14 @@ def _describe(graph_dict: dict) -> dict:
                 "export_note": "forecasters are served by the FastAPI package; covariates and "
                                "scaling run in Python before the model"}
     if task is not None and task.trainer_kind in ("vae", "adversarial", "diffusion",
-                                                  "language_model", "seq2seq"):
+                                                  "text_to_image", "language_model",
+                                                  "seq2seq"):
         from ai_made_easy.core.generative.tasks import dataset_of as generative_data
 
         data = generative_data(graph)
         kind = "generation" if task.trainer_kind in ("vae", "adversarial", "diffusion") \
-            else "prompt"
-        return {"task": task.id, "modality": "image" if kind == "generation" else "text",
+            else "text_to_image" if task.trainer_kind == "text_to_image" else "prompt"
+        return {"task": task.id, "modality": "text" if kind == "prompt" else "image",
                 "dataset": data.type_id if data else "",
                 "input_kind": kind, "input_help": _INPUT_HELP[kind], "response": task.serving}
     if task is not None and task.trainer_kind == "graph":
@@ -289,6 +299,8 @@ def _example(meta: dict, signature: dict) -> str:
         return json.dumps({"inputs": [{"n": 4, "seed": 0}]})
     if kind == "prompt":
         return json.dumps({"inputs": ["the cat"]})
+    if kind == "text_to_image":
+        return json.dumps({"inputs": [{"prompt": "a photo of a circle", "steps": 30}]})
     if kind == "observations":
         shape = signature.get("input_shape") or [4]
         return json.dumps({"inputs": [[0.0] * int(shape[0])]})
@@ -336,7 +348,10 @@ def build_package(run_dir: Path | str, out_dir: Path | str, *, formats: tuple[st
     script_text = script.read_text()
     (model_dir / "model_def.py").write_text(script_text)
     for file in files:
-        shutil.copy2(file, model_dir / file.name)
+        if file.is_dir():
+            shutil.copytree(file, model_dir / file.name)
+        else:
+            shutil.copy2(file, model_dir / file.name)
 
     name = name or record.get("name") or "model"
     image = re.sub(r"[^a-z0-9._-]+", "-", name.lower()).strip("-") or "model"
@@ -362,7 +377,7 @@ def build_package(run_dir: Path | str, out_dir: Path | str, *, formats: tuple[st
         name=name, image=image,
         image_route=(templates.IMAGE_ROUTE if meta["input_kind"] == "images" else
                      templates.GENERATE_ROUTE if meta["input_kind"] in ("generation", "prompt",
-                                                                       "density")
+                                                                       "text_to_image", "density")
                      else "")))
     (out_dir / "Dockerfile").write_text(templates.DOCKERFILE.format(
         name=name, python=py_minor, env=keras_env))
@@ -401,7 +416,8 @@ def build_package(run_dir: Path | str, out_dir: Path | str, *, formats: tuple[st
         image_endpoint=("- `POST /predict/image` — multipart image files\n"
                         if meta["input_kind"] == "images" else
                         "- `POST /generate` — the same requests as `/predict`\n"
-                        if meta["input_kind"] in ("generation", "prompt") else ""),
+                        if meta["input_kind"] in ("generation", "prompt", "text_to_image")
+                        else ""),
         example=_example(meta, signature).replace("'", "\\'"),
         exports_section=("\n## Exported formats\n\n" + exports) if exports else ""))
     return result

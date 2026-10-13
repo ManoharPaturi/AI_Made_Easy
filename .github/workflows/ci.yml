@@ -12,6 +12,7 @@ concurrency:
 jobs:
   lint:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -28,6 +29,7 @@ jobs:
         os: [ubuntu-latest, macos-latest]
         python: ["3.11", "3.12"]
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
     env:
       QT_QPA_PLATFORM: offscreen
       KERAS_BACKEND: torch
@@ -53,12 +55,16 @@ jobs:
           pip install -e ".[dev,classic,keras,mcp-server,serve,export,tuning]" pandas
       - name: Test
         run: pytest -q -p no:cacheprovider
+      - name: Every sample and recipe validates and generates code
+        if: matrix.os == 'ubuntu-latest' && matrix.python == '3.12'
+        run: python scripts/sweep_e2e.py
 
   test-vision:
     # the vision-tasks extra (timm, transformers, pycocotools): every vision block and
     # training loop runs offline with random weights
     needs: lint
     runs-on: ubuntu-latest
+    timeout-minutes: 40
     env:
       QT_QPA_PLATFORM: offscreen
     steps:
@@ -92,6 +98,7 @@ jobs:
     # the probabilistic extra: graphical models, HMMs and their generated scripts
     needs: lint
     runs-on: ubuntu-latest
+    timeout-minutes: 40
     env:
       QT_QPA_PLATFORM: offscreen
     steps:
@@ -123,6 +130,7 @@ jobs:
     # the graph and rl extras: PyTorch Geometric, Gymnasium and stable-baselines3
     needs: lint
     runs-on: ubuntu-latest
+    timeout-minutes: 40
     env:
       QT_QPA_PLATFORM: offscreen
     steps:
@@ -157,6 +165,7 @@ jobs:
     # training loops and serving, offline with random weights
     needs: lint
     runs-on: ubuntu-latest
+    timeout-minutes: 40
     env:
       QT_QPA_PLATFORM: offscreen
     steps:
@@ -187,6 +196,7 @@ jobs:
   web:
     needs: lint
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     env:
       QT_QPA_PLATFORM: offscreen
     steps:
@@ -229,6 +239,7 @@ jobs:
   docker:
     needs: lint
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - name: Build the web server image
@@ -259,6 +270,7 @@ jobs:
   package:
     needs: lint
     runs-on: macos-latest
+    timeout-minutes: 30
     env:
       QT_QPA_PLATFORM: offscreen
     steps:

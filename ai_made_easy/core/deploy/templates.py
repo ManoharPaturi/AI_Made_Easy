@@ -223,14 +223,26 @@ if FRAMEWORK == "pytorch":
     import numpy as np
     import torch
 
-    shape = tuple(model_def.INPUT_SHAPE)
-    floating = not any(m.__class__.__name__ == "Embedding" for m in model.modules())
-    dummy = (torch.randn(2, *shape) if floating
-             else torch.randint(0, 2, (2, *shape), dtype=torch.long))
-    with torch.no_grad():
-        reference = model(dummy).float().numpy()
+    _traced = {{}}
+
+    def traced_input():
+        """A dummy batch and the model's output on it, made only when a format is asked
+        for: some models (class-conditional diffusion, graph networks) take more than one
+        tensor, and loading them must not depend on a single-tensor call."""
+        if not _traced:
+            shape = tuple(model_def.INPUT_SHAPE)
+            # token-id models take integers; recommenders embed ids too, but read one float
+            # row [user, item, *dense features] and round the ids themselves (rec_ids)
+            floating = hasattr(model_def, "rec_ids") or \
+                not any(m.__class__.__name__ == "Embedding" for m in model.modules())
+            dummy = (torch.randn(2, *shape) if floating
+                     else torch.randint(0, 2, (2, *shape), dtype=torch.long))
+            with torch.no_grad():
+                _traced["io"] = dummy, model(dummy).float().numpy()
+        return _traced["io"]
 
     def onnx_export():
+        dummy, reference = traced_input()
         path = EXPORTS / "model.onnx"
         torch.onnx.export(model, (dummy,), str(path), input_names=["input"],
                           output_names=["output"], dynamo=False, opset_version=18,
@@ -259,6 +271,7 @@ if FRAMEWORK == "pytorch":
         return path, f"{{size(path) / max(size(source), 1):.0%}} of the float model"
 
     def torchscript():
+        dummy, reference = traced_input()
         path = EXPORTS / "model.torchscript.pt"
         traced = torch.jit.trace(model, dummy)
         traced.save(str(path))
@@ -271,6 +284,7 @@ if FRAMEWORK == "pytorch":
     def coreml():
         import coremltools as ct
 
+        dummy, _ = traced_input()
         path = EXPORTS / "model.mlpackage"
         traced = torch.jit.trace(model, dummy[:1])
         mlmodel = ct.convert(traced, inputs=[ct.TensorType(name="input", shape=dummy[:1].shape)],
