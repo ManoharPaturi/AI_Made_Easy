@@ -12,8 +12,8 @@ Summary can show estimate vs measured once a real run has calibrated them.
   weights, plus saved activations × batch (halved by mixed precision), plus the
   device's runtime overhead.
 * Inference latency (batch 1): compute time at a realistic fraction of the
-  device's peak + memory traffic over its bandwidth + a small per-layer launch
-  cost.
+  device's peak + memory traffic over its bandwidth + a small launch cost per
+  kernel (one per block; composite blocks declare ``meta["kernels"]``).
 
 The project's budget lives in ``graph.meta["budget"]``::
 
@@ -143,6 +143,7 @@ class LayerCost:
     flops: int
     activations: int        # values saved for backward (per sample)
     trainable: bool = True
+    kernels: int = 1        # kernel launches in one forward pass
 
 
 @dataclass
@@ -189,8 +190,12 @@ class Estimate:
         tflops = device.tflops_fp16 if self.mixed_precision else device.tflops_fp32
         compute = self.flops / (tflops * 1e12 * COMPUTE_EFFICIENCY)
         traffic = (self.model_bytes() + 2 * self.activations * 4) / (device.bandwidth_gbs * 1e9)
-        launch = LAYER_LAUNCH_MS.get(device.kind, 0.01) * len(self.layers) / 1e3
+        launch = LAYER_LAUNCH_MS.get(device.kind, 0.01) * self.kernels / 1e3
         return (compute + traffic + launch) * 1e3
+
+    @property
+    def kernels(self) -> int:
+        return sum(layer.kernels for layer in self.layers)
 
     def step_time_ms(self, device: Device | None = None) -> float | None:
         """One training step (forward + backward ≈ 3× forward) at the batch size."""
@@ -303,8 +308,10 @@ def estimate(graph, device: str | Device | None = None) -> Estimate:  # noqa: AN
         else:
             flops = layer_flops(node.type_id, params, in_shapes, out_shape)
             acts = _saved_values(graph, node, resolved, in_shapes, out_shape)
+        kernels = (defn.meta or {}).get("kernels") if isinstance(defn.meta, dict) else None
+        kernels = int(kernels(resolved)) if callable(kernels) and in_shapes else 1
         est.layers.append(LayerCost(node.instance_id, defn.display_name, node.type_id,
-                                    out_shape, params, flops, acts, trainable))
+                                    out_shape, params, flops, acts, trainable, kernels))
         est.params += params
         est.trainable_params += params if trainable else 0
         est.flops += flops

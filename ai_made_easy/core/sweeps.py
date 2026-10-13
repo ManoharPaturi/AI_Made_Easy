@@ -212,6 +212,7 @@ class TrialRow:
     state: str = "pending"
     score: float | None = None
     message: str = ""
+    objectives: dict[str, float] = field(default_factory=dict)  # AutoML: latency, size
 
 
 @dataclass
@@ -380,6 +381,13 @@ class SweepRunner:
         """Wait for the trial's run (AutoML watches the epochs and may prune it)."""
         return self.manager.wait(row.run_id, timeout=24 * 3600)
 
+    def _measure(self, row: TrialRow, graph: Graph) -> None:
+        """Record design costs on the trial before it trains (AutoML's objectives)."""
+
+    def _told(self, row: TrialRow):  # noqa: ANN202
+        """What the sampler learns from a finished trial."""
+        return "pruned" if row.state == "pruned" else row.score
+
     def _score(self, run_id: str) -> float | None:
         rec = self.manager.history.get(run_id)
         for source in (rec.final_metrics, rec.best_metrics):
@@ -444,6 +452,7 @@ class SweepRunner:
                         tell(None)
                     self._emit({"type": "trial", **asdict(row)})
                     continue
+                self._measure(row, trial_graph)
                 trial_graph.name = f"{self.record.name}_t{number}"
                 try:
                     row.run_id = self.manager.start(
@@ -469,7 +478,7 @@ class SweepRunner:
                     row.message = f"the run did not report {self.spec.metric!r}"
                 self._save_trial(row)
                 if tell:
-                    tell("pruned" if row.state == "pruned" else row.score)
+                    tell(self._told(row))
                 self._emit({"type": "trial", **asdict(row)})
             self.record.state = "stopped" if self._stop.is_set() else "finished"
         except Exception as exc:  # noqa: BLE001

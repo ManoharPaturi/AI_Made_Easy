@@ -144,6 +144,19 @@ FAMILIES.md entry automatically.
   - FAMILIES.md regenerated
   - CHANGELOG
 - **Version:** 3.1.0, plus nightly and CI green.
+- **Status:** done.
+  - AutoML takes `objectives` (`latency_ms`, `params_m`, `model_mb`), estimated on the
+    budget's device. TPE searches the trade-off with two or more directions, pruning is
+    off, and the leaderboard marks the Pareto front. This works in the desktop and web
+    Sweeps views, the wizard, the CLI and MCP.
+  - On two spirals for a Raspberry Pi 5, the front ran from a 0.06 ms MLP at 63% to a
+    0.23 ms ResNet at 99%.
+  - Building it exposed budget estimates that undercounted tabular transformers (one
+    matrix-vector product instead of one per column token) and counted launches per
+    block. Both are fixed, and the transformers now match PyTorch's FLOP counter within
+    15%.
+  - The desktop screenshots were retaken with `scripts/grab_ui.py`, which gains an
+    `automl` scene.
 
 ---
 

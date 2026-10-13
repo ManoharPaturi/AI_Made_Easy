@@ -311,3 +311,33 @@ def test_canvas_adapter_keeps_meta():
     assert budget.budget_of(adapter.to_ir())["device"] == "t4"
     adapter.clear()
     assert adapter.to_ir().meta == {}
+
+
+def test_tabular_transformer_costs_match_pytorch():
+    """Tabular transformers run their layers once per column token: the estimate counts
+    every token and attention (within 15% of PyTorch's FLOP counter), and their kernel
+    launches, so a transformer is not mistaken for a cheaper model than an MLP."""
+    torch = pytest.importorskip("torch")
+    import math
+
+    from torch.utils.flop_counter import FlopCounterMode
+
+    from ai_made_easy.core.tabular import blocks as tab
+    from ai_made_easy.core.tabular import helpers
+
+    ns = {"torch": torch, "nn": torch.nn, "math": math, "F": torch.nn.functional}
+    for src in (helpers.SPLIT, helpers.FT, helpers.TAB_TRANSFORMER):
+        exec(src, ns)  # noqa: S102 — our helper source
+    common = {"d": 32, "layers": 2, "heads": 4, "categorical": "1, 3", "cardinalities": "4, 6"}
+    cases = (("tab.ft_transformer", ns["FTTransformer"](8, [1, 3], [4, 6], 32, 2, 4, 0.0),
+              {**common, "dim": 0}),
+             ("tab.tab_transformer", ns["TabTransformer"](8, [1, 3], [4, 6], 32, 2, 4, 64, 0.0),
+              {**common, "hidden": 64}))
+    for type_id, model, params in cases:
+        model.eval()
+        with FlopCounterMode(display=False) as counter:
+            model(torch.zeros(1, 8))
+        n_params, flops = tab.COSTS[type_id]([[8]], params)
+        assert n_params == sum(p.numel() for p in model.parameters())
+        assert flops == pytest.approx(counter.get_total_flops(), rel=0.15), type_id
+        assert tab.KERNELS[type_id](params) > 10

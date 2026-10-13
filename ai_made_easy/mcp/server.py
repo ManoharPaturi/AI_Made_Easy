@@ -259,12 +259,16 @@ def explain_design(graph: dict[str, Any]) -> str:
 @mcp.tool()
 def start_automl(task: str, path: str = "", target: str = "", max_trials: int = 12,
                  epochs: int = 0, recipes: list[str] | None = None,
-                 budget: dict[str, Any] | None = None) -> str:
+                 budget: dict[str, Any] | None = None, objectives: list[str] | None = None,
+                 device: str = "") -> str:
     """AutoML: train every candidate recipe for the task once, then tune recipes and
     their settings with TPE, pruning weak trials early and skipping designs over the
-    budget. Returns a sweep_id; poll automl_leaderboard."""
+    budget. ``objectives`` (latency_ms, params_m, model_mb, estimated on ``device``)
+    makes it multi-objective: the leaderboard then marks the Pareto front. Returns a
+    sweep_id; poll automl_leaderboard."""
     spec = {"task": task, "path": path or None, "target": target, "max_trials": max_trials,
-            "epochs": epochs, "recipes": recipes or [], "budget": budget or {}}
+            "epochs": epochs, "recipes": recipes or [], "budget": budget or {},
+            "objectives": objectives or [], "device": device}
     try:
         return json.dumps(api.start_automl({k: v for k, v in spec.items() if v is not None}))
     except api.ApiError as exc:
@@ -273,7 +277,8 @@ def start_automl(task: str, path: str = "", target: str = "", max_trials: int = 
 
 @mcp.tool()
 def automl_leaderboard(sweep_id: str) -> str:
-    """An AutoML search's trials, best first, with their recipe, settings and score."""
+    """An AutoML search's trials, best first, with their recipe, settings and score
+    (multi-objective: the Pareto front first, with each trial's costs)."""
     try:
         return json.dumps(api.automl_leaderboard(sweep_id), default=str)
     except KeyError as exc:

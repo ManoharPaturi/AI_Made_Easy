@@ -101,6 +101,40 @@ def _tabnet_params(in_shapes, p) -> int:
     return 2 * f + glu(f) + glu(w) + (steps + 1) * 2 * glu(w) + steps * (n_a * f + 2 * f)
 
 
+def _encoder_flops(tokens: int, d: int, ff: int, layers: int) -> int:
+    """Forward FLOPs of ``layers`` transformer layers over ``tokens`` tokens: the
+    projections and feed-forward per token, plus attention scores and mixing."""
+    per_token = 2 * (4 * d * d + 2 * d * ff) + 4 * tokens * d
+    return layers * tokens * per_token
+
+
+def _ft_cost(in_shapes, p) -> tuple[int, int]:
+    f, _cat, _cards = columns(in_shapes, p)
+    d, layers = int(p["d"]), int(p["layers"])
+    tokens = f + 1                                   # one per column plus [CLS]
+    return _ft_params(in_shapes, p), 2 * f * d + _encoder_flops(tokens, d, d * 4 // 3,
+                                                                  layers) + 4 * d
+
+
+def _tt_cost(in_shapes, p) -> tuple[int, int]:
+    f, cat, _cards = columns(in_shapes, p)
+    d, h = int(p["d"]), int(p["hidden"])
+    width = len(cat) * d + f - len(cat)
+    return (_tt_params(in_shapes, p),
+            _encoder_flops(len(cat), d, 4 * d, int(p["layers"])) + 2 * (width * h + h * h))
+
+
+# kernel launches per forward pass: attention layers run ~10 kernels (projections,
+# scores, softmax, mixing, norms, feed-forward, residuals); ResNet blocks ~6
+KERNELS = {
+    "tab.ft_transformer": lambda p: 3 + 10 * int(p["layers"]),
+    "tab.tab_transformer": lambda p: 6 + 10 * int(p["layers"]),
+    "tab.resnet": lambda p: 3 + 6 * int(p["blocks"]),
+    "tab.tabnet": lambda p: 4 + 12 * int(p["steps"]),
+}
+COSTS = {"tab.ft_transformer": _ft_cost, "tab.tab_transformer": _tt_cost}
+
+
 def _tt_shape(in_shapes, p):
     f, cat, _cards = columns(in_shapes, p)
     if not cat and f == 0:
@@ -195,6 +229,10 @@ def _blocks() -> list[BlockDefinition]:
     out = []
     for b in blocks:
         meta = {**(b.meta or {}), "tabular": True}
+        if b.type_id in KERNELS:
+            meta["kernels"] = KERNELS[b.type_id]
+        if b.type_id in COSTS:
+            meta["cost"] = COSTS[b.type_id]
         if b.type_id == "tab.tabnet":
             meta["aux_loss"] = True
         out.append(replace(b, meta=meta))

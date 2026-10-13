@@ -105,3 +105,61 @@ def test_api_and_web(tmp_path, isolated_home):
         bad = client.post("/api/wizard/build", json={"recipe": "nope", "task": "binary"})
         assert bad.status_code == 400
         assert client.get("/api/automl/missing").status_code == 404
+        bad = client.post("/api/automl", json={"spec": {"task": "binary",
+                                                        "objectives": ["speed"]}})
+        assert bad.status_code == 400 and "unknown objective" in bad.text
+
+
+# ------------------------------------------------------------- multi-objective
+
+def test_pareto_front_and_objective_checks(tmp_path):
+    points = {0: [0.90, 5.0], 1: [0.85, 1.0], 2: [0.80, 2.0], 3: [0.90, 6.0], 4: [0.95, 9.0]}
+    # accuracy up, latency down: 2 is beaten by 1, 3 by 0
+    assert automl.pareto_front(points, [False, True]) == {0, 1, 4}
+    assert automl.pareto_front({0: [1.0, 1.0], 1: [1.0, 1.0]}, [True, True]) == {0, 1}
+    with pytest.raises(automl.AutoMLError, match="unknown objective"):
+        automl.AutoMLSpec("binary", objectives=["speed"]).check()
+    with pytest.raises(automl.AutoMLError, match="unknown device"):
+        automl.AutoMLSpec("binary", objectives=["latency_ms"], device="abacus").check()
+    assert automl.AutoMLSpec("binary", budget={"device": "t4"}).target_device() == "t4"
+    assert automl.AutoMLSpec("binary").target_device() == automl.DEFAULT_DEVICE
+    facts = recipes.detect(churn_csv(tmp_path)).to_dict()
+    picked = automl.candidates(automl.AutoMLSpec("binary", facts=facts,
+                                                 objectives=["latency_ms"]))
+    assert picked and all(r.family == "neural" for r in picked)   # costed designs only
+    with pytest.raises(automl.AutoMLError, match="neural networks only"):
+        automl.candidates(automl.AutoMLSpec("binary", facts=facts, objectives=["latency_ms"],
+                                            recipes=["random_forest"]))
+
+
+@pytest.mark.skipif(not HAS_TORCH, reason="needs torch")
+def test_multi_objective_search_finds_the_trade_off(tmp_path, isolated_home):
+    from ai_made_easy.core.runner.manager import RunManager
+    from ai_made_easy.core.runs.history import RunHistory
+
+    pytest.importorskip("optuna")
+    mgr = RunManager(RunHistory(tmp_path / "runs"))
+    store = SweepStore(tmp_path / "sweeps")
+    facts = recipes.detect(churn_csv(tmp_path)).to_dict()
+    runner = automl.start(mgr, store, {
+        "task": "binary", "facts": facts, "max_trials": 6, "epochs": 3,
+        "objectives": ["latency_ms", "params_m"], "device": "raspberry_pi_5"})
+    record = runner.wait(900)
+    assert record.state == "finished" and len(record.trials) == 6
+    assert record.spec["objectives"] == ["latency_ms", "params_m"]
+    assert record.spec["device"] == "raspberry_pi_5"
+    assert not any(t["state"] == "pruned" for t in record.trials)  # no median pruning
+    assert all({"latency_ms", "params_m", "model_mb"} <= set(t["objectives"])
+               for t in record.trials if t["state"] == "finished")
+    board = automl.leaderboard(record)
+    front = [r for r in board if r["pareto"]]
+    assert front and board[:len(front)] == front                 # the front comes first
+    point = lambda r: (r["score"], r["objectives"]["latency_ms"], r["objectives"]["params_m"])  # noqa: E731
+    for r in front:                                             # nothing beats it everywhere
+        assert not any(o is not r and o["score"] is not None
+                       and o["score"] >= r["score"]
+                       and o["objectives"]["latency_ms"] <= r["objectives"]["latency_ms"]
+                       and o["objectives"]["params_m"] <= r["objectives"]["params_m"]
+                       and point(o) != point(r) for o in board)
+    # the most accurate trial is always on the front
+    assert max(board, key=lambda r: r["score"] or -1)["pareto"]

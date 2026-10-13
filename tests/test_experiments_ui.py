@@ -129,6 +129,30 @@ def test_sweep_runs_from_the_ui_service(ctx, app):
     assert ctx.experiments_page.apply_best_btn.isEnabled()
 
 
+def test_multi_objective_sweeps_show_the_pareto_front(ctx, app):
+    from ai_made_easy.core.sweeps import SweepRecord
+
+    trials = [{"number": n, "values": {"recipe": "tabular_mlp"}, "run_id": f"r{n}",
+               "state": "finished", "score": score, "message": "",
+               "objectives": {"latency_ms": latency}}
+              for n, score, latency in ((0, 0.9, 5.0), (1, 0.85, 1.0), (2, 0.8, 2.0))]
+    record = SweepRecord("automl-x", "automl_binary", graph={}, trials=trials,
+                         spec={"metric": "accuracy", "direction": "max", "max_trials": 3,
+                               "strategy": "tpe", "objectives": ["latency_ms"]},
+                         best={"number": 0, "run_id": "r0", "score": 0.9, "values": {}})
+    page = ctx.experiments_page
+    page.set_sweeps([record])
+    page.sweeps_table.selectRow(0)
+    assert "latency_ms min" in page.sweeps_table.item(0, 4).text()
+    marks = {page.trials_table.item(r, 0).data(QtCore.Qt.ItemDataRole.DisplayRole)
+             for r in range(3)}
+    assert marks == {"0  ★  ◆", "1  ◆", "2"}               # 2 is slower and less accurate
+    assert not page.pareto_plot.isHidden()
+    page.set_sweeps([SweepRecord("s", "plain", graph={}, spec={"metric": "accuracy"})])
+    page.sweeps_table.selectRow(0)
+    assert page.pareto_plot.isHidden()
+
+
 def test_register_and_deploy_from_the_ui(ctx, app, tmp_path):
     pytest.importorskip("torch")
     pytest.importorskip("fastapi")

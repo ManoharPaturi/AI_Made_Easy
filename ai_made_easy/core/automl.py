@@ -8,6 +8,12 @@ Trials whose design breaks the project budget are skipped before they run, and r
 trials are pruned by the median rule: after the warm-up epochs a trial whose metric is
 worse than the median of the finished trials at the same epoch is stopped early.
 
+With ``objectives`` (e.g. ``["latency_ms"]``) the search is multi-objective: every
+trial's design is costed on the target device (Phase 1 budget estimates: latency at
+batch 1, parameters, model size), TPE samples towards the trade-off curve, median
+pruning is off (a weaker but faster trial may belong on the curve), and the
+leaderboard marks the Pareto front: the trials no other trial beats on every objective.
+
 Records are sweep records (``spec["automl"]`` holds the search), so the Experiments
 leaderboard, the CLI and the web list them with the sweeps.
 """
@@ -42,6 +48,13 @@ TASK_METRICS = {
 # knobs that set how long a trial trains: fixed by the search, never tuned
 LENGTH_KNOBS = ("epochs", "total_timesteps", "iterations", "draws", "max_iter",
                 "n_estimators")
+# secondary objectives: design costs, always minimised
+OBJECTIVES = {
+    "latency_ms": "inference latency at batch 1 on the target device (ms, estimated)",
+    "params_m": "parameters (millions)",
+    "model_mb": "model size (MB, float32)",
+}
+DEFAULT_DEVICE = "cpu_laptop"
 WARMUP_EPOCHS = 2
 POLL_SECONDS = 0.5
 
@@ -65,6 +78,8 @@ class AutoMLSpec:
     budget: dict = field(default_factory=dict)
     seed: int = 0
     framework: str = "auto"
+    objectives: list[str] = field(default_factory=list)  # [] = the metric only
+    device: str = ""                              # costs on ("" = budget device or CPU)
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -86,6 +101,24 @@ class AutoMLSpec:
             return metric, lower_is_better(metric)
         return metric, direction == "min"
 
+    def target_device(self) -> str:
+        return self.device or (self.budget or {}).get("device") or DEFAULT_DEVICE
+
+    def check(self) -> None:
+        unknown = [o for o in self.objectives if o not in OBJECTIVES]
+        if unknown:
+            raise AutoMLError(f"unknown objective {unknown[0]!r}; choose from "
+                              f"{', '.join(OBJECTIVES)}")
+        if len(set(self.objectives)) != len(self.objectives):
+            raise AutoMLError("each objective may be listed once")
+        if self.target_device():
+            from ai_made_easy.core import budget
+
+            try:
+                budget.get_device(self.target_device())
+            except (KeyError, ValueError) as exc:
+                raise AutoMLError(f"unknown device {self.target_device()!r}") from exc
+
 
 def _facts(spec_dict: dict):  # noqa: ANN202 — DataFacts
     from ai_made_easy.core.recipes import DataFacts
@@ -100,6 +133,7 @@ def candidates(spec: AutoMLSpec) -> list:
     if spec.task not in TASK_METRICS:
         raise AutoMLError(f"AutoML does not support {spec.task!r} yet; supported tasks: "
                           f"{', '.join(sorted(TASK_METRICS))}")
+    spec.check()
     facts = _facts(spec.to_dict())
     wanted = set(spec.recipes)
     out = []
@@ -107,8 +141,12 @@ def candidates(spec: AutoMLSpec) -> list:
                                  modality=spec.modality or None):
         if wanted and sug.recipe.id not in wanted:
             continue
-        if sug.ready:
+        if sug.ready and not (spec.objectives and sug.recipe.family != "neural"):
             out.append(sug.recipe)
+    if not out and spec.objectives:
+        raise AutoMLError("the latency / size trade-off is estimated for neural networks "
+                          "only, and no neural recipe can train this task here: search "
+                          "without objectives")
     if not out:
         raise AutoMLError("no recipe can train this task on this data within the budget"
                           + (f" (asked for {sorted(wanted)})" if wanted else ""))
@@ -157,9 +195,41 @@ class AutoMLRunner(SweepRunner):
             sweep_id=time.strftime("automl-%Y%m%d-%H%M%S-") + uuid.uuid4().hex[:4],
             name=f"automl_{spec.task}", graph=self.graph_dict, project=project,
             spec={**self.spec.to_dict(), "automl": spec.to_dict(),
-                  "candidates": [r.id for r in self.recipes]})
+                  "candidates": [r.id for r in self.recipes],
+                  "objectives": spec.objectives, "device": spec.target_device()})
         store.save(self.record)
         self.thread = None
+
+    @property
+    def multi(self) -> bool:
+        return bool(self.automl.objectives)
+
+    # ------------------------------------------------------------- objectives
+    def _measure(self, row: TrialRow, graph: Graph) -> None:
+        from ai_made_easy.core import budget
+
+        try:
+            est = budget.estimate(graph, self.automl.target_device())
+        except Exception:  # noqa: BLE001 — not every design has a cost model
+            return
+        latency = est.latency_ms()
+        row.objectives = {"params_m": round(est.params / 1e6, 4),
+                          "model_mb": round(est.model_bytes() / 2**20, 3)}
+        if latency is not None:
+            row.objectives["latency_ms"] = round(latency, 4)
+
+    def _values(self, row: dict | TrialRow) -> list[float] | None:
+        """The trial's point in objective space: [metric, *costs] (None: incomplete)."""
+        get = row.get if isinstance(row, dict) else lambda k: getattr(row, k)
+        costs = get("objectives") or {}
+        if get("score") is None or any(o not in costs for o in self.automl.objectives):
+            return None
+        return [get("score"), *(costs[o] for o in self.automl.objectives)]
+
+    def _told(self, row: TrialRow):  # noqa: ANN202
+        if not self.multi:
+            return super()._told(row)
+        return self._values(row)
 
     # ------------------------------------------------------------- proposals
     def _defaults(self, recipe) -> dict:  # noqa: ANN001
@@ -189,15 +259,17 @@ class AutoMLRunner(SweepRunner):
             import optuna
 
             optuna.logging.set_verbosity(optuna.logging.WARNING)
+            first = "minimize" if self.spec.minimize else "maximize"
             study = optuna.create_study(
-                direction="minimize" if self.spec.minimize else "maximize",
+                directions=[first] + ["minimize"] * len(self.automl.objectives),
                 sampler=optuna.samplers.TPESampler(seed=self.spec.seed))
             for row in self.record.trials:            # teach TPE the baseline
-                if row["score"] is not None:
+                point = self._values(row) if self.multi else row["score"]
+                if point is not None:
                     study.add_trial(optuna.trial.create_trial(
                         params=self._optuna_params(row["values"]),
                         distributions=self._distributions(row["values"]["recipe"]),
-                        value=row["score"]))
+                        **({"values": point} if self.multi else {"value": point})))
         except ImportError:
             self.record.message = "Optuna is not installed; using random search"
         rng = random.Random(self.spec.seed)
@@ -262,7 +334,7 @@ class AutoMLRunner(SweepRunner):
         return None
 
     def _should_prune(self, number: int, epoch: int, key: str, value: float) -> bool:
-        if not self.automl.prune or epoch < WARMUP_EPOCHS:
+        if not self.automl.prune or self.multi or epoch < WARMUP_EPOCHS:
             return False
         others = [c[epoch - 1] for n, c in self._curves.items()
                   if n != number and len(c) >= epoch and c[epoch - 1] is not None]
@@ -307,19 +379,43 @@ def start(manager, store, spec: AutoMLSpec | dict, project: str = "",  # noqa: A
     return runner
 
 
+def pareto_front(points: dict[int, list[float]], minimize: list[bool]) -> set[int]:
+    """Keys of the points no other point dominates (at least as good on every objective,
+    better on one)."""
+    signed = {k: [v if low else -v for v, low in zip(p, minimize, strict=True)]
+              for k, p in points.items()}
+
+    def dominates(a: list[float], b: list[float]) -> bool:
+        return all(x <= y for x, y in zip(a, b, strict=True)) and a != b
+
+    return {k for k, p in signed.items()
+            if not any(dominates(q, p) for j, q in signed.items() if j != k)}
+
+
 def leaderboard(record: SweepRecord) -> list[dict]:
-    """Trials best first, with each trial's recipe title."""
+    """Trials best first, with each trial's recipe title. A multi-objective search marks
+    its Pareto front (``pareto``) and lists the front first."""
     from ai_made_easy.core import recipes
 
     spec = record.spec
     minimize = spec.get("direction") == "min"
+    objectives = list(spec.get("objectives") or [])
     rows = []
     for t in record.trials:
         try:
             title = recipes.get_recipe(t["values"]["recipe"]).title
         except (recipes.RecipeError, KeyError):
             title = t["values"].get("recipe", "?")
-        rows.append({**t, "recipe": t["values"].get("recipe"), "title": title})
+        rows.append({"objectives": {}, **t, "recipe": t["values"].get("recipe"),
+                     "title": title, "pareto": False})
+    if objectives:
+        points = {r["number"]: [r["score"], *(r["objectives"][o] for o in objectives)]
+                  for r in rows if r["score"] is not None
+                  and all(o in r["objectives"] for o in objectives)}
+        front = pareto_front(points, [minimize] + [True] * len(objectives))
+        for r in rows:
+            r["pareto"] = r["number"] in front
     scored = sorted((r for r in rows if r["score"] is not None),
-                    key=lambda r: r["score"], reverse=not minimize)
+                    key=lambda r: (not r["pareto"], -r["score"] if not minimize
+                                   else r["score"]))
     return scored + [r for r in rows if r["score"] is None]

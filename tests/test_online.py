@@ -16,7 +16,13 @@ torch = pytest.importorskip("torch")
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "scripts"))
 
-from verify_codegen import CONTEXTS, DEFAULT_OVERRIDES, _graph_for, block_cases  # noqa: E402
+from verify_codegen import (  # noqa: E402
+    CONTEXTS,
+    DEFAULT_OVERRIDES,
+    _graph_for,
+    _sample,
+    block_cases,
+)
 
 from ai_made_easy.core.codegen import class_name_for, generate  # noqa: E402
 from ai_made_easy.core.registry import get_registry  # noqa: E402
@@ -51,7 +57,7 @@ def test_pretrained_block_downloads_and_runs(type_id):
     first = next(n for n, p in a.named_parameters() if p.dim() > 1)
     assert torch.equal(dict(a.named_parameters())[first], dict(b.named_parameters())[first])
     shapes = graph.infer_shapes()
-    x = torch.randn(2, *shapes["inp"])
+    x = _sample(shapes["inp"], graph.nodes["inp"].params.get("dtype") == "int64")  # token ids
     with torch.no_grad():
         out = a(x)
     assert tuple(out.shape[1:]) == tuple(shapes["out"])
