@@ -513,6 +513,40 @@ def resource_budget(ctx: LintContext):
     return out
 
 
+def export_targets(ctx: LintContext):
+    """Export formats the design can't reach: the budget device's formats, else ONNX."""
+    from ai_made_easy.core import budget
+    from ai_made_easy.core.deploy.exportability import (
+        blockers,
+        framework_of,
+        suggested_formats,
+    )
+    from ai_made_easy.core.deploy.exporters import SHORT
+
+    framework = framework_of(ctx.graph)
+    blocked = blockers(ctx.graph, framework)
+    if not blocked:
+        return []
+    device = budget.budget_of(ctx.graph).get("device")
+    wanted = suggested_formats(device, framework) if device else []
+    if wanted:
+        bad = [f for f in wanted if f in blocked]
+        if not bad:
+            return []
+        good = [f for f in wanted if f not in blocked]
+        reason, node = blocked[bad[0]]
+        label = budget.get_device(device).label
+        tail = f" {SHORT[good[0]]} still works there." if good else ""
+        return [_issue("warning" if bad[0] == wanted[0] else "info",
+                       f"{label} runs {' / '.join(SHORT[f] for f in bad)} models, but this "
+                       f"design can't be exported to {SHORT[bad[0]]}: {reason}.{tail}",
+                       node)]
+    if "onnx" in blocked:
+        reason, node = blocked["onnx"]
+        return [_issue("info", f"ONNX export: {reason}", node)]
+    return []
+
+
 def _registry():
     from ai_made_easy.core.registry import get_registry
 
@@ -537,6 +571,7 @@ RULES: list[Callable[[LintContext], list]] = [
     training_setup,
     pretrained_needs_imagenet_norm,
     resource_budget,
+    export_targets,
 ]
 
 

@@ -371,9 +371,21 @@ def resume_pipeline(pipeline_id: str) -> str:
 
 
 @mcp.tool()
+def export_formats(run_id: str) -> str:
+    """The export formats of a finished run: which the design can use (with the reason
+    when not) and which the project's budget device runs (suggested)."""
+    try:
+        return json.dumps(api.export_options(run_id))
+    except (api.ApiError, KeyError) as exc:
+        return _err(exc)
+
+
+@mcp.tool()
 def deploy_run(run_id: str, out_dir: str, formats: list[str] | None = None) -> str:
-    """Build a model-server package (FastAPI app, Dockerfile, pinned requirements,
-    optional ONNX / TorchScript / Core ML exports) from a finished training run."""
+    """Build a model-server package (FastAPI app, Dockerfile, pinned requirements) from a
+    finished training run, with optional exports: onnx, onnx_int8, torchscript, coreml,
+    executorch, executorch_int8 (PyTorch); onnx, saved_model, litert, litert_int8
+    (Keras). Each export is checked against the model (see the result's formats)."""
     try:
         return json.dumps(api.deploy_run(run_id, out_dir, formats), default=str)
     except (api.ApiError, KeyError) as exc:

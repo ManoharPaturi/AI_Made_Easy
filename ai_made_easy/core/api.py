@@ -659,6 +659,28 @@ def deploy_formats() -> dict:
             for fw, fmts in FORMATS.items()}
 
 
+def export_options(run_id: str | None = None, *, model: str | None = None,
+                   version: str | int = "latest", graph: dict | None = None,
+                   framework: str | None = None) -> dict:
+    """Export formats for a run, a registered model or a design: each with
+    ``available`` / ``reason`` (what the design can't export) and ``suggested`` (what
+    the project's budget device runs)."""
+    from ai_made_easy.core.deploy import exportability
+    from ai_made_easy.core.graph import Graph
+
+    if run_id:
+        rows = exportability.options_for_run(manager().history.path(run_id))
+    elif model:
+        registry = model_registry()
+        mv = registry.get(model, version)
+        rows = exportability.options_for_run(registry.path(model, mv.version))
+    elif graph is not None:
+        rows = exportability.options(Graph.from_dict(graph), framework)
+    else:
+        raise ApiError("give a run, a registered model or a design")
+    return {"formats": rows}
+
+
 def _package(source: Path, out_dir: str, formats, name=None, version="1") -> dict:  # noqa: ANN001
     from ai_made_easy.core.deploy import DeployError, build_package
 

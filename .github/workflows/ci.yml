@@ -99,11 +99,15 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
-          pip install -e ".[dev,vision-tasks,generative,serve]"
+          pip install -e ".[dev,vision-tasks,generative,serve,export]"
       - name: Test
         run: >-
           pytest -q -p no:cacheprovider tests/test_vision.py
           tests/test_codegen_runtime.py -k "vision or exercised or Vision"
+      - name: Detectors and segmenters export to ONNX / TorchScript
+        run: >-
+          pytest -q -p no:cacheprovider tests/test_export.py
+          -k "vision_heads or detector_package"
       - name: Pretrained image recipes (random weights)
         run: pytest -q -p no:cacheprovider tests/test_pretrained_recipes.py -k "image or budget"
       - name: Detectors from blocks, Mask2Former, Stable Diffusion LoRA (tiny, offline)
@@ -165,17 +169,48 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install torch --index-url https://download.pytorch.org/whl/cpu
-          pip install -e ".[dev,graph,rl,rl-box2d,serve]"
+          pip install -e ".[dev,graph,rl,rl-box2d,serve,export]"
       - name: Test
         run: >-
           pytest -q -p no:cacheprovider tests/test_gnn.py tests/test_rl.py
           tests/test_codegen_runtime.py -k "graph or exercised"
+      - name: Graph networks export to ONNX (any number of nodes and edges)
+        run: pytest -q -p no:cacheprovider tests/test_export.py -k "graph"
       - name: Your graphs and interaction tables
         run: pytest -q -p no:cacheprovider tests/test_your_data.py -k "recommender_and_graph"
       - name: CNN policies on pixels and Box2D
         run: >-
           pytest -q -p no:cacheprovider tests/test_block_coverage.py
           -k "pixel or cnn_policy or lunar"
+
+  test-edge:
+    # on-device exports: ExecuTorch (float / int8) for every sample, Keras -> LiteRT
+    # (float / int8) through a TensorFlow-backend process, as users with tensorflow get
+    needs: lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      QT_QPA_PLATFORM: offscreen
+      KERAS_BACKEND: torch
+      AIME_SLOW: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: System libraries for headless Qt
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libegl1 libgl1 libxkbcommon-x11-0 libdbus-1-3 \
+            libfontconfig1 libxcb-cursor0
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+          pip install -e ".[dev,keras,serve,export,edge,graph]" tensorflow-cpu pandas
+      - name: Every sample round-trips; packages check exports on the run's samples
+        run: pytest -q -p no:cacheprovider tests/test_export.py
 
   test-audio:
     # the audio extra (Hugging Face speech encoders): speech and sequence blocks, their

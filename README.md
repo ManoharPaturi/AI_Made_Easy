@@ -19,6 +19,12 @@ boilerplate. It runs on the desktop or in the browser.
   it in **Run on**; live curves, Stop, sweeps and pipelines work the same, and a dropped
   connection picks up where it left off. Sign-in stays with each tool: AI Made Easy never
   asks for a password, token or key ([docs/REMOTE.md](docs/REMOTE.md)).
+- **Export everywhere:** ONNX, TorchScript, Core ML, ExecuTorch and LiteRT, with int8
+  quantization calibrated on the run's own samples. Every export is checked against the
+  trained model before it is packaged. Detectors keep their post-processing (NMS) and
+  graph networks take graphs of any size. The project's budget device suggests the
+  format, and a design rule names why a design can't reach one
+  ([docs/EXPORT.md](docs/EXPORT.md)).
 - **Pipelines:** chain Train, Cross-validate, Fine-tune, Distill, Prune, Quantize,
   quantization-aware training, Evaluate, Ensemble, Export and Register stages; every stage
   is a tracked run, and re-running a pipeline picks up where it stopped. Fine-tune with
@@ -91,8 +97,9 @@ boilerplate. It runs on the desktop or in the browser.
   imbalance are flagged in the Problems panel. Preview the exact
   train / validation / test split and the augmentation pipeline.
 - **Deploy.** Turn a trained run into a serving package: a FastAPI service
-  with the fitted preprocessing, a Dockerfile, and ONNX / TorchScript / Core ML
-  exports. Promote versions through a model registry.
+  with the fitted preprocessing, a Dockerfile, and ONNX / TorchScript / Core ML /
+  ExecuTorch / LiteRT exports, each checked against the model. Promote versions
+  through a model registry.
 - **Import.** Open existing PyTorch modules, ONNX files and Keras models as
   editable designs, verified numerically against the original.
 - **Exports.** PyTorch and Keras model files and training scripts,
@@ -138,6 +145,7 @@ Install only what you need with the optional extras:
 | `mcp-server` | Model Context Protocol server for AI agents |
 | `web` / `serve` | Browser UI (`aime web`) and serving packages (FastAPI, uvicorn) |
 | `export` | ONNX / onnxruntime / skl2onnx exports and verification |
+| `edge` | On-device exports: ExecuTorch (`.pte`) and the LiteRT interpreter |
 | `tuning` | Bayesian hyperparameter search (Optuna) |
 | `dev` | Test and lint tooling |
 
@@ -215,6 +223,7 @@ aime pipeline run pipeline.json                # run a pipeline (resumes finishe
 aime data profile data.csv --target label      # dataset profile and findings
 aime data split project.json                   # samples per class in each split
 aime deploy RUN_ID -o serving --formats onnx   # serving package from a run
+aime deploy RUN_ID --list-formats              # export formats: available, suggested, why not
 aime serve serving                             # run it with uvicorn
 aime models list | register RUN NAME | stage NAME VERSION production
 aime import onnx model.onnx -o project.json    # also: pytorch (--attr, --shape), keras

@@ -208,6 +208,36 @@ until the user turns it on.
   model's outputs with PyTorch.
 - **Tests:** every exportable sample round-trips through onnxruntime / ExecuTorch /
   LiteRT and matches PyTorch within a tolerance.
+- **Status: done.** See [EXPORT.md](EXPORT.md).
+  - **One exporter module** (`core/deploy/exporters.py`) is copied into every package and
+    used by the tests. Each format runs the source model and the exported file on the
+    same inputs:
+    - the run's own `calibration.npz` (training inputs plus labelled test inputs), saved
+      by the training scripts
+    - random inputs for older runs
+  - **Coverage:**
+    - all 36 PyTorch samples export to ONNX, ONNX int8 and TorchScript and match
+    - ExecuTorch float and int8 work for every sample except the ones a design rule
+      covers (detectors, graph networks, Bayesian layers, STFT front ends, DLRM, spline
+      flows, seq2seq)
+    - Keras → LiteRT float and int8 work, including from torch-backend runs (converted
+      in a TensorFlow-backend process)
+  - **Detectors:**
+    - torchvision R-CNNs, RetinaNet, FCOS, SSD, the YOLO-style head, DETR and
+      Conditional DETR export with NMS included: one image in, padded `[1, D, 6]` out
+    - DETR goes through `torch.onnx` directly rather than Hugging Face's exporter (the
+      same tracing, one dependency fewer)
+  - **Graph networks:** GCN, GAT(v2), GraphSAGE, GIN, GraphConv, EdgeConv, Transformer
+    conv and every pooling except TopK / SAG export with dynamic node and edge counts.
+    This is better than the planned static shapes.
+  - **Bugs found while testing:**
+    - detection padding and the YOLO head froze the number of detections into traced
+      exports
+    - transformer layers used PyTorch's fused fast path, which has no ONNX equivalent
+    - ActNorm read a tensor flag before checking `training`, which broke `torch.export`
+    - int8 ONNX failed when the exporter merged identical zero-initialised weights
+  - **Not done:** RT-DETR's ONNX query selection can differ from PyTorch on untrained
+    models (near-tied encoder scores). TorchScript matches.
 
 ## Phase 3 — Work with your tools
 - **Experiment tracking:**

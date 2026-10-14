@@ -6,15 +6,20 @@ import { duration, metric, Modal, StatusChip } from "../components/Modal";
 import { useStore } from "../state";
 import { RunOnSelect, useRunOn } from "../components/Backends";
 import { PipelinesList } from "../components/Pipeline";
-import type { RunRecord, RunSamples, SweepParam, SweepRecord, SweepTrial } from "../types";
+import type {
+  ExportFormat, RunRecord, RunSamples, SweepParam, SweepRecord, SweepTrial,
+} from "../types";
 
 function DeployModal({ run, onClose }: { run: RunRecord; onClose: () => void }) {
   const { notify } = useStore();
-  const [formats, setFormats] = useState<{ id: string; label: string }[]>([]);
+  const [formats, setFormats] = useState<ExportFormat[]>([]);
   const [chosen, setChosen] = useState<Set<string>>(new Set());
   const [name, setName] = useState(run.name);
   useEffect(() => {
-    api.formats(run.run_id).then((r) => setFormats(r.formats)).catch(() => undefined);
+    api.formats(run.run_id).then((r) => {
+      setFormats(r.formats);
+      setChosen(new Set(r.formats.filter((f) => f.suggested).map((f) => f.id)));
+    }).catch(() => undefined);
   }, [run.run_id]);
   const register = async () => {
     try {
@@ -39,14 +44,25 @@ function DeployModal({ run, onClose }: { run: RunRecord; onClose: () => void }) 
         <div className="field"><label htmlFor="model-name">Model name</label>
           <input id="model-name" value={name} onChange={(e) => setName(e.target.value)} /></div>
         <div className="field"><label>Extra export formats</label>
-          {formats.map((f) => (
-            <label key={f.id} style={{ display: "flex", gap: 8, alignItems: "center", color: "var(--text)" }}>
-              <input type="checkbox" checked={chosen.has(f.id)} onChange={(e) => setChosen((s) => {
-                const next = new Set(s);
-                if (e.target.checked) next.add(f.id); else next.delete(f.id);
-                return next;
-              })} />{f.label}</label>
-          ))}
+          {formats.map((f) => {
+            const blocked = f.available === false;
+            return (
+              <label key={f.id} className={`export-format${blocked ? " blocked" : ""}`}
+                title={blocked ? f.reason : undefined} data-format={f.id}>
+                <input type="checkbox" disabled={blocked} checked={!blocked && chosen.has(f.id)}
+                  onChange={(e) => setChosen((s) => {
+                    const next = new Set(s);
+                    if (e.target.checked) next.add(f.id); else next.delete(f.id);
+                    return next;
+                  })} />
+                <span>{f.label}</span>
+                {f.suggested && <span className="chip">suggested for {f.device}</span>}
+                {blocked && <span className="dim export-reason">{f.reason}</span>}
+              </label>
+            );
+          })}
+          <p className="dim">Every export is checked against the trained model; the package's
+            <code> export_report.json</code> has the comparison.</p>
         </div>
       </div>
     </Modal>
