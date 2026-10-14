@@ -57,6 +57,8 @@ from PIL import Image, ImageDraw
 
 DATASET = {{ dataset | repr }}
 SD = {{ sd | repr }}
+# the tiny offline model halves the image once: past 64 px its attention outgrows memory
+SIDE = SD["resolution"] if SD["weights"] != "none" else min(SD["resolution"], 64)
 EPOCHS = {{ trainer.epochs }}
 BATCH_SIZE = {{ batch_size }}
 SEED = {{ trainer.seed }}
@@ -135,7 +137,7 @@ def tiny_components() -> dict:
     torch.manual_seed(SEED)
     return {
         "unet": UNet2DConditionModel(
-            sample_size=SD["resolution"] // 2, in_channels=4, out_channels=4,
+            sample_size=SIDE // 2, in_channels=4, out_channels=4,
             layers_per_block=1, block_out_channels=(32, 64), norm_num_groups=8,
             down_block_types=("CrossAttnDownBlock2D", "DownBlock2D"),
             up_block_types=("UpBlock2D", "CrossAttnUpBlock2D"), cross_attention_dim=32,
@@ -143,7 +145,7 @@ def tiny_components() -> dict:
         "vae": AutoencoderKL(
             in_channels=3, out_channels=3, latent_channels=4, block_out_channels=(32, 64),
             down_block_types=("DownEncoderBlock2D",) * 2, norm_num_groups=8,
-            up_block_types=("UpDecoderBlock2D",) * 2, sample_size=SD["resolution"]),
+            up_block_types=("UpDecoderBlock2D",) * 2, sample_size=SIDE),
         "text_encoder": CLIPTextModel(CLIPTextConfig(
             vocab_size=258, hidden_size=32, intermediate_size=64, num_hidden_layers=2,
             num_attention_heads=4, max_position_embeddings=32, bos_token_id=256,
@@ -237,7 +239,7 @@ def generate(parts: dict, prompts: list, device, steps: int | None = None,
     uncond = embed(parts, [""] * len(prompts), device).to(dtype)
     factor = 2 ** (len(vae.config.block_out_channels) - 1)
     g = torch.Generator(device="cpu").manual_seed(seed)
-    side = SD["resolution"] // factor
+    side = SIDE // factor
     latents = torch.randn(len(prompts), unet.config.in_channels, side, side,
                           generator=g).to(device, dtype) * sampler.init_noise_sigma
     for t in sampler.timesteps:
@@ -377,7 +379,7 @@ def main() -> None:
     torch.manual_seed(SEED)
     device = pick_device()
     print(f"device: {device}")
-    side = SD["resolution"]
+    side = SIDE
     images, labels, names = load_images(DATASET, [3, side, side]) \
         if DATASET["block"] != "data.synthetic_images" else synthetic_images(
             int(DATASET["n_images"]), side, 3, DATASET["kind"], int(DATASET["seed"]))

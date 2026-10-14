@@ -110,7 +110,8 @@ def test_run_lifecycle_and_websocket(client):
             if event["type"] == "status":
                 break
     kinds = [e["type"] for e in events]
-    assert kinds.count("epoch") >= 3 and kinds[-1] == "status"
+    # the worker's own log lines say why a run ended early
+    assert kinds.count("epoch") >= 3 and kinds[-1] == "status", events
     assert events[-1]["status"] == "finished"
     run = _wait_finished(client, run_id)
     assert run["status"] == "finished" and run["data_fingerprint"].startswith("synthetic:")

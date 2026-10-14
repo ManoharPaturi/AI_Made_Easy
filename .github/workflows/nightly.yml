@@ -10,7 +10,7 @@ on:
 jobs:
   full:
     runs-on: ubuntu-latest
-    timeout-minutes: 150
+    timeout-minutes: 210
     env:
       QT_QPA_PLATFORM: offscreen
       KERAS_BACKEND: torch
@@ -41,3 +41,11 @@ jobs:
         run: AIME_ONLINE=1 pytest -q -p no:cacheprovider tests/test_online.py
       - name: Full suite with every extra
         run: pytest -q -p no:cacheprovider
+      - name: Every sample and recipe trains and deploys
+        run: python scripts/sweep_e2e.py --train --deploy --online --json sweep.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sweep-report
+          path: sweep.json
+          if-no-files-found: ignore

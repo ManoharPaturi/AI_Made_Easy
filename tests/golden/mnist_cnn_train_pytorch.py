@@ -93,6 +93,9 @@ def build_transforms(train: bool, mean=None, std=None) -> v2.Compose:
 def image_datasets():
     """Raw (untransformed) datasets: (train pool, official test set or None)."""
     root = str(Path('~/.aime/data').expanduser())
+    import socket
+
+    socket.setdefaulttimeout(60)   # a dead network fails the run instead of hanging it
     return (datasets.MNIST(root, train=True, download=True),
             datasets.MNIST(root, train=False, download=True))
 

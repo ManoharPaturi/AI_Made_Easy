@@ -65,7 +65,7 @@ class GraphService(QtCore.QObject):
         try:
             self.adapter.load_ir(graph)
             if self.adapter.has_overlaps():
-                self.adapter.auto_layout(self.adapter.to_ir())
+                self.adapter.auto_layout(self.adapter.to_ir(), undoable=False)
         finally:
             self._loading = False
         self.settled_from_load = True

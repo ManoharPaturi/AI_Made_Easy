@@ -9,6 +9,7 @@ GraphService.
 from __future__ import annotations
 
 import copy
+import re
 from pathlib import Path
 
 from OdenGraphQt import NodeGraph
@@ -45,12 +46,31 @@ def block_mime_data(type_id: str) -> QtCore.QMimeData:
     return mime
 
 
+class _NodeGraph(NodeGraph):
+    """OdenGraphQt's graph with linear-time unique names."""
+
+    def get_unique_name(self, name: str) -> str:
+        # same names as upstream ("ReLU", "ReLU 1", ...), but upstream re-scans a list of
+        # every name for each candidate suffix: cubic, seconds when loading 1000 blocks
+        name = " ".join(name.split())
+        taken = {n.name() for n in self.all_nodes()}
+        if name not in taken:
+            return name
+        search = re.search(r"\w+ (\d+)$", name)
+        if search:
+            name = name[:-len(search.group(1))].strip()
+        x = 1
+        while f"{name} {x}" in taken:
+            x += 1
+        return f"{name} {x}"
+
+
 class CanvasController:
     def __init__(self) -> None:
         from ai_made_easy.ui.theme import DEFAULT_THEME, THEMES
 
         self.meta: dict = {}  # project metadata (title, budget, ...) carried through to_ir
-        self._graph = NodeGraph()
+        self._graph = _NodeGraph()
         self._graph.set_acyclic(True)
         self._graph.set_pipe_style(PipeLayoutEnum.CURVED.value)
         from PySide6 import QtWidgets
@@ -115,10 +135,7 @@ class CanvasController:
     # ------------------------------------------------------- node access
 
     def _node(self, node_id: str):
-        for node in self._graph.all_nodes():
-            if node.id == node_id:
-                return node
-        return None
+        return self._graph.get_node_by_id(node_id)
 
     def block_of(self, node_id: str) -> BlockDefinition | None:
         node = self._node(node_id)
@@ -150,8 +167,23 @@ class CanvasController:
         for node in self._graph.all_nodes():
             node.set_selected(True)
 
-    def auto_layout(self, graph: Graph) -> None:
-        """Layered left-to-right layout: model flow by depth, config blocks below."""
+    def auto_layout(self, graph: Graph, undoable: bool = True) -> None:
+        """Layered left-to-right layout: model flow by depth, config blocks below.
+
+        Undoable (the user's command) as one step; not undoable while a project loads,
+        so the first Undo after opening never scatters the blocks back."""
+        stack = self._graph.undo_stack()
+        if undoable:
+            stack.beginMacro("auto layout")
+        try:
+            with graph._indexed():
+                self._layout(graph, undoable)
+        finally:
+            if undoable:
+                stack.endMacro()
+        self.center_view()
+
+    def _layout(self, graph: Graph, undoable: bool) -> None:
         depth: dict[str, int] = {}
         try:
             order = graph.topo_order()
@@ -169,13 +201,14 @@ class CanvasController:
             for row, nid in enumerate(ids):
                 node = self._node(nid)
                 if node is not None:
-                    node.set_pos(col * 250.0, row * 120.0 - (len(ids) - 1) * 60.0)
+                    node.set_property("pos", [col * 250.0, row * 120.0 - (len(ids) - 1) * 60.0],
+                                      push_undo=undoable)
         base_y = max((len(ids) for ids in columns.values()), default=1) * 60.0 + 140.0
         for i, nid in enumerate(config):
             node = self._node(nid)
             if node is not None:
-                node.set_pos((i % 5) * 230.0, base_y + (i // 5) * 100.0)
-        self.center_view()
+                node.set_property("pos", [(i % 5) * 230.0, base_y + (i // 5) * 100.0],
+                                  push_undo=undoable)
 
     # ------------------------------------------------------ canvas <-> IR
 
@@ -213,11 +246,13 @@ class CanvasController:
             cls_type = node_type_for(inst.type_id)
             if cls_type is None:
                 raise ValueError(f"no canvas node registered for {inst.type_id}")
+            # loading is not an edit: nothing goes on the undo stack (which clear() just
+            # emptied), and pushing ~5 commands per block was a third of the load time
             node = self._graph.create_node(
                 cls_type, name=inst.definition().display_name,
-                pos=inst.position, selected=False)
+                pos=inst.position, selected=False, push_undo=False)
             for key, value in inst.params.items():
-                node.set_property(prop_name(key), value)
+                node.set_property(prop_name(key), value, push_undo=False)
             canvas_nodes[inst.instance_id] = node
         # the canvas gives nodes its own ids: re-key the recipe's per-block notes
         recipe = self.meta.get("recipe")
@@ -230,7 +265,7 @@ class CanvasController:
             port_out = src.outputs().get(edge.source_port)
             port_in = dst.inputs().get(edge.target_port)
             if port_out is not None and port_in is not None:
-                port_out.connect_to(port_in)
+                port_out.connect_to(port_in, push_undo=False)
         self.center_view()
 
     def load_demo(self, demo_path: Path | None = None) -> None:
@@ -258,8 +293,14 @@ class CanvasController:
         if not nodes:
             return
         self._graph.set_zoom(-1)
-        self._graph.center_on(nodes)
         viewer = self._graph.viewer()
+        # OdenGraphQt's center_on measures the nodes by grouping and ungrouping them in
+        # the scene, ~3 s at 500 blocks; the union of their rects is the same box
+        rect = QtCore.QRectF()
+        for node in nodes:
+            rect = rect.united(node.view.sceneBoundingRect())
+        viewer._scene_range.translate(rect.center() - viewer._scene_range.center())
+        viewer.setSceneRect(viewer._scene_range)
         steps = 0
         while viewer.transform().m11() < 0.50 and steps < 12:
             self._graph.set_zoom(viewer.get_zoom() + 0.5)
@@ -359,9 +400,12 @@ class CanvasController:
 
     def has_overlaps(self) -> bool:
         """True when any two block cards intersect (e.g. legacy layouts)."""
-        rects = [n.view.sceneBoundingRect() for n in self._graph.all_nodes()]
-        for i, a in enumerate(rects):
+        rects = sorted((n.view.sceneBoundingRect() for n in self._graph.all_nodes()),
+                       key=lambda r: r.left())
+        for i, a in enumerate(rects):        # sweep by x: only neighbours can intersect
             for b in rects[i + 1:]:
+                if b.left() > a.right():
+                    break
                 if a.intersects(b):
                     return True
         return False

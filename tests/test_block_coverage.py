@@ -5,6 +5,7 @@ time-varying regression coefficients, the Inception Score, Stable Diffusion LoRA
 policies on pixels and Box2D environments, and the per-family coverage report."""
 from __future__ import annotations
 
+import importlib
 import importlib.util
 import json
 import subprocess
@@ -395,6 +396,39 @@ def test_stable_diffusion_lora_trains_offline(tmp_path):
         ["epoch_001.png", "epoch_002.png"]
     out = serve(tmp_path, script, ["a photo of circle", {"prompt": "x", "steps": 2}], "cpu")
     assert out[0]["shape"] == [3, 32, 32] and len(out[1]["image"]) > 100
+
+
+@pytest.mark.skipif(not (has("diffusers") and has("peft")), reason="needs diffusers and peft")
+def test_tiny_stable_diffusion_trains_at_default_size_and_deploys(tmp_path, isolated_home):
+    """At the default 512 px the tiny model's attention asked for hundreds of GiB; and a
+    LoRA run (adapters, no *_best.pt) could not be packaged at all."""
+    from ai_made_easy.core.deploy.package import build_package
+    from ai_made_easy.core.runner.manager import RunManager
+    from ai_made_easy.core.runs.history import RunHistory
+
+    design = _sd_design(resolution=512, sample_steps=2)
+    design["nodes"][-1]["params"]["epochs"] = 1
+    mgr = RunManager(RunHistory(tmp_path / "runs"))
+    run_id = mgr.start(Graph.from_dict(design))
+    assert mgr.wait(run_id, 600)["state"] == "finished", mgr.history.get(run_id).error[-2000:]
+    result = build_package(mgr.history.path(run_id), tmp_path / "pkg")
+    assert result.verified, result.log[-3000:]
+    assert (tmp_path / "pkg/model/lora/pytorch_lora_weights.safetensors").is_file()
+    pytest.importorskip("fastapi")
+    from fastapi.testclient import TestClient
+
+    sys.path.insert(0, str(tmp_path / "pkg"))
+    try:
+        app_module = importlib.import_module("app")
+        with TestClient(app_module.app) as client:
+            body = client.post("/generate", json={"inputs": [{"prompt": "a circle",
+                                                              "steps": 2}]})
+            assert body.status_code == 200, body.text
+            assert body.json()["predictions"][0]["shape"] == [3, 64, 64]
+    finally:
+        sys.path.remove(str(tmp_path / "pkg"))
+        sys.modules.pop("app", None)
+        sys.modules.pop("model_def", None)
 
 
 # ================================================================ reinforcement learning

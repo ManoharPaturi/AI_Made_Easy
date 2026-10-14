@@ -159,13 +159,15 @@ def test_rating_regression(tmp_path):
 
 
 @needs_torch
-def test_recommender_deploys(tmp_path, isolated_home):
+@pytest.mark.parametrize("sample", SAMPLES)
+def test_recommender_deploys(sample, tmp_path, isolated_home):
+    # DLRM reads dense features beside the ids: its export input must be a float row
     pytest.importorskip("fastapi")
     from ai_made_easy.core.deploy.package import build_package
     from ai_made_easy.core.runner.manager import RunManager
     from ai_made_easy.core.runs.history import RunHistory
 
-    data = api.read_sample(SAMPLES[0])
+    data = api.read_sample(sample)
     for node in data["nodes"]:
         if node["type"] == "train.trainer":
             node["params"]["epochs"] = 2

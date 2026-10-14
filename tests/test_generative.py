@@ -428,3 +428,37 @@ def test_generative_run_deploys_with_generate_route(tmp_path, isolated_home):
             sys.modules.pop("model_def", None)
     finally:
         api.set_manager(None)
+
+
+def test_class_conditional_diffusion_deploys(tmp_path, isolated_home):
+    """The U-Net takes (images, timesteps, labels): packaging must not call it with one
+    dummy tensor (that made every class-conditional diffusion run fail to deploy)."""
+    from ai_made_easy.core.deploy.package import build_package
+    from ai_made_easy.core.runner.manager import RunManager
+    from ai_made_easy.core.runs.history import RunHistory
+
+    mgr = RunManager(RunHistory(tmp_path / "runs"))
+    run_id = mgr.start(Graph.from_dict({**CASES["diffusion"], "name": "tiny_ddpm"}))
+    status = mgr.wait(run_id, 600)
+    assert status["state"] == "finished", mgr.history.get(run_id).error[-2000:]
+    result = build_package(mgr.history.path(run_id), tmp_path / "pkg")
+    assert result.verified, result.log[-3000:]
+    meta = json.loads((tmp_path / "pkg/metadata.json").read_text())
+    assert meta["input_kind"] == "generation"        # was described as an image classifier
+    pytest.importorskip("fastapi")
+    from fastapi.testclient import TestClient
+
+    sys.path.insert(0, str(tmp_path / "pkg"))
+    try:
+        import importlib
+
+        app_module = importlib.import_module("app")
+        with TestClient(app_module.app) as client:
+            body = client.post("/generate", json={"inputs": [{"n": 2, "class": "square",
+                                                              "steps": 3}]})
+            assert body.status_code == 200, body.text
+            assert len(body.json()["predictions"][0]["images"]) == 2
+    finally:
+        sys.path.remove(str(tmp_path / "pkg"))
+        sys.modules.pop("app", None)
+        sys.modules.pop("model_def", None)

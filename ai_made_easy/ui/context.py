@@ -67,6 +67,7 @@ class AppContext(QtCore.QObject):
     """Builds and wires everything. One instance per application."""
 
     status_message = QtCore.Signal(str)
+    _device_found = QtCore.Signal(str, str)      # label, chip state (from a worker thread)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -290,19 +291,29 @@ class AppContext(QtCore.QObject):
             self._add_recent(path)
 
     def _detect_device(self) -> None:
+        """Fill the device chip. Importing torch takes seconds, so it happens on a worker
+        thread and the chip updates through a queued signal."""
         import importlib.util
+        import threading
 
         if importlib.util.find_spec("torch") is None:
             self.device_chip.set_state("PyTorch not installed", "warning")
             return
-        try:
-            import torch
+        self._device_found.connect(self.device_chip.set_state)
 
-            device = ("CUDA · " + torch.cuda.get_device_name(0) if torch.cuda.is_available()
-                      else "Apple GPU (MPS)" if torch.backends.mps.is_available() else "CPU")
-        except Exception:  # noqa: BLE001
-            device = "CPU"
-        self.device_chip.set_state(device)
+        def probe() -> None:
+            try:
+                import torch
+
+                device = ("CUDA · " + torch.cuda.get_device_name(0)
+                          if torch.cuda.is_available()
+                          else "Apple GPU (MPS)" if torch.backends.mps.is_available()
+                          else "CPU")
+            except Exception:  # noqa: BLE001
+                device = "CPU"
+            self._device_found.emit(device, "")
+
+        threading.Thread(target=probe, name="aime-device", daemon=True).start()
 
     # ================================================================ settle
 
@@ -928,7 +939,7 @@ class AppContext(QtCore.QObject):
         if not self.project_service.apply_graph_dict(graph):
             return False
         self.project_store.set_path(None)
-        self.canvas.auto_layout(self.project_service.snapshot())
+        self.canvas.auto_layout(self.project_service.snapshot(), undoable=False)
         self.canvas.center_view()
         self.project_store.mark_dirty()
         self.status_message.emit(f"Imported {graph.get('name', 'model')} — "
