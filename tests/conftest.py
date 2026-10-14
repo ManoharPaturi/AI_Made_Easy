@@ -86,3 +86,15 @@ def pytest_unconfigure(config):  # noqa: ANN001
         sys.stdout.flush()
         sys.stderr.flush()
         os._exit(_exit_status["code"])
+
+
+@pytest.fixture(autouse=True)
+def _no_recovery_prompt():
+    """Desktop contexts from earlier tests keep their autosave timers; a recovery file
+    they leave would make the next window open the modal "Recover unsaved work" prompt,
+    which blocks a headless run."""
+    from ai_made_easy.core.paths import aime_home
+
+    for path in (aime_home() / "autosave").glob("*.json"):
+        path.unlink(missing_ok=True)
+    yield
