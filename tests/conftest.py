@@ -86,3 +86,15 @@ def pytest_unconfigure(config):  # noqa: ANN001
         sys.stdout.flush()
         sys.stderr.flush()
         os._exit(_exit_status["code"])
+
+
+@pytest.fixture(autouse=True)
+def _no_recovery_prompt(monkeypatch):
+    """Desktop contexts from earlier tests keep their two-minute autosave timers, and one
+    can write a recovery file while the next window boots; the modal "Recover unsaved
+    work" prompt would then block a headless run. Tests call the autosave parts directly."""
+    try:
+        from ai_made_easy.ui.context import AppContext
+    except ImportError:  # no Qt in this environment
+        return
+    monkeypatch.setattr(AppContext, "_offer_recovery", lambda self: None)

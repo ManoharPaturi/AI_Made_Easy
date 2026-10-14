@@ -94,6 +94,10 @@ class TrainingPage(QtWidgets.QWidget):
         self.stop_btn.setEnabled(False)
         self.start_btn.clicked.connect(self.train_clicked.emit)
         self.stop_btn.clicked.connect(self.stop_clicked.emit)
+        from ai_made_easy.ui.features.backends import RunOnCombo
+
+        self.run_on = RunOnCombo()
+        top.addWidget(self.run_on)
         top.addWidget(self.start_btn)
         top.addWidget(self.stop_btn)
         layout.addLayout(top)

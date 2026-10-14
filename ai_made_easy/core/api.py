@@ -221,13 +221,77 @@ def expand(graph: dict | Graph, node_id: str) -> dict:
 # ------------------------------------------------------------------ runs
 
 def start_training(graph: dict | Graph, framework: str = "auto", project: str = "",
-                   tags: list[str] | None = None) -> dict:
+                   tags: list[str] | None = None, on: str | None = None) -> dict:
+    """Train the design here, or ``on`` a backend (``ssh:<host>``, ``kaggle``, …)."""
+    from ai_made_easy.core.runner.backends import BackendError
+
     g = _graph(graph)
     errors = [i for i in g.validate() if i.severity == "error"]
     if errors:
         raise ApiError("the graph has errors: " + "; ".join(i.message for i in errors[:5]))
-    run_id = manager().start(g, framework, project=project, tags=tags)
-    return {"run_id": run_id}
+    try:
+        run_id = manager().start(g, framework, project=project, tags=tags, on=on)
+    except BackendError as exc:
+        raise ApiError(str(exc)) from exc
+    return {"run_id": run_id, "backend": on or "local"}
+
+
+def list_backends() -> dict:
+    """Where runs can train: this computer, saved backends and the built-in kinds."""
+    from ai_made_easy.core.runner import backends
+
+    return {"backends": backends.listing(), "kinds": list(backends.KINDS),
+            "options": {kind: cls.options_help
+                        for kind, cls in backends._backend_classes().items()}}
+
+
+def test_backend(on: str) -> dict:
+    """Check a backend works (connection, sign-in) and what accelerator it has."""
+    from ai_made_easy.core.runner import backends
+
+    try:
+        backend = backends.resolve(on)
+    except backends.BackendError as exc:
+        raise ApiError(str(exc)) from exc
+    return {"backend": backend.spec, "kind": backend.kind, **backend.test()}
+
+
+def save_backend(name: str, kind: str, options: dict | None = None) -> dict:
+    """Save a backend under a name (options only: hosts, GPU types; never secrets)."""
+    from ai_made_easy.core.runner import backends
+
+    try:
+        return backends.save(name, kind, **(options or {}))
+    except backends.BackendError as exc:
+        raise ApiError(str(exc)) from exc
+
+
+def delete_backend(name: str) -> dict:
+    from ai_made_easy.core.runner import backends
+
+    try:
+        backends.remove(name)
+    except backends.BackendError as exc:
+        raise ApiError(str(exc)) from exc
+    return {"deleted": name}
+
+
+def attach_run(run_id: str) -> dict:
+    """Follow a remote run again (after a restart or a lost connection)."""
+    from ai_made_easy.core.runner.backends import BackendError
+
+    try:
+        return manager().attach(run_id)
+    except (BackendError, KeyError) as exc:
+        raise ApiError(str(exc).strip("'\"")) from exc
+
+
+def import_run_results(path: str) -> dict:
+    """Complete a Colab hand-off run from the results zip its notebook downloaded."""
+    try:
+        return manager().import_results(path)
+    except (ValueError, KeyError, OSError) as exc:
+        raise ApiError(str(exc).strip("'\"")) from exc
 
 
 def run_status(run_id: str) -> dict:
@@ -527,13 +591,14 @@ def pipeline_store():
 
 
 def start_pipeline(graph: dict | Graph, project: str = "", base: str | None = None,
-                   listener=None) -> dict:  # noqa: ANN001
-    """Run a pipeline's stages in order (finished, unchanged stages are reused)."""
+                   listener=None, on: str = "") -> dict:  # noqa: ANN001
+    """Run a pipeline's stages in order (finished, unchanged stages are reused);
+    ``on`` sends its training stages to a backend."""
     from ai_made_easy.core.pipelines.runner import PipelineError, PipelineRunner
 
     try:
         runner = PipelineRunner(manager(), pipeline_store(), _graph(graph), project, base,
-                                listener)
+                                listener, on=on)
     except PipelineError as exc:
         raise ApiError(str(exc)) from exc
     _pipelines[runner.pipeline_id] = runner

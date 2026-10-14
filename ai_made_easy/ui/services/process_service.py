@@ -4,6 +4,7 @@ scripts. One QProcess + worker-protocol pipeline, one set of signals.
 """
 from __future__ import annotations
 
+import queue
 import sys
 import tempfile
 from pathlib import Path
@@ -55,6 +56,14 @@ class ProcessService(QtCore.QObject):
         self.history = history if history is not None else RunHistory()
         self.current_run_id: str | None = None
         self._stopping = False
+        # runs on another machine (SSH, Kaggle, Colab, Modal, Docker) go through the
+        # core RunManager; its events are drained into the same signals on a timer
+        self._remote_manager = None
+        self._remote_run: str | None = None
+        self._remote_events: queue.Queue = queue.Queue()
+        self._remote_timer = QtCore.QTimer(self)
+        self._remote_timer.setInterval(200)
+        self._remote_timer.timeout.connect(self._drain_remote)
         try:
             self.history.mark_interrupted()
         except OSError:
@@ -63,10 +72,16 @@ class ProcessService(QtCore.QObject):
     # ------------------------------------------------------------ state
 
     def is_running(self) -> bool:
+        if self._remote_run is not None:
+            return True
         return (self._proc is not None
                 and self._proc.state() != QtCore.QProcess.ProcessState.NotRunning)
 
     def stop(self) -> None:
+        if self._remote_run is not None:
+            self._stopping = True
+            self._remote_manager.stop(self._remote_run)
+            return
         if not self.is_running():
             return
         self._stopping = True
@@ -99,10 +114,15 @@ class ProcessService(QtCore.QObject):
         self.run_store.set(self.run_store.RUNNING, kind)
         proc.start()
 
-    def run_training(self, graph: Graph, project: str = "") -> None:
+    def run_training(self, graph: Graph, project: str = "", on: str | None = None) -> None:
+        """Train here, or ``on`` a backend (``ssh:<host>``, ``kaggle``, a saved name …)."""
         import importlib.util
 
         from ai_made_easy.core.families import resolve_framework
+
+        if on and on != "local":
+            self._run_remote(graph, project, on)
+            return
 
         try:
             framework = resolve_framework(graph)
@@ -132,6 +152,59 @@ class ProcessService(QtCore.QObject):
             self.history.update(record.run_id, status="running",
                                 pid=int(self._proc.processId()) or None)
         self.history_changed.emit()
+
+    def _run_remote(self, graph: Graph, project: str, on: str) -> None:
+        from ai_made_easy.core.runner.manager import RunManager
+
+        if self.is_running():
+            self.log.error(f"a {self._kind} run is already active")
+            return
+        if self._remote_manager is None:
+            self._remote_manager = RunManager(self.history, python=python_executable())
+            self._remote_manager.subscribe(
+                lambda run_id, event: self._remote_events.put((run_id, event)))
+        self._stopping = False
+        self._kind = "train"
+        try:
+            run_id = self._remote_manager.start(graph, project=project, on=on)
+        except Exception as exc:  # noqa: BLE001 — a missing tool, no sign-in, a bad host
+            self.log.error(f"could not start the run on {on}: {exc}")
+            return
+        self._remote_run = self.current_run_id = run_id
+        self.last_workdir = self.history.path(run_id)
+        self.log.info(f"training started on {on} — run {run_id}, folder: {self.last_workdir}")
+        if not self._remote_manager.get(run_id).backend.live:
+            self.log.info("curves arrive when the run reports back (Kaggle and Colab are "
+                          "polled, not streamed)")
+        self.run_store.set(self.run_store.RUNNING, "train")
+        self._remote_timer.start()
+        self.history_changed.emit()
+
+    def _drain_remote(self) -> None:
+        run_id = self._remote_run
+        while True:
+            try:
+                rid, event = self._remote_events.get_nowait()
+            except queue.Empty:
+                break
+            if rid == run_id:
+                self._dispatch(event, record=False)  # the RunManager records history
+        if run_id is None:
+            self._remote_timer.stop()
+            return
+        status = self._remote_manager.status(run_id)
+        if status["state"] not in ("finished", "failed", "stopped"):
+            return
+        if self.history.get(run_id).status not in ("finished", "failed", "stopped"):
+            return  # the record finalises right after the done event
+        self._remote_timer.stop()
+        self._remote_run = None
+        code = status["returncode"] if status["returncode"] is not None else (
+            0 if status["state"] == "finished" else 1)
+        self.history_changed.emit()
+        self.run_store.set(self.run_store.FINISHED if status["state"] == "finished"
+                           else self.run_store.FAILED, "train")
+        self.finished.emit(int(code), "train")
 
     def run_test(self, graph: Graph) -> None:
         workdir = Path(tempfile.mkdtemp(prefix="aime_test_"))
@@ -185,11 +258,11 @@ class ProcessService(QtCore.QObject):
             if line.strip():
                 self.log_received.emit(line.strip())
 
-    def _dispatch(self, event: dict | None) -> None:
+    def _dispatch(self, event: dict | None, record: bool = True) -> None:
         if event is None:
             return
         kind = event.get("type")
-        run_id = self.current_run_id if self._kind == "train" else None
+        run_id = self.current_run_id if self._kind == "train" and record else None
         if run_id and kind == "epoch":
             self._safely(self.history.append_epoch, run_id, event)
         elif run_id and kind == "env":

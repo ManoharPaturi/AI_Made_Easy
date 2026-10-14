@@ -52,6 +52,8 @@ class RunRecord:
     trial: dict[str, Any] = field(default_factory=dict)  # sampled sweep values
     error: str = ""
     pid: int | None = None
+    backend: str = ""  # where it trained: "" / local, ssh:<host>, kaggle, … (see backends)
+    remote: dict[str, Any] = field(default_factory=dict)  # what following it again needs
 
     @property
     def duration(self) -> float | None:
@@ -230,10 +232,23 @@ class RunHistory:
                 raise KeyError(f"unknown run {run_id!r}")
             shutil.rmtree(path)
 
+    def reset_epochs(self, run_id: str) -> None:
+        """Forget recorded epochs (before replaying a remote run's events again)."""
+        with self._lock:
+            (self.path(run_id) / "epochs.jsonl").unlink(missing_ok=True)
+            record = self.get(run_id)
+            record.epochs_done = 0
+            record.best_metrics = {}
+            self.save(record)
+
     def mark_interrupted(self) -> int:
-        """Runs left 'running' by a process that no longer exists become 'failed'."""
+        """Runs left 'running' by a process that no longer exists become 'failed'.
+        Remote runs keep going without the app: they stay 'running' to be followed
+        again (``RunManager.attach``)."""
         count = 0
         for rec in self.list():
+            if rec.backend not in ("", "local"):
+                continue
             if rec.status in ("created", "running") and not _alive(rec.pid):
                 self.finalize(rec.run_id, "failed", error="interrupted (the app exited)")
                 count += 1

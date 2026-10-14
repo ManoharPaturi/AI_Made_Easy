@@ -145,6 +145,7 @@ class AppContext(QtCore.QObject):
 
         self.training_page.train_clicked.connect(self.act_train)
         self.training_page.stop_clicked.connect(self.act_stop)
+        self.training_page.run_on.manage_requested.connect(self.act_backends)
         self.training_page.errors_clicked.connect(self.act_error_analysis)
         self.training_page.saliency_clicked.connect(self.act_saliency)
         self.training_page.card_clicked.connect(self.act_model_card)
@@ -653,7 +654,29 @@ class AppContext(QtCore.QObject):
             return
         self.training_page.reset()
         self._run_kind = "train"
-        self.process_service.run_training(ir, project=self.project_store.name)
+        self.process_service.run_training(ir, project=self.project_store.name,
+                                          on=self.training_page.run_on.selected())
+
+    def act_import_results(self, *_):
+        """Complete a Colab hand-off run from the results zip its notebook downloaded."""
+        path, _ = QtWidgets.QFileDialog.getOpenFileName(
+            self.window, "Import run results", "", "Results zip (*.zip)")
+        if not path:
+            return
+        try:
+            status = self.experiment_service.manager.import_results(path)
+        except (ValueError, KeyError, OSError) as exc:
+            QtWidgets.QMessageBox.warning(self.window, "Import run results",
+                                          str(exc).strip("'\""))
+            return
+        self.status_message.emit(f"Imported run {status['run_id']}: {status['state']}")
+        self.process_service.history_changed.emit()
+
+    def act_backends(self, *_):
+        from ai_made_easy.ui.features.backends import BackendsDialog
+
+        BackendsDialog(self.window).exec()
+        self.training_page.run_on.refresh()
 
     def _run_pipeline(self, ir, resume_from: str = "") -> None:  # noqa: ANN001
         if not resume_from and not self._guard_run("run the pipeline"):
@@ -661,7 +684,7 @@ class AppContext(QtCore.QObject):
         path = self.project_store.path
         pipeline_id = self.experiment_service.start_pipeline(
             ir, self.project_store.name, base=str(path.parent) if path else None,
-            resume_from=resume_from)
+            resume_from=resume_from, on=self.training_page.run_on.selected())
         if pipeline_id:
             self.act_experiments()
             self.experiments_page.show_pipeline(pipeline_id)
@@ -840,7 +863,10 @@ class AppContext(QtCore.QObject):
             dialog.check_row(key)
         if dialog.exec() != QtWidgets.QDialog.DialogCode.Accepted or dialog.spec() is None:
             return
-        if self.experiment_service.start_sweep(ir, dialog.spec(), self.project_store.name):
+        spec = dict(dialog.spec())
+        on = self.training_page.run_on.selected()
+        spec["on"] = "" if on == "local" else on  # trials train where Train would
+        if self.experiment_service.start_sweep(ir, spec, self.project_store.name):
             self.experiments_page.tabs.setCurrentIndex(1)
             self.act_experiments()
             self.status_message.emit("Sweep started — trials appear in Experiments ▸ Sweeps")

@@ -14,6 +14,11 @@ boilerplate. It runs on the desktop or in the browser.
 
 ## Highlights
 
+- **Train anywhere:** this computer, any SSH host (rented GPU machines from RunPod,
+  Lambda, Vast.ai or Paperspace too), Kaggle, Colab, Modal or a Docker container. Pick
+  it in **Run on**; live curves, Stop, sweeps and pipelines work the same, and a dropped
+  connection picks up where it left off. Sign-in stays with each tool: AI Made Easy never
+  asks for a password, token or key ([docs/REMOTE.md](docs/REMOTE.md)).
 - **Pipelines:** chain Train, Cross-validate, Fine-tune, Distill, Prune, Quantize,
   quantization-aware training, Evaluate, Ensemble, Export and Register stages; every stage
   is a tracked run, and re-running a pipeline picks up where it stopped. Fine-tune with
@@ -197,7 +202,10 @@ aime validate project.json                     # design + data checks; exit 1 on
 aime gen project.json -f pytorch -o exports    # model file (pytorch | keras)
 aime train project.json -f keras -o exports    # training script (pytorch | keras | sklearn)
 aime run project.json                          # train headlessly, stream JSON events
+aime run project.json --on ssh:gpu-box         # … or on an SSH host, kaggle, colab, modal, container
+aime backends list | add NAME --kind ssh -s host=gpu-box | test NAME   # where runs train
 aime runs list | show ID | compare A B         # run history
+aime runs attach ID | import results.zip       # follow a remote run again; finish a Colab run
 aime sweep project.json -p opt.lr=log:1e-4:1e-1 -p d1.units=choice:32,64 -n 12
 aime new --task binary --data churn.csv -o churn.json   # best recipe for the data
 aime automl --task binary --data churn.csv -n 12 -o best.json   # search the recipes

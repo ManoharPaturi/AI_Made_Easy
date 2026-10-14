@@ -42,7 +42,7 @@ stores or logs a password, token or API key. It uses each tool's own sign-in:
 - `huggingface-cli login`
 - `modal token`
 - `wandb login`
-- a Google OAuth consent screen for Drive
+- Google Drive for desktop (for Colab runs)
 
 Settings only say *which* host, account or project to use. Every integration is off
 until the user turns it on.
@@ -117,47 +117,79 @@ until the user turns it on.
   on every backend. Backends:
   - **Local** (today's runner).
   - **SSH:**
-    - any host in `~/.ssh/config`, with the run folder synced by rsync
-    - events streamed over the channel
-    - a dropped connection resumes from the last checkpoint
+    - any host in `~/.ssh/config`, through the system `ssh` client (keys, agent and
+      jump hosts as in a terminal; it never prompts for a password)
+    - the run travels as a bundle over the same connection (tar, no rsync needed)
+    - the training runs under `nohup`, so a dropped connection loses nothing: the app
+      reconnects and continues from the last event it received
     - The same backend covers GPU clouds that hand out SSH machines (RunPod, Lambda,
       Vast.ai, Paperspace), with a short guide for each.
   - **Kaggle** (Kaggle API, `kaggle` package):
-    - pushes the run as a private Kaggle notebook (script kernel) with GPU / TPU chosen
-      from the budget
+    - pushes the run as a private Kaggle notebook (script kernel) with T4 / P100 / TPU
     - attaches Kaggle datasets
     - polls the kernel status
     - downloads the outputs into the run folder when it finishes
-    - Curves arrive per poll, not live, and the UI says so.
+    - Kaggle has no live log API, so curves arrive when the kernel finishes, and the UI
+      says so.
   - **Colab:**
     - Colab has no job API, so this is a hand-off: AI Made Easy builds a notebook with
       the run bundle
-    - **Open in Colab** uploads it to the user's Google Drive (OAuth, Drive file scope
-      only) and opens it
-    - the notebook writes events and checkpoints back to the same Drive folder, which
-      the app syncs into the run record
-    - A downloaded results zip can also be imported (`aime runs import`).
+    - with Google Drive for desktop, the bundle and notebook go to `My Drive/AI Made
+      Easy`; the notebook writes events and checkpoints back there, and the app follows
+      them as Drive syncs
+    - without it, the notebook ends by downloading a results zip, which **Import
+      results** / `aime runs import` turns into the run record
+    - (Changed from the first plan: the Drive API with the `drive.file` scope cannot see
+      files the Colab notebook writes, and a wider scope would mean holding a broad
+      Google token. Drive for desktop needs no token in AI Made Easy at all.)
   - **Modal:**
-    - runs the training function on a Modal GPU with the deploy image
+    - runs the launcher in a Modal sandbox on a Modal GPU, with an image built from the
+      run's requirements
     - logs stream live
-    - outputs come back through a Modal volume
-  - **Container:** the deploy Dockerfile's image, locally or on an SSH host, for
-    reproducible environments.
+    - the bundle and the outputs pass through a Modal volume
+  - **Container:** an image built like the deploy Dockerfile's (or one you name), on
+    this computer, or on an SSH host through its `docker_image` option.
 - **Budgets:** each backend reports its accelerator (SSH: `nvidia-smi`; Kaggle: T4 /
-  P100 / TPU; Colab / Modal: the chosen GPU), which picks the device profile for budget
-  checks automatically.
+  P100 / TPU; Colab / Modal: the chosen GPU). That picks the device profile (P100, L4
+  and A10G are new), and the design's budget is checked against it when the run
+  starts.
 - **UI:**
   - a **Run on** selector in the Training panel and the sweep / pipeline dialogs
     (desktop and web)
-  - a Backends page to add hosts and test the connection
-  - `aime train --on ssh:<host>|kaggle|colab|modal`
-  - MCP tools
+  - a Backends dialog to add backends and test the connection (desktop **Run ▸
+    Backends…**, web **Run on ▸ Manage backends…**)
+  - `aime run --on ssh:<host>|kaggle|colab|modal|container`, `aime backends`,
+    `aime runs attach | import`
+  - MCP tools and REST routes
 - **Tests:**
   - an SSH server in a CI container (localhost) runs a tiny training end to end,
     including a dropped connection
-  - Kaggle, Drive and Modal clients are mocked at their HTTP / SDK boundary in CI
+  - Kaggle and Modal clients are faked at their SDK boundary in CI; Colab syncs through
+    a folder that stands in for Drive
   - the nightly `AIME_ONLINE` job runs one real Kaggle kernel when a token is
     configured as a secret
+- **Status: done.**
+  - Everything runs through one launcher, `worker/aime_launch.py`, which is standard
+    library only. It unpacks the bundle, trains, writes `events.jsonl`, and always
+    leaves an exit code.
+  - **The bundle** carries the script, the worker, the requirements and every local
+    file the design points at. Paths are rewritten to `data/…`, and nothing else from
+    the computer is sent.
+  - **SSH:**
+    - its runs match a local run with the same seed, metric for metric
+    - a cut connection resumes with no epoch lost or repeated
+    - after a restart, `aime runs attach` (or **Follow again**) picks the run up again
+  - The SSH and Docker tests run the shipped code against stand-in `ssh` and `docker`
+    clients. CI also runs the SSH test against real OpenSSH on localhost.
+  - **Bugs found while testing:**
+    - starting an SSH run blocked until training ended (`cd && nohup … &` backgrounds
+      a subshell that keeps ssh's output open)
+    - files written into the bundle had a 1970 timestamp, which Colab's results zip
+      refuses
+    - the web Training panel missed a run's first log lines, including the hand-off
+      instructions; it now replays them
+  - **Not done:** a Modal run cannot be followed again after the app restarts. Its
+    outputs stay in the `aime-runs` volume.
 
 ## Phase 2 — Export everywhere
 - **Detectors to ONNX:**
@@ -254,9 +286,7 @@ until the user turns it on.
 ## Extras (pyproject)
 | Extra | Packages |
 | --- | --- |
-| `remote` | asyncssh |
 | `kaggle` | kaggle |
-| `colab` | google-api-python-client, google-auth-oauthlib |
 | `modal` | modal |
 | `export` | onnx, onnxruntime, executorch |
 | `tracking` | mlflow, wandb |

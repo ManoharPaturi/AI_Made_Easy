@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import { api } from "../api";
 import { useStore } from "../state";
+import { RunOnSelect, useRunOn } from "./Backends";
 import type { PipelineRecord } from "../types";
 import { duration, metric, StatusChip } from "./Modal";
 
@@ -59,6 +60,7 @@ export function usePipeline(initial: string | null = null) {
 export function PipelinePanel() {
   const { project, name, validation, notify } = useStore();
   const { setId, record } = usePipeline();
+  const [on] = useRunOn();
   const running = !!record && RUNNING.includes(record.state);
   const act = useCallback(async (fn: () => Promise<{ pipeline_id: string }>, what: string) => {
     try {
@@ -73,12 +75,13 @@ export function PipelinePanel() {
     <div data-testid="pipeline-panel">
       <div className="toolbar" style={{ marginBottom: 6 }}>
         <button className="primary" data-testid="run-pipeline" disabled={running || !validation?.valid}
-                onClick={() => act(() => api.startPipeline(project(), name), "Pipeline started")}>
+                onClick={() => act(() => api.startPipeline(project(), name, on), "Pipeline started")}>
           ▶ Run pipeline</button>
         <button disabled={!running} onClick={() => record && api.stopPipeline(record.pipeline_id)}>Stop</button>
         <button disabled={!record || running || record.state === "finished"}
                 onClick={() => record && act(() => api.resumePipeline(record.pipeline_id), "Resumed")}>
           Resume</button>
+        <RunOnSelect testId="pipeline-run-on" />
         <span className="dim">{record ? `${record.pipeline_id} · ${record.state}` : "Stages run in order; "
           + "finished, unchanged stages from earlier runs are reused."}</span>
       </div>
