@@ -1,0 +1,293 @@
+{
+ "schema_version": 1,
+ "name": "glow_shapes",
+ "meta": {
+  "title": "Normalizing Flow \u2014 Glow on images",
+  "description": "Glow on generated 16\u00d716 images: squeeze, then steps of ActNorm, an invertible 1\u00d71 convolution and a convolutional affine coupling, with a multi-scale split. Compare its bits per dimension with the Gaussian baseline."
+ },
+ "nodes": [
+  {
+   "id": "input",
+   "type": "core.input",
+   "params": {
+    "shape": "1, 16, 16"
+   },
+   "position": [
+    0,
+    0
+   ]
+  },
+  {
+   "id": "squeeze_0",
+   "type": "flow.squeeze",
+   "params": {},
+   "position": [
+    0,
+    0
+   ]
+  },
+  {
+   "id": "actnorm_0_0",
+   "type": "flow.actnorm",
+   "params": {},
+   "position": [
+    0,
+    0
+   ]
+  },
+  {
+   "id": "invconv_0_0",
+   "type": "flow.invconv1x1",
+   "params": {
+    "seed": 0
+   },
+   "position": [
+    0,
+    0
+   ]
+  },
+  {
+   "id": "coupling_0_0",
+   "type": "flow.conv_coupling",
+   "params": {
+    "hidden": 48,
+    "parity": "even"
+   },
+   "position": [
+    0,
+    0
+   ]
+  },
+  {
+   "id": "actnorm_0_1",
+   "type": "flow.actnorm",
+   "params": {},
+   "position": [
+    0,
+    0
+   ]
+  },
+  {
+   "id": "invconv_0_1",
+   "type": "flow.invconv1x1",
+   "params": {
+    "seed": 1
+   },
+   "position": [
+    0,
+    0
+   ]
+  },
+  {
+   "id": "coupling_0_1",
+   "type": "flow.conv_coupling",
+   "params": {
+    "hidden": 48,
+    "parity": "odd"
+   },
+   "position": [
+    0,
+    0
+   ]
+  },
+  {
+   "id": "split_0",
+   "type": "flow.split",
+   "params": {},
+   "position": [
+    0,
+    0
+   ]
+  },
+  {
+   "id": "squeeze_1",
+   "type": "flow.squeeze",
+   "params": {},
+   "position": [
+    0,
+    0
+   ]
+  },
+  {
+   "id": "actnorm_1_0",
+   "type": "flow.actnorm",
+   "params": {},
+   "position": [
+    0,
+    0
+   ]
+  },
+  {
+   "id": "invconv_1_0",
+   "type": "flow.invconv1x1",
+   "params": {
+    "seed": 10
+   },
+   "position": [
+    0,
+    0
+   ]
+  },
+  {
+   "id": "coupling_1_0",
+   "type": "flow.conv_coupling",
+   "params": {
+    "hidden": 48,
+    "parity": "even"
+   },
+   "position": [
+    0,
+    0
+   ]
+  },
+  {
+   "id": "actnorm_1_1",
+   "type": "flow.actnorm",
+   "params": {},
+   "position": [
+    0,
+    0
+   ]
+  },
+  {
+   "id": "invconv_1_1",
+   "type": "flow.invconv1x1",
+   "params": {
+    "seed": 11
+   },
+   "position": [
+    0,
+    0
+   ]
+  },
+  {
+   "id": "coupling_1_1",
+   "type": "flow.conv_coupling",
+   "params": {
+    "hidden": 48,
+    "parity": "odd"
+   },
+   "position": [
+    0,
+    0
+   ]
+  },
+  {
+   "id": "output",
+   "type": "core.output",
+   "params": {},
+   "position": [
+    0,
+    0
+   ]
+  },
+  {
+   "id": "data",
+   "type": "data.density_images",
+   "position": [
+    0,
+    0
+   ],
+   "params": {
+    "kind": "shapes",
+    "size": "16",
+    "n_samples": 4000,
+    "seed": 0,
+    "val_fraction": 0.1,
+    "test_fraction": 0.1
+   }
+  },
+  {
+   "id": "opt",
+   "type": "train.adam",
+   "position": [
+    0,
+    0
+   ],
+   "params": {
+    "lr": 0.001
+   }
+  },
+  {
+   "id": "trainer",
+   "type": "train.trainer",
+   "position": [
+    0,
+    0
+   ],
+   "params": {
+    "epochs": 15,
+    "batch_size": 64,
+    "device": "auto",
+    "seed": 0,
+    "early_stopping_patience": 0
+   }
+  }
+ ],
+ "edges": [
+  {
+   "from": "input/out",
+   "to": "squeeze_0/in"
+  },
+  {
+   "from": "squeeze_0/out",
+   "to": "actnorm_0_0/in"
+  },
+  {
+   "from": "actnorm_0_0/out",
+   "to": "invconv_0_0/in"
+  },
+  {
+   "from": "invconv_0_0/out",
+   "to": "coupling_0_0/in"
+  },
+  {
+   "from": "coupling_0_0/out",
+   "to": "actnorm_0_1/in"
+  },
+  {
+   "from": "actnorm_0_1/out",
+   "to": "invconv_0_1/in"
+  },
+  {
+   "from": "invconv_0_1/out",
+   "to": "coupling_0_1/in"
+  },
+  {
+   "from": "coupling_0_1/out",
+   "to": "split_0/in"
+  },
+  {
+   "from": "split_0/out",
+   "to": "squeeze_1/in"
+  },
+  {
+   "from": "squeeze_1/out",
+   "to": "actnorm_1_0/in"
+  },
+  {
+   "from": "actnorm_1_0/out",
+   "to": "invconv_1_0/in"
+  },
+  {
+   "from": "invconv_1_0/out",
+   "to": "coupling_1_0/in"
+  },
+  {
+   "from": "coupling_1_0/out",
+   "to": "actnorm_1_1/in"
+  },
+  {
+   "from": "actnorm_1_1/out",
+   "to": "invconv_1_1/in"
+  },
+  {
+   "from": "invconv_1_1/out",
+   "to": "coupling_1_1/in"
+  },
+  {
+   "from": "coupling_1_1/out",
+   "to": "output/in"
+  }
+ ]
+}

@@ -340,6 +340,36 @@ until the user turns it on.
 - **QAT for embedding models:** embeddings keep float qparams, and the rest quantizes.
   This lifts the "token-id models are not supported" rule.
 
+- **Status: done.**
+  - **Glow:**
+    - new layers: invertible 1×1 convolution (LU), convolutional affine coupling,
+      squeeze, and a split with a learned prior; ActNorm now also works per channel
+    - flows train on images: dequantised 8-bit pixels, bits per dimension, sample
+      grids, a Gaussian baseline
+    - new: a generated-images dataset, the `glow_shapes` sample and the Glow recipe
+    - tests: the layers invert exactly and their log-determinants match autograd's
+      Jacobian; Glow beats a RealNVP of similar size in bits per dimension
+  - **OGB:** node, graph and link blocks load the official split (link datasets: the
+    official negatives too) and report OGB's evaluator numbers (`ogb_acc`, `ogb_rocauc`,
+    `ogb_hits@50`). Graph and link models are selected on them. CI uses a fake `ogb`
+    package; the nightly job runs the real ogbg-molbace.
+  - **Atari:**
+    - Pong, Breakout, Space Invaders, Seaquest and Freeway through `ale-py` (the
+      `atari` extra, with OpenCV for the preprocessing)
+    - Atari Preprocessing and Frame Stack blocks, and the Atari PPO recipe with the
+      Nature CNN
+    - rules flag a missing `ale-py` and a missing ROM. `ale-py` 0.9 and newer wheels
+      include the ROMs themselves; AI Made Easy ships none (docs/RL.md).
+  - **Custom environments:**
+    - a `module` setting imports the file or module that registers the environment
+    - its spaces are read once in a subprocess and cached, so the Input-shape and
+      action-kind checks, and creation errors, show in the Problems panel
+  - **QAT for embedding models:**
+    - embedding tables use PyTorch's float-qparams QAT config (8-bit rows with float
+      scales); the rest is int8
+    - the rule is now an info note
+    - a QAT text classifier stays within one point of float
+
 ## Phase 6 — Release 3.2.0
 - **Web parity audit:**
   - Run on / Backends page

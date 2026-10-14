@@ -30,6 +30,10 @@ boilerplate. It runs on the desktop or in the browser.
   Hub (as a model repo or a Docker Space); Kaggle and Hub datasets download and are
   detected like a local folder; the run history exports to CSV / Parquet
   ([docs/TOOLS.md](docs/TOOLS.md)).
+- **More models:** Glow image flows (exact likelihoods in bits per dimension), Open
+  Graph Benchmark datasets scored by their official evaluators, Atari games for
+  pixel-based RL ([docs/RL.md](docs/RL.md)), your own Gymnasium environments checked
+  while you design, and quantization-aware training for text models with embeddings.
 - **Pipelines:** chain Train, Cross-validate, Fine-tune, Distill, Prune, Quantize,
   quantization-aware training, Evaluate, Ensemble, Export and Register stages; every stage
   is a tracked run, and re-running a pipeline picks up where it stopped. Fine-tune with
@@ -141,7 +145,7 @@ Install only what you need with the optional extras:
 | `audio` | Hugging Face speech encoders (wav2vec 2.0, HuBERT, WavLM, Whisper) |
 | `text` | Hugging Face text encoders (DistilBERT, BERT, RoBERTa, MiniLM, ...) and tokenizers |
 | `probabilistic` | pgmpy, hmmlearn, PyMC, GPyTorch and statsmodels (graphical models, probabilistic programs, Gaussian processes, state-space models) |
-| `graph` | PyTorch Geometric (graph neural networks) |
+| `graph` | PyTorch Geometric (graph neural networks) and the Open Graph Benchmark |
 | `generative` | diffusers and peft (Stable Diffusion LoRA fine-tuning) |
 | `rl` | Gymnasium and stable-baselines3 (reinforcement learning) |
 | `rl-box2d` | The Box2D environments (LunarLander, BipedalWalker, CarRacing); wheels exist up to Python 3.12 |
@@ -156,6 +160,7 @@ Install only what you need with the optional extras:
 | `tracking` | Mirror runs to MLflow and Weights & Biases |
 | `hub` | The Hugging Face Hub: push runs and Spaces, load Hub datasets |
 | `kaggle` / `modal` | Train on Kaggle / Modal; Kaggle datasets and competitions |
+| `atari` | Atari games (ale-py, OpenCV); AI Made Easy ships no ROMs ([docs/RL.md](docs/RL.md)) |
 | `tuning` | Bayesian hyperparameter search (Optuna) |
 | `dev` | Test and lint tooling |
 

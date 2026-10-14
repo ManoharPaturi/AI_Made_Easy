@@ -174,6 +174,62 @@ def tudataset(d: dict) -> tuple[list, list]:
     return [graphs[i] for i in order], [str(i) for i in range(ds.num_classes)]
 
 
+def ogb_nodes(d: dict) -> dict:
+    """An OGB node-property graph with its official train / valid / test split."""
+    from ogb.nodeproppred import PygNodePropPredDataset
+
+    ds = PygNodePropPredDataset(d["name"], root=str(Path(d["root"]).expanduser()))
+    data, split = ds[0], ds.get_idx_split()
+    n = int(data.num_nodes)
+    masks = {}
+    for ours, theirs in (("train", "train"), ("val", "valid"), ("test", "test")):
+        mask = np.zeros(n, bool)
+        mask[np.asarray(split[theirs])] = True
+        masks[ours] = mask
+    y = np.asarray(data.y).reshape(-1).astype(np.int64)
+    return {"x": np.asarray(data.x, np.float32), "edge_index": _undirected(
+                np.asarray(data.edge_index, np.int64)),
+            "y": y, "classes": [str(i) for i in range(int(ds.num_classes))], "masks": masks,
+            "ogb": d["name"]}
+
+
+def ogb_graphs(d: dict) -> tuple[list, list]:
+    """OGB graph-property graphs; each keeps its official split ("split")."""
+    from ogb.graphproppred import PygGraphPropPredDataset
+
+    ds = PygGraphPropPredDataset(d["name"], root=str(Path(d["root"]).expanduser()))
+    split = ds.get_idx_split()
+    where = {}
+    for ours, theirs in (("train", "train"), ("val", "valid"), ("test", "test")):
+        for i in np.asarray(split[theirs]).tolist():
+            where[i] = ours
+    graphs = []
+    for i in range(len(ds)):
+        g = ds[i]
+        label = float(np.asarray(g.y).reshape(-1)[0])
+        if label != label:          # an unlabelled molecule (NaN target)
+            continue
+        graphs.append({"x": np.asarray(g.x, np.float32),
+                       "edge_index": np.asarray(g.edge_index, np.int64),
+                       "y": int(label), "split": where.get(i, "train"), "ogb": d["name"]})
+    return graphs, ["0", "1"]
+
+
+def ogb_links(d: dict) -> dict:
+    """An OGB link-property graph with its official positive and negative edges."""
+    from ogb.linkproppred import PygLinkPropPredDataset
+
+    ds = PygLinkPropPredDataset(d["name"], root=str(Path(d["root"]).expanduser()))
+    data, split = ds[0], ds.get_edge_split()
+    edges = {}
+    for ours, theirs in (("train", "train"), ("val", "valid"), ("test", "test")):
+        edges[ours] = np.asarray(split[theirs]["edge"], np.int64).T
+        if "edge_neg" in split[theirs]:
+            edges[ours + "_neg"] = np.asarray(split[theirs]["edge_neg"], np.int64).T
+    return {"x": np.asarray(data.x, np.float32),
+            "edge_index": _undirected(edges["train"]), "ogb_split": edges, "ogb": d["name"]}
+
+
 def load_graph_data(d: dict):
     """One graph (dict) for node-level tasks, or (graphs, classes) for graph-level ones."""
     block = d["block"]
@@ -189,6 +245,12 @@ def load_graph_data(d: dict):
         return planetoid(d)
     if block == "data.tudataset":
         return tudataset(d)
+    if block == "data.ogb_nodes":
+        return ogb_nodes(d)
+    if block == "data.ogb_graphs":
+        return ogb_graphs(d)
+    if block == "data.ogb_links":
+        return ogb_links(d)
     raise SystemExit(f"unsupported graph dataset {block}")
 
 
@@ -209,6 +271,18 @@ def graph_stats(g: dict) -> dict:
 
 METRICS_CODE = r'''
 # ======================================================================== metrics
+def ogb_score(name: str, **arrays) -> dict:
+    """The official OGB evaluator's numbers, prefixed ``ogb_`` (acc, rocauc, hits@K)."""
+    if name.startswith("ogbn"):
+        from ogb.nodeproppred import Evaluator
+    elif name.startswith("ogbg"):
+        from ogb.graphproppred import Evaluator
+    else:
+        from ogb.linkproppred import Evaluator
+    result = Evaluator(name).eval({k: v for k, v in arrays.items()})
+    return {f"ogb_{k}": float(v) for k, v in result.items()}
+
+
 def accuracy_f1(pred: np.ndarray, y: np.ndarray, n_classes: int) -> dict:
     f1s = []
     for c in range(n_classes):

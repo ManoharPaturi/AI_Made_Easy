@@ -103,8 +103,8 @@ def _stage_rules(stage, sources) -> list:  # noqa: ANN001
     if stage.kind == "pipeline.qat" and first is not None:
         inputs = [n for n in first.nodes.values() if n.type_id == "core.input"]
         if inputs and str(inputs[0].resolved_params().get("dtype", "")).startswith("int"):
-            out.append(_issue("error", "Quantization-aware training needs float inputs; "
-                                       "token-id models (embeddings) are not supported",
+            out.append(_issue("info", "QAT keeps embedding tables 8-bit with float scales "
+                                      "(weight-only); the layers after them become int8",
                               stage.id))
         try:
             kinds = {n.type_id for n in first.model_nodes()}

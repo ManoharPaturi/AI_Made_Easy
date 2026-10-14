@@ -190,8 +190,9 @@ class SplineCoupling(_FlowLayer):
 
 ACTNORM = '''\
 class ActNorm(_FlowLayer):
-    """Per-dimension scale and shift, initialised from the first batch so its output has
-    zero mean and unit variance (Kingma & Dhariwal, 2018)."""
+    """Per-dimension (vectors) or per-channel (images [C, H, W]) scale and shift,
+    initialised from the first batch so its output has zero mean and unit variance
+    (Kingma & Dhariwal, 2018)."""
 
     def __init__(self, dim: int) -> None:
         super().__init__()
@@ -199,17 +200,143 @@ class ActNorm(_FlowLayer):
         self.log_scale = nn.Parameter(torch.zeros(dim))
         self.register_buffer("initialized", torch.tensor(False))
 
+    def _view(self, t: torch.Tensor, x: torch.Tensor) -> torch.Tensor:
+        return t.view(1, -1, 1, 1) if x.dim() == 4 else t
+
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         if self.training and not bool(self.initialized) and len(x) > 1:
             with torch.no_grad():
-                self.bias.copy_(-x.mean(0))
-                self.log_scale.copy_(-torch.log(x.std(0) + 1e-6))
+                dims = (0, 2, 3) if x.dim() == 4 else (0,)
+                self.bias.copy_(-x.mean(dims))
+                self.log_scale.copy_(-torch.log(x.std(dims) + 1e-6))
                 self.initialized.fill_(True)
-        self.logdet = self.log_scale.sum().expand(len(x))
-        return (x + self.bias) * torch.exp(self.log_scale)
+        positions = x.shape[2] * x.shape[3] if x.dim() == 4 else 1
+        self.logdet = (positions * self.log_scale.sum()).expand(len(x))
+        return (x + self._view(self.bias, x)) * torch.exp(self._view(self.log_scale, x))
 
     def inverse(self, z: torch.Tensor) -> torch.Tensor:
-        return z * torch.exp(-self.log_scale) - self.bias
+        return z * torch.exp(-self._view(self.log_scale, z)) - self._view(self.bias, z)
+'''
+
+
+GLOW = '''\
+class InvConv1x1(_FlowLayer):
+    """Invertible 1×1 convolution with an LU-decomposed weight (Glow): a learned channel
+    permutation whose log-determinant is H·W·sum(log|s|)."""
+
+    def __init__(self, channels: int, seed: int = 0) -> None:
+        super().__init__()
+        g = torch.Generator().manual_seed(seed)
+        w = torch.linalg.qr(torch.randn(channels, channels, generator=g))[0]
+        p, lower, upper = torch.linalg.lu(w)
+        s = torch.diagonal(upper)
+        self.register_buffer("p", p)
+        self.register_buffer("sign_s", torch.sign(s))
+        self.register_buffer("l_mask", torch.tril(torch.ones(channels, channels), -1))
+        self.register_buffer("eye", torch.eye(channels))
+        self.lower = nn.Parameter(lower)
+        self.upper = nn.Parameter(torch.triu(upper, 1))
+        self.log_s = nn.Parameter(torch.log(torch.abs(s)))
+
+    def weight(self) -> torch.Tensor:
+        lower = self.lower * self.l_mask + self.eye
+        upper = self.upper * self.l_mask.T + torch.diag(self.sign_s * torch.exp(self.log_s))
+        return self.p @ lower @ upper
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        w = self.weight()
+        self.logdet = (x.shape[2] * x.shape[3] * self.log_s.sum()).expand(len(x))
+        return nn.functional.conv2d(x, w.view(*w.shape, 1, 1))
+
+    def inverse(self, z: torch.Tensor) -> torch.Tensor:
+        w = torch.linalg.inv(self.weight())
+        return nn.functional.conv2d(z, w.view(*w.shape, 1, 1))
+
+
+def _zero_conv(n_in: int, n_out: int) -> nn.Conv2d:
+    conv = nn.Conv2d(n_in, n_out, 3, padding=1)
+    nn.init.zeros_(conv.weight)
+    nn.init.zeros_(conv.bias)
+    return conv
+
+
+class ConvCoupling(_FlowLayer):
+    """Glow's affine coupling: half the channels are scaled (sigmoid, so the layer stays
+    stable) and shifted by a small CNN of the other half."""
+
+    def __init__(self, channels: int, hidden: int = 64, parity: str = "even") -> None:
+        super().__init__()
+        self.keep = channels // 2          # conditioning channels
+        self.parity = parity
+        n_cond, n_out = self.keep, channels - self.keep
+        self.net = nn.Sequential(nn.Conv2d(n_cond, hidden, 3, padding=1), nn.ReLU(),
+                                 nn.Conv2d(hidden, hidden, 1), nn.ReLU(),
+                                 _zero_conv(hidden, 2 * n_out))
+
+    def _st(self, cond: torch.Tensor):
+        h = self.net(cond)
+        shift, raw = h[:, 0::2], h[:, 1::2]
+        return shift, torch.sigmoid(raw + 2.0)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        if self.parity == "even":
+            cond, moved = x[:, :self.keep], x[:, self.keep:]
+        else:
+            moved, cond = x[:, :x.shape[1] - self.keep], x[:, x.shape[1] - self.keep:]
+        shift, scale = self._st(cond)
+        self.logdet = torch.log(scale).flatten(1).sum(-1)
+        out = (moved + shift) * scale
+        return torch.cat([cond, out] if self.parity == "even" else [out, cond], 1)
+
+    def inverse(self, z: torch.Tensor) -> torch.Tensor:
+        if self.parity == "even":
+            cond, moved = z[:, :self.keep], z[:, self.keep:]
+        else:
+            moved, cond = z[:, :z.shape[1] - self.keep], z[:, z.shape[1] - self.keep:]
+        shift, scale = self._st(cond)
+        out = moved / scale - shift
+        return torch.cat([cond, out] if self.parity == "even" else [out, cond], 1)
+
+
+class FlowSqueeze(_FlowLayer):
+    """[C, H, W] -> [4C, H/2, W/2]: every 2×2 patch becomes channels (volume-preserving)."""
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        n, c, h, w = x.shape
+        self.logdet = x.new_zeros(n)
+        x = x.view(n, c, h // 2, 2, w // 2, 2).permute(0, 1, 3, 5, 2, 4)
+        return x.reshape(n, 4 * c, h // 2, w // 2)
+
+    def inverse(self, z: torch.Tensor) -> torch.Tensor:
+        n, c, h, w = z.shape
+        z = z.view(n, c // 4, 2, 2, h, w).permute(0, 1, 4, 2, 5, 3)
+        return z.reshape(n, c // 4, 2 * h, 2 * w)
+
+
+class FlowSplit(_FlowLayer):
+    """Glow's multi-scale split: half the channels leave the flow here and are scored by
+    a Gaussian whose mean and scale come from the other half (a learned prior); the rest
+    continue. Sampling draws the factored half from that prior (``temperature``)."""
+
+    temperature = 1.0
+
+    def __init__(self, channels: int) -> None:
+        super().__init__()
+        self.keep = channels // 2
+        self.prior = _zero_conv(self.keep, 2 * (channels - self.keep))
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        z1, z2 = x[:, :self.keep], x[:, self.keep:]
+        mean, log_scale = self.prior(z1).chunk(2, 1)
+        logp = -0.5 * (((z2 - mean) * torch.exp(-log_scale)) ** 2 + 2 * log_scale
+                       + 1.8378770664093453)       # log(2π)
+        self.logdet = logp.flatten(1).sum(-1)
+        return z1
+
+    def inverse(self, z1: torch.Tensor) -> torch.Tensor:
+        mean, log_scale = self.prior(z1).chunk(2, 1)
+        z2 = mean + torch.exp(log_scale) * torch.randn_like(mean) * self.temperature
+        return torch.cat([z1, z2], 1)
 '''
 
 PERMUTE = '''\
@@ -235,7 +362,8 @@ class FlowPermute(_FlowLayer):
 '''
 
 FLOW_HELPERS = {"FlowBase": FLOW_BASE, "AffineCoupling": AFFINE, "MAFLayer": MAF,
-                "SplineCoupling": SPLINE, "ActNorm": ACTNORM, "FlowPermute": PERMUTE}
+                "SplineCoupling": SPLINE, "ActNorm": ACTNORM, "FlowPermute": PERMUTE,
+                "Glow": GLOW}
 
 
 def register() -> None:

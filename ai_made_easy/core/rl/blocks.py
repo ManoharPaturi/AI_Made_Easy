@@ -31,6 +31,19 @@ ENVS = {
     "CarRacing-v3": ((3, 96, 96), "continuous", 3, 900.0,
                      "drive round a track from 96×96 top-down pixels (Box2D)"),
 }
+# Atari (ale-py, the opt-in atari extra): observations after Atari Preprocessing and
+# Frame Stack, [frames, size, size] grayscale; the shape here is the default
+ATARI_GAMES = {  # env id -> (ROM name, actions, solved score, description)
+    "ALE/Pong-v5": ("pong", 6, 18.0, "return the ball past the opponent's paddle"),
+    "ALE/Breakout-v5": ("breakout", 4, 300.0, "break the bricks with a bouncing ball"),
+    "ALE/SpaceInvaders-v5": ("space_invaders", 6, 1500.0, "shoot the descending aliens"),
+    "ALE/Seaquest-v5": ("seaquest", 18, 2000.0, "rescue divers and surface for air"),
+    "ALE/Freeway-v5": ("freeway", 3, 30.0, "get the chicken across the motorway"),
+}
+for _id, (_rom, _n, _score, _desc) in ATARI_GAMES.items():
+    ENVS[_id] = ((4, 84, 84), "discrete", _n, _score, f"Atari: {_desc} ({_n} actions)")
+ATARI = set(ATARI_GAMES)
+ATARI_EXTRA = "atari"
 BOX2D = {"LunarLander-v3", "LunarLanderContinuous-v3", "BipedalWalker-v3", "CarRacing-v3"}
 IMAGE_ENVS = {k for k, v in ENVS.items() if len(v[0]) == 3}
 BUILT_IN = {"AIME/PixelChase-v0"}   # defined in the generated script
@@ -66,14 +79,38 @@ def _blocks() -> list[BlockDefinition]:
             params=(P("env_id", "enum", "CartPole-v1", options=(*ENVS, "custom")),
                     P("custom_id", "str", "", help="Any registered Gymnasium id (env_id = "
                                                    "custom)"),
+                    P("module", "str", "", help="custom: a Python file (my_envs.py) or "
+                                                "module that registers the environment; "
+                                                "its spaces are read when you design"),
                     P("n_envs", "int", 4, lo=1, hi=256, help="Parallel copies collecting "
                                                             "experience"),
                     P("seed", "int", 0, lo=0)),
-            description="The world the agent acts in: classic-control and Box2D tasks, a "
-                        "built-in pixel task for convolutional policies, or any registered "
-                        "Gymnasium id. Image observations reach the network as [C, H, W] "
-                        "scaled to 0–1.",
+            description="The world the agent acts in: classic-control and Box2D tasks, "
+                        "Atari games (the atari extra), a built-in pixel task for "
+                        "convolutional policies, or your own Gymnasium environment. Image "
+                        "observations reach the network as [C, H, W] scaled to 0–1.",
             meta={"rl": "env"}),
+        BlockDefinition(
+            type_id="rl.atari_preprocessing", display_name="Atari Preprocessing",
+            category=CATEGORY, color=family_color("data"), library="Gymnasium",
+            requires=("gymnasium", "ale_py"), extra=ATARI_EXTRA,
+            params=(P("frame_skip", "int", 4, lo=1, hi=16, help="Repeat each action"),
+                    P("screen_size", "int", 84, lo=32, hi=210, help="Square, grayscale"),
+                    P("noop_max", "int", 30, lo=0, hi=100,
+                      help="Random no-op steps at the start of an episode"),
+                    P("terminal_on_life_loss", "bool", False)),
+            description="The standard DQN-paper preprocessing for Atari games: frame "
+                        "skipping (max over the last two frames), grayscale, resizing and "
+                        "random no-op starts.",
+            meta={"rl": "wrapper"}),
+        BlockDefinition(
+            type_id="rl.frame_stack", display_name="Frame Stack", category=CATEGORY,
+            color=family_color("data"), library="Gymnasium", requires=("gymnasium",),
+            params=(P("frames", "int", 4, lo=1, hi=16,
+                      help="Recent frames the policy sees as channels"),),
+            description="Stacks the last frames as channels so the policy sees motion "
+                        "(observations become [frames, H, W]).",
+            meta={"rl": "wrapper"}),
         _algo("rl.ppo", "PPO",
               (lr(3e-4), P("n_steps", "int", 1024, lo=8, hi=100_000,
                            help="Steps per environment per update"),

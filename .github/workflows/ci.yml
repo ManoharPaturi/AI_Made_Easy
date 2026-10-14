@@ -171,11 +171,13 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install torch --index-url https://download.pytorch.org/whl/cpu
-          pip install -e ".[dev,graph,rl,rl-box2d,serve,export]"
+          pip install -e ".[dev,graph,rl,rl-box2d,atari,serve,export]"
       - name: Test
         run: >-
           pytest -q -p no:cacheprovider tests/test_gnn.py tests/test_rl.py
           tests/test_codegen_runtime.py -k "graph or exercised"
+      - name: OGB (official splits and evaluators), Atari, custom environments
+        run: pytest -q -p no:cacheprovider tests/test_deferred.py -k "ogb or atari or custom"
       - name: Graph networks export to ONNX (any number of nodes and edges)
         run: pytest -q -p no:cacheprovider tests/test_export.py -k "graph"
       - name: Your graphs and interaction tables
