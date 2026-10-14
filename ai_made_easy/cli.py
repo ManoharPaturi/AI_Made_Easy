@@ -11,7 +11,8 @@ Usage:
   aime jit <project.json> [-o DIR]    # generate (and with --run, execute) a TorchScript export script
   aime run <project.json> [-f auto]   # train headlessly (recorded in the run history)
   aime runs [list | show ID | compare ID ID… | delete ID]
-  aime deploy RUN_ID -o DIR [--formats onnx,torchscript]   # model server package
+  aime deploy RUN_ID -o DIR [--formats onnx,executorch_int8|suggested]   # model server package
+  aime deploy RUN_ID --list-formats    # export formats: available, suggested for the device
   aime models [list | register RUN_ID NAME | stage NAME VERSION STAGE | deploy NAME VERSION -o DIR]
   aime serve DIR [--port 8000]       # run a deployment package locally
   aime import pytorch model.py --attr Net --shape 3,32,32 -o project.json
@@ -91,9 +92,13 @@ def main(argv: list[str] | None = None) -> int:
                       help="print the parameters that can be swept and exit")
     p_dep = sub.add_parser("deploy", help="build a model-server package from a finished run")
     p_dep.add_argument("run_id")
-    p_dep.add_argument("-o", "--out", required=True, help="output folder (must be empty)")
+    p_dep.add_argument("-o", "--out", default=None, help="output folder (must be empty)")
     p_dep.add_argument("--formats", default="", help="comma-separated: onnx, onnx_int8, "
-                       "torchscript, coreml (PyTorch); onnx, saved_model, tflite (Keras)")
+                       "torchscript, coreml, executorch, executorch_int8 (PyTorch); onnx, "
+                       "saved_model, litert, litert_int8 (Keras); or 'suggested' for the "
+                       "formats the project's budget device runs")
+    p_dep.add_argument("--list-formats", action="store_true",
+                       help="list the run's export formats (availability, suggestions)")
     p_dep.add_argument("--name", default=None)
     p_mod = sub.add_parser("models", help="model registry")
     p_mod.add_argument("action", nargs="?", default="list",
@@ -671,6 +676,21 @@ def _deploy_command(args) -> int:  # noqa: ANN001
                                      args.host, "--port", str(args.port)], cwd=args.package)
             return result.returncode
         if args.command == "deploy":
+            options = api.export_options(args.run_id)["formats"]
+            if args.list_formats:
+                for row in options:
+                    mark = "suggested" if row["suggested"] else \
+                        "available" if row["available"] else "no"
+                    tail = f"  ({row['device']})" if row["suggested"] else \
+                        f"  {row['reason']}" if not row["available"] else ""
+                    print(f"{row['id']:<16} {mark:<10}{tail}")
+                return 0
+            if not args.out:
+                print("error: -o/--out is required", file=sys.stderr)
+                return 2
+            if "suggested" in formats:
+                formats = [f for f in formats if f != "suggested"] + [
+                    r["id"] for r in options if r["suggested"]]
             result = api.deploy_run(args.run_id, args.out, formats, args.name)
             print(result["log"].replace("EXPORT-DONE", "").strip())
             print(f"package: {result['path']}")

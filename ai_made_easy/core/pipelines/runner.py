@@ -335,6 +335,7 @@ class PipelineRunner:
         return task.id if task else ""
 
     def _export(self, stage: Stage, source: Path, upstream: dict) -> dict:
+        from ai_made_easy.core.deploy.exporters import summary
         from ai_made_easy.core.deploy.package import build_package
 
         out = Path(stage.params["out_dir"]).expanduser() if stage.params["out_dir"] \
@@ -343,10 +344,17 @@ class PipelineRunner:
                         if f.strip())
         result = build_package(source, out, formats=formats)
         ok = {k: v.get("file") for k, v in result.formats.items() if v.get("ok")}
-        failed = [k for k, v in result.formats.items() if not v.get("ok")]
-        return {"output": {**upstream, "path": str(out)}, "metrics": {},
+        failed = {k: v.get("error", "") for k, v in result.formats.items() if not v.get("ok")}
+        # how each export compares with the trained model: <format>_max_diff,
+        # _top1_agreement, _accuracy, _matched_detections, and its size in MB
+        metrics = summary(result.formats)
+        return {"output": {**upstream, "path": str(out),
+                           "exports": {k: str(out / f) for k, f in ok.items()}},
+                "metrics": metrics,
                 "message": f"package in {out}; exported {', '.join(ok) or 'nothing'}"
-                           + (f"; failed: {', '.join(failed)}" if failed else "")}
+                           + ("; failed: " + "; ".join(f"{k} ({e[:120]})"
+                                                      for k, e in failed.items())
+                              if failed else "")}
 
     def _register(self, stage: Stage, source: Path, upstream: dict) -> dict:
         from ai_made_easy.core.deploy import ModelRegistry

@@ -113,12 +113,15 @@ def _blocks() -> list[BlockDefinition]:
                "(expected calibration error and a reliability table)."),
         _stage("pipeline.export", "Export",
                (P("formats", "str", "onnx, torchscript",
-                  help="Comma-separated: onnx, onnx_int8, torchscript, coreml (PyTorch); "
-                       "onnx, saved_model, tflite (Keras)"),
+                  help="Comma-separated: onnx, onnx_int8, torchscript, coreml, executorch, "
+                       "executorch_int8 (PyTorch); onnx, saved_model, litert, litert_int8 "
+                       "(Keras)"),
                 P("out_dir", "str", "", help="Folder for the package (empty: "
                                              "~/.aime/pipelines/<id>/<stage>)")),
                "Builds a serving package (FastAPI app, Dockerfile, exported model files) "
-               "from the input model."),
+               "from the input model. Each export is checked against it: the stage's "
+               "metrics give the largest output difference, top-1 agreement (int8) and "
+               "the file size per format."),
         _stage("pipeline.deploy", "Register",
                (P("name", "str", "", help="Model name in the registry (empty: the design's)"),
                 P("stage", "enum", "staging", options=("none", "staging", "production")),

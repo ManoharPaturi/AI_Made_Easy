@@ -56,6 +56,9 @@ classic = ["scikit-learn>=1.4", "joblib>=1.3", "xgboost>=2.0", "lightgbm>=4.0",
 keras = ["keras>=3.6"]
 serve = ["fastapi>=0.110", "uvicorn[standard]>=0.29", "python-multipart>=0.0.9", "httpx>=0.27"]
 export = ["onnx>=1.16", "onnxruntime>=1.18", "onnxscript>=0.1", "skl2onnx>=1.17"]
+# on-device exports: ExecuTorch (.pte, XNNPACK) for PyTorch, the LiteRT interpreter to
+# check .tflite files (Keras -> LiteRT also needs the tensorflow extra)
+edge = ["executorch>=1.0", "ai-edge-litert>=1.2"]
 tuning = ["optuna>=3.6"]
 # train on Kaggle / Modal (SSH, Colab and containers need no Python packages)
 kaggle = ["kaggle>=1.6"]

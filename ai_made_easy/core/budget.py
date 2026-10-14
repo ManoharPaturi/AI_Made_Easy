@@ -62,9 +62,15 @@ class Device:
     tflops_fp16: float
     bandwidth_gbs: float
     overhead_gb: float = 0.4   # framework / driver context
+    formats: tuple = ()        # export formats the device runs, best first
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "formats", tuple(self.formats or ()))
 
     def to_dict(self) -> dict:
-        return asdict(self)
+        out = asdict(self)
+        out["formats"] = list(self.formats)
+        return out
 
 
 def user_devices_path() -> Path:

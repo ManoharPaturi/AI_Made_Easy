@@ -75,7 +75,7 @@ def test_package_serves_predictions_and_exports(mgr, tmp_path):
     pkg = tmp_path / "pkg"
     result = build_package(run, pkg, formats=("onnx", "onnx_int8", "torchscript"))
     assert result.verified
-    assert result.formats["onnx"]["ok"] and "verified" in result.formats["onnx"]["note"]
+    assert result.formats["onnx"]["ok"] and "matches PyTorch" in result.formats["onnx"]["note"]
     assert result.formats["torchscript"]["ok"] and result.formats["onnx_int8"]["ok"]
     for name in ("app.py", "Dockerfile", "requirements.txt", "README.md", "metadata.json",
                  "model/model_def.py", "model/inference_state.pkl", "exports/model.onnx"):

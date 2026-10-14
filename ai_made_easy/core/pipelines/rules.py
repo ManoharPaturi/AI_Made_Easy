@@ -145,12 +145,21 @@ def _stage_rules(stage, sources) -> list:  # noqa: ANN001
             framework = resolve_framework(first)
         except ValueError:
             framework = "pytorch"
-        wanted = [f.strip() for f in str(stage.params["formats"]).split(",") if f.strip()]
+        from ai_made_easy.core.deploy.exporters import ALIASES
+        from ai_made_easy.core.deploy.exportability import blockers
+
+        wanted = [ALIASES.get(f.strip(), f.strip())
+                  for f in str(stage.params["formats"]).split(",") if f.strip()]
         unknown = [f for f in wanted if f not in FORMATS.get(framework, ())]
         if unknown:
             out.append(_issue("error", f"Export: {', '.join(unknown)} not available for "
                                        f"{framework} models; choose from "
                                        f"{', '.join(FORMATS.get(framework, ()))}", stage.id))
+        blocked = blockers(first, framework)
+        for fmt in wanted:
+            if fmt in blocked:
+                out.append(_issue("warning", f"Export: {fmt} will be skipped: "
+                                             f"{blocked[fmt][0]}", stage.id))
     return out
 
 

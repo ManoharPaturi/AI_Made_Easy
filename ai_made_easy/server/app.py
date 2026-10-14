@@ -467,12 +467,19 @@ def create_app(*, token: str | None = None, projects_dir: str | Path | None = No
         return {"graph": api.sweep_best_graph(sweep_id)}
 
     # -------------------------------------------------------------- deploy
-    def _formats(framework: str) -> list[dict]:
-        return api.deploy_formats().get(framework, [])
-
     @app.get("/api/runs/{run_id}/formats", dependencies=guard)
     def run_formats(run_id: str) -> dict:
-        return {"formats": _formats(api.manager().history.get(run_id).framework)}
+        api.manager().history.get(run_id)
+        return api.export_options(run_id)
+
+    @app.get("/api/models/{name}/{version}/formats", dependencies=guard)
+    def model_formats(name: str, version: str) -> dict:
+        return api.export_options(model=name, version=version)
+
+    @app.post("/api/export/formats", dependencies=guard)
+    def design_formats(payload: dict = Body(...)) -> dict:  # noqa: B008
+        return api.export_options(graph=_graph_body(payload),
+                                  framework=payload.get("framework") or None)
 
     def _package_response(build) -> FileResponse:  # noqa: ANN001
         work = Path(tempfile.mkdtemp(prefix="aime_package_"))

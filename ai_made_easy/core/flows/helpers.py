@@ -200,7 +200,7 @@ class ActNorm(_FlowLayer):
         self.register_buffer("initialized", torch.tensor(False))
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        if not bool(self.initialized) and self.training and len(x) > 1:
+        if self.training and not bool(self.initialized) and len(x) > 1:
             with torch.no_grad():
                 self.bias.copy_(-x.mean(0))
                 self.log_scale.copy_(-torch.log(x.std(0) + 1e-6))

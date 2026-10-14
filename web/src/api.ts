@@ -4,7 +4,7 @@ import type {
   BackendList, BackendTest, PipelineRecord, SavedProject,
   AutoMLStarted, DataFacts, Explanation, RecipeInfo, RecipeSuggestion, WizardTask,
   BlockDef, BudgetReport, TableLayout, RunSamples, DataProfile, DeviceProfile, FamilyInfo, TaskInfo, ModelVersion, Project, RunEvent, RunRecord, SplitPreview, Summary,
-  SweepParam, SweepRecord, Validation,
+  SweepParam, SweepRecord, Validation, ExportFormat,
 } from "./types";
 
 export class ApiError extends Error {}
@@ -130,8 +130,7 @@ export const api = {
   startAutoml: (spec: Record<string, unknown>, project = "") =>
     post<AutoMLStarted>("/automl", { spec, project }),
 
-  formats: (runId: string) =>
-    get<{ formats: { id: string; label: string }[] }>(`/runs/${runId}/formats`),
+  formats: (runId: string) => get<{ formats: ExportFormat[] }>(`/runs/${runId}/formats`),
   deployUrl: (runId: string, formats: string[]) =>
     `/api/runs/${runId}/deploy?formats=${encodeURIComponent(formats.join(","))}`,
   models: () => get<{ models: ModelVersion[] }>("/models"),

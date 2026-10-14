@@ -629,6 +629,43 @@ def preview_predictions(model: nn.Module, loader: DataLoader, device: torch.devi
 
 TORCH_MAIN = r'''
 
+def _inputs(loader: DataLoader, limit: int) -> tuple:
+    xs, ys, seen = [], [], 0
+    for xb, yb in loader:
+        if not torch.is_tensor(xb):
+            break
+        xs.append(xb.cpu().numpy())
+        ys.append(yb.cpu().numpy() if torch.is_tensor(yb) else np.asarray(yb))
+        seen += len(xb)
+        if seen >= limit:
+            break
+    if not xs:
+        return None, None
+    x, y = np.concatenate(xs), np.concatenate(ys)
+    keep = max(4, min(limit, int(4e6 // max(x[0].nbytes, 1))))   # about 4 MB at most
+    return x[:keep], y[:keep]
+
+
+def save_calibration(train_loader: DataLoader, test_loader: DataLoader) -> None:
+    """A few training inputs (int8 calibration for exports) and labelled test inputs
+    (exports are checked against the model on them)."""
+    try:
+        x, _ = _inputs(train_loader, 128)
+        x_eval, y_eval = _inputs(test_loader, 256)
+        if x is None:
+            return
+        arrays = {"x": x}
+        if x_eval is not None:
+            arrays["x_eval"] = x_eval
+{% if spec.task == "multiclass" %}
+            if y_eval.ndim == 1:
+                arrays["y_eval"] = y_eval.astype(np.int64)
+{% endif %}
+        np.savez_compressed("calibration.npz", **arrays)
+    except Exception as exc:  # noqa: BLE001 — exports fall back to random inputs
+        print(f"(no calibration sample: {exc})")
+
+
 def main() -> None:
     torch.manual_seed(SEED)
     np.random.seed(SEED)
@@ -660,6 +697,7 @@ def main() -> None:
         BEFORE_SAVE(model)
     torch.save(model.state_dict(), CHECKPOINT)
     save_inference_state()
+    save_calibration(train_loader, test_loader)
     print(f"saved best weights to {CHECKPOINT}")
     test_loss, test_metrics = evaluate(model, loss_fn, test_loader, device)
     report = {"loss": test_loss, **{k: v for k, v in test_metrics.items() if isinstance(v, float)}}

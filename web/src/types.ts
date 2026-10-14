@@ -440,3 +440,14 @@ export interface SavedProject {
   family: string | null;
   task: string | null;
 }
+
+/** An export format for a trained run: whether the design can use it and whether the
+ * project's budget device runs it. */
+export interface ExportFormat {
+  id: string;
+  label: string;
+  available?: boolean;
+  reason?: string;
+  suggested?: boolean;
+  device?: string;
+}

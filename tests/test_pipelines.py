@@ -99,7 +99,7 @@ def test_rules():
     assert any(i.severity == "info" and "starts from new weights" in i.message for i in issues)
     # export formats and the budget
     bad = pipeline([train, stage("x", "pipeline.export", formats="onnx, tflite")], [("t", "x")])
-    assert any("tflite not available for pytorch" in m for m in messages(bad))
+    assert any("litert not available for pytorch" in m for m in messages(bad))   # tflite = litert
     tight = pipeline([train], [])
     tight["meta"]["budget"] = {"max_params_m": 0.001}
     assert any("Train: params" in m and "the pipeline's 0.001 M" in m
@@ -202,6 +202,10 @@ def test_finetune_prune_export_ensemble_and_cv(tmp_path, isolated_home):
     assert rows["finetune"]["metrics"]["accuracy"] > 0.8
     assert 0.55 < rows["prune"]["metrics"]["sparsity"] < 0.65
     assert "exported onnx, torchscript" in rows["export"]["message"]
+    # the Export stage compares each export with the trained model
+    exported = rows["export"]["metrics"]
+    assert exported["onnx_max_diff"] < 1e-4 and exported["torchscript_max_diff"] < 1e-4
+    assert exported["onnx_top1_agreement"] == 1.0 and exported["onnx_mb"] > 0
     ens = rows["ensemble"]["metrics"]
     assert {"member0_accuracy", "member1_accuracy", "accuracy"} <= set(ens)
     assert ens["accuracy"] >= min(ens["member0_accuracy"], ens["member1_accuracy"]) - 0.05

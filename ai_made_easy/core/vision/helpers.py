@@ -143,14 +143,16 @@ def freeze_batchnorm(module: nn.Module) -> None:
 
 PAD_DETECTIONS = '''\
 def pad_detections(results: list[dict], size: int, like: torch.Tensor) -> torch.Tensor:
-    """Per-image detections -> [B, size, 6] (x1, y1, x2, y2, score, label), zero padded."""
-    out = like.new_zeros(len(results), size, 6)
-    for i, r in enumerate(results):
-        n = min(len(r["boxes"]), size)
-        out[i, :n, :4] = r["boxes"][:n]
-        out[i, :n, 4] = r["scores"][:n]
-        out[i, :n, 5] = r["labels"][:n].to(out.dtype)
-    return out
+    """Per-image detections -> [B, size, 6] (x1, y1, x2, y2, score, label), zero padded.
+    Concatenate-then-slice keeps the number of detections out of Python, so ONNX /
+    TorchScript exports pad correctly for any count."""
+    rows = []
+    for r in results:
+        found = torch.cat([r["boxes"][:size].to(like.dtype),
+                           r["scores"][:size, None].to(like.dtype),
+                           r["labels"][:size, None].to(like.dtype)], 1)
+        rows.append(torch.cat([found, like.new_zeros(size, 6)])[:size])
+    return torch.stack(rows) if rows else like.new_zeros(0, size, 6)
 '''
 
 HF_DETR = '''\
@@ -204,13 +206,14 @@ class HFDetr(nn.Module):
         scores, labels = probs.max(-1)
         results = []
         for s, lab, b in zip(scores, labels, out.pred_boxes):
+            # top-k over all queries, then the threshold: same result as threshold-then-sort,
+            # with shapes an ONNX export can follow
+            s, top = s.topk(min(self.max_detections, s.shape[0]))
             keep = s >= self.score_threshold
-            order = s[keep].argsort(descending=True)[: self.max_detections]
-            cx, cy, bw, bh = b[keep][order].unbind(-1)
+            cx, cy, bw, bh = b[top][keep].unbind(-1)
             boxes = torch.stack([(cx - bw / 2) * w, (cy - bh / 2) * h,
                                  (cx + bw / 2) * w, (cy + bh / 2) * h], dim=-1)
-            results.append({"boxes": boxes, "scores": s[keep][order],
-                            "labels": lab[keep][order]})
+            results.append({"boxes": boxes, "scores": s[keep], "labels": lab[top][keep]})
         return results
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -540,13 +543,13 @@ class YOLOHead(nn.Module):
         out = []
         for b in range(len(boxes)):
             scores, labels = scores_all[b].max(-1)
-            keep = scores > self.score_threshold
-            s, lab = scores[keep], labels[keep]
-            box = boxes[b][keep]
+            # the best 1000 cells, then the threshold (the cell count is fixed by the image
+            # size, so an ONNX export follows these shapes)
+            s, top = scores.topk(min(scores.shape[0], 1000))
+            keep = s > self.score_threshold
+            s, lab, box = s[keep], labels[top][keep], boxes[b][top][keep]
             box = torch.stack((box[:, 0].clamp(0, W), box[:, 1].clamp(0, H),
                                box[:, 2].clamp(0, W), box[:, 3].clamp(0, H)), -1)
-            top = s.topk(min(len(s), 1000)).indices
-            box, s, lab = box[top], s[top], lab[top]
             k = batched_nms(box, s, lab, self.iou_threshold)[: self.max_detections]
             out.append({"boxes": box[k], "scores": s[k], "labels": lab[k]})
         return out

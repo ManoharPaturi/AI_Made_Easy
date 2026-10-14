@@ -9,6 +9,17 @@ from PySide6 import QtCore, QtGui, QtWidgets
 from ai_made_easy.core.deploy import FORMAT_LABELS, FORMATS, DeployError, build_package
 
 
+def _export_options(source: Path, framework: str) -> list[dict]:
+    """The source's export formats with availability and device suggestions."""
+    from ai_made_easy.core.deploy.exportability import options_for_run
+
+    try:
+        return options_for_run(source)
+    except (OSError, ValueError, KeyError):
+        return [{"id": f, "label": FORMAT_LABELS[f], "available": True, "reason": "",
+                 "suggested": False, "device": ""} for f in FORMATS.get(framework, ())]
+
+
 class DeployDialog(QtWidgets.QDialog):
     """Pick formats and a destination; the build runs on a worker thread."""
 
@@ -50,15 +61,28 @@ class DeployDialog(QtWidgets.QDialog):
         box = QtWidgets.QGroupBox("Additional formats (optional)")
         grid = QtWidgets.QVBoxLayout(box)
         self.format_checks: dict[str, QtWidgets.QCheckBox] = {}
-        for fmt in FORMATS.get(framework, ()):
-            check = QtWidgets.QCheckBox(FORMAT_LABELS[fmt])
-            check.setChecked(fmt in ("onnx", "torchscript"))
+        rows = _export_options(self._source, framework)
+        any_suggested = any(r["suggested"] for r in rows)
+        for row in rows:
+            label = row["label"]
+            if row["suggested"]:
+                label += f"  · suggested for {row['device']}"
+            check = QtWidgets.QCheckBox(label)
+            if row["available"]:
+                check.setChecked(row["suggested"] if any_suggested
+                                 else row["id"] in ("onnx", "torchscript"))
+            else:
+                check.setEnabled(False)
+                check.setText(f"{row['label']}  · not for this design")
+                check.setToolTip(row["reason"])
             grid.addWidget(check)
-            self.format_checks[fmt] = check
+            self.format_checks[row["id"]] = check
         if not self.format_checks:
             grid.addWidget(QtWidgets.QLabel("No extra formats for this framework."))
-        hint = QtWidgets.QLabel("Formats whose converter is not installed in the training "
-                                "environment are skipped and reported.")
+        hint = QtWidgets.QLabel("Every export is checked against the trained model. Formats "
+                                "whose converter is not installed in the training "
+                                "environment are skipped and reported. Hover a greyed-out "
+                                "format for the reason.")
         hint.setObjectName("blockMeta")
         hint.setWordWrap(True)
         grid.addWidget(hint)
@@ -91,7 +115,8 @@ class DeployDialog(QtWidgets.QDialog):
         self._done.connect(self._finished)
 
     def selected_formats(self) -> tuple[str, ...]:
-        return tuple(f for f, c in self.format_checks.items() if c.isChecked())
+        return tuple(f for f, c in self.format_checks.items()
+                     if c.isChecked() and c.isEnabled())
 
     def _browse(self) -> None:
         folder = QtWidgets.QFileDialog.getExistingDirectory(
