@@ -402,6 +402,67 @@ def register_model(run_id: str, name: str) -> str:
 
 
 @mcp.tool()
+def mirror_model(name: str, version: str, to: list[str]) -> str:
+    """Also register a model version in MLflow's model registry and / or as a W&B model
+    artifact (to = ["mlflow", "wandb"]), with its stage."""
+    try:
+        return json.dumps(api.mirror_model(name, version, to), default=str)
+    except (api.ApiError, KeyError) as exc:
+        return _err(exc)
+
+
+@mcp.tool()
+def tracking_status() -> str:
+    """Experiment tracking: which trackers runs mirror to (AIME_TRACKING, or a project's
+    meta.tracking), the MLflow store, and whether mlflow / wandb are installed."""
+    return json.dumps(api.tracking_status())
+
+
+@mcp.tool()
+def export_runs(out: str, project: str | None = None, epochs: bool = False) -> str:
+    """Write the run history as a CSV or Parquet table (by the file's suffix) for
+    notebooks: one row per run, or one per epoch with epochs=true."""
+    try:
+        return json.dumps(api.export_runs(out, project=project, epochs=epochs))
+    except api.ApiError as exc:
+        return _err(exc)
+
+
+@mcp.tool()
+def fetch_dataset(source: str) -> str:
+    """Download a dataset and detect it like a local folder: kaggle:owner/name,
+    kaggle-competition:name[/file] or hf:owner/repo[:split]. Returns the local path (use
+    it as the data path of recommend_recipes / build_recipe) and what was detected."""
+    try:
+        return json.dumps(api.fetch_dataset(source), default=str)
+    except api.ApiError as exc:
+        return _err(exc)
+
+
+@mcp.tool()
+def open_mlflow_model(uri: str, input_shape: list[int] | None = None) -> str:
+    """Open an MLflow PyTorch or ONNX model (models:/name/1, runs:/id/model) as an
+    editable design, through the importers."""
+    try:
+        return json.dumps(api.open_mlflow_model(uri, input_shape=input_shape), default=str)
+    except api.ApiError as exc:
+        return _err(exc)
+
+
+@mcp.tool()
+def push_to_hub(repo_id: str, run_id: str = "", model: str = "",
+                version: str = "latest") -> str:
+    """Push a finished run (or a registered model version) to the Hugging Face Hub as a
+    private model repo with its model card. Only when the user asked to publish; sign-in
+    is the user's own `hf auth login`."""
+    try:
+        return json.dumps(api.push_to_hub(repo_id, run_id=run_id or None, model=model or None,
+                                          version=version), default=str)
+    except (api.ApiError, KeyError) as exc:
+        return _err(exc)
+
+
+@mcp.tool()
 def list_models() -> str:
     """Registered model versions with stage and metrics."""
     return json.dumps(api.list_models(), default=str)

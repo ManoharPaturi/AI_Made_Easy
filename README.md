@@ -25,6 +25,11 @@ boilerplate. It runs on the desktop or in the browser.
   graph networks take graphs of any size. The project's budget device suggests the
   format, and a design rule names why a design can't reach one
   ([docs/EXPORT.md](docs/EXPORT.md)).
+- **Work with your tools:** runs mirror to MLflow and Weights & Biases as they train,
+  on every backend; registered models go to MLflow's registry, W&B or the Hugging Face
+  Hub (as a model repo or a Docker Space); Kaggle and Hub datasets download and are
+  detected like a local folder; the run history exports to CSV / Parquet
+  ([docs/TOOLS.md](docs/TOOLS.md)).
 - **Pipelines:** chain Train, Cross-validate, Fine-tune, Distill, Prune, Quantize,
   quantization-aware training, Evaluate, Ensemble, Export and Register stages; every stage
   is a tracked run, and re-running a pipeline picks up where it stopped. Fine-tune with
@@ -146,6 +151,9 @@ Install only what you need with the optional extras:
 | `web` / `serve` | Browser UI (`aime web`) and serving packages (FastAPI, uvicorn) |
 | `export` | ONNX / onnxruntime / skl2onnx exports and verification |
 | `edge` | On-device exports: ExecuTorch (`.pte`) and the LiteRT interpreter |
+| `tracking` | Mirror runs to MLflow and Weights & Biases |
+| `hub` | The Hugging Face Hub: push runs and Spaces, load Hub datasets |
+| `kaggle` / `modal` | Train on Kaggle / Modal; Kaggle datasets and competitions |
 | `tuning` | Bayesian hyperparameter search (Optuna) |
 | `dev` | Test and lint tooling |
 
@@ -224,6 +232,9 @@ aime data profile data.csv --target label      # dataset profile and findings
 aime data split project.json                   # samples per class in each split
 aime deploy RUN_ID -o serving --formats onnx   # serving package from a run
 aime deploy RUN_ID --list-formats              # export formats: available, suggested, why not
+aime hub push RUN_ID you/model                  # a private Hugging Face model repo
+aime data fetch kaggle-competition:titanic      # download, then detect like a local folder
+aime runs export -o runs.parquet                # the run history for notebooks
 aime serve serving                             # run it with uvicorn
 aime models list | register RUN NAME | stage NAME VERSION production
 aime import onnx model.onnx -o project.json    # also: pytorch (--attr, --shape), keras

@@ -507,11 +507,69 @@ def create_app(*, token: str | None = None, projects_dir: str | Path | None = No
     @app.post("/api/models", dependencies=guard)
     def register(payload: dict = Body(...)) -> dict:  # noqa: B008
         return api.register_model(str(payload.get("run_id", "")), str(payload.get("name", "")),
-                                  str(payload.get("description", "")))
+                                  str(payload.get("description", "")),
+                                  also=list(payload.get("also") or []))
 
     @app.patch("/api/models/{name}/{version}", dependencies=guard)
     def set_stage(name: str, version: int, payload: dict = Body(...)) -> dict:  # noqa: B008
-        return api.set_model_stage(name, version, str(payload.get("stage", "")))
+        return api.set_model_stage(name, version, str(payload.get("stage", "")),
+                                   also=list(payload.get("also") or []))
+
+    @app.post("/api/models/{name}/{version}/mirror", dependencies=guard)
+    def mirror_model(name: str, version: str, payload: dict = Body(...)) -> dict:  # noqa: B008
+        return api.mirror_model(name, version, list(payload.get("to") or []))
+
+    # ------------------------------------------- tracking, the Hub, Kaggle (3.2)
+    @app.get("/api/tracking", dependencies=guard)
+    def tracking_status() -> dict:
+        return api.tracking_status()
+
+    @app.post("/api/tracking", dependencies=guard)
+    def tracking_for(payload: dict = Body(...)) -> dict:  # noqa: B008
+        return api.tracking_status(payload.get("graph") or None)
+
+    @app.get("/api/export/runs", dependencies=guard)
+    def export_runs(format: str = "csv", epochs: bool = False,  # noqa: A002
+                    project: str | None = None) -> FileResponse:
+        if format not in ("csv", "parquet"):
+            raise HTTPException(400, "format must be csv or parquet")
+        out = Path(tempfile.mkdtemp(prefix="aime_runs_")) / f"runs.{format}"
+        api.export_runs(str(out), project=project, epochs=epochs)
+        return FileResponse(out, filename=f"{'epochs' if epochs else 'runs'}.{format}")
+
+    @app.post("/api/data/fetch", dependencies=guard)
+    async def data_fetch(payload: dict = Body(...)) -> dict:  # noqa: B008
+        return await asyncio.to_thread(api.fetch_dataset, str(payload.get("source") or ""),
+                                       force=bool(payload.get("force")))
+
+    def _hub_source(payload: dict) -> dict:
+        if payload.get("model"):
+            return {"model": str(payload["model"]),
+                    "version": payload.get("version") or "latest"}
+        return {"run_id": str(payload.get("run_id") or "")}
+
+    @app.post("/api/hub/push", dependencies=guard)
+    async def hub_push(payload: dict = Body(...)) -> dict:  # noqa: B008
+        return await asyncio.to_thread(lambda: api.push_to_hub(
+            str(payload.get("repo_id") or ""), private=payload.get("private", True) is not False,
+            **_hub_source(payload)))
+
+    @app.post("/api/hub/pull", dependencies=guard)
+    async def hub_pull(payload: dict = Body(...)) -> dict:  # noqa: B008
+        return await asyncio.to_thread(api.pull_from_hub, str(payload.get("repo_id") or ""),
+                                       str(payload.get("name") or ""))
+
+    @app.post("/api/hub/space", dependencies=guard)
+    async def hub_space(payload: dict = Body(...)) -> dict:  # noqa: B008
+        return await asyncio.to_thread(lambda: api.deploy_to_space(
+            str(payload.get("space_id") or ""), formats=list(payload.get("formats") or []),
+            private=payload.get("private", True) is not False, **_hub_source(payload)))
+
+    @app.post("/api/kaggle/submit", dependencies=guard)
+    async def kaggle_submit(payload: dict = Body(...)) -> dict:  # noqa: B008
+        return await asyncio.to_thread(lambda: api.submit_to_kaggle(
+            str(payload.get("competition") or ""), str(payload.get("file") or ""),
+            str(payload.get("message") or ""), confirm=payload.get("confirm") is True))
 
     @app.delete("/api/models/{name}/{version}", dependencies=guard)
     def delete_model(name: str, version: int) -> dict:

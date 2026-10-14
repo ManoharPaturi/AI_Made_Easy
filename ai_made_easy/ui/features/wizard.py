@@ -173,7 +173,8 @@ class NewProjectWizard(QtWidgets.QDialog):
         form = QtWidgets.QFormLayout(self.own_box)
         row = QtWidgets.QHBoxLayout()
         self.path = QtWidgets.QLineEdit()
-        self.path.setPlaceholderText("a table file or a dataset folder")
+        self.path.setPlaceholderText("a table file, a dataset folder, or kaggle:owner/name, "
+                                     "kaggle-competition:name, hf:owner/repo")
         file_btn = QtWidgets.QPushButton("File…")
         file_btn.clicked.connect(self._browse_file)
         folder_btn = QtWidgets.QPushButton("Folder…")

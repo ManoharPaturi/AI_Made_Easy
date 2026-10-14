@@ -72,6 +72,22 @@ class KaggleClient:
     def output(self, slug: str, dest: str) -> None:
         self.api.kernels_output(slug, dest)
 
+    def download(self, ref: str, dest: str, *, competition: bool = False,
+                 file: str = "") -> None:
+        """A dataset (``owner/name``) or competition's files into ``dest``."""
+        if competition:
+            if file:
+                self.api.competition_download_file(ref, file, path=dest, quiet=True)
+            else:
+                self.api.competition_download_files(ref, path=dest, quiet=True)
+        elif file:
+            self.api.dataset_download_file(ref, file, path=dest, quiet=True)
+        else:
+            self.api.dataset_download_files(ref, path=dest, quiet=True, unzip=True)
+
+    def submit(self, competition: str, file: str, message: str):  # noqa: ANN201
+        return self.api.competition_submit(file, message, competition, quiet=True)
+
     def cancel(self, slug: str) -> bool:
         cancel = getattr(self.api, "kernels_cancel", None)
         if cancel is None:

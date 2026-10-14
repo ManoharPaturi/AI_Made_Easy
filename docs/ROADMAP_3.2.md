@@ -262,6 +262,23 @@ until the user turns it on.
   - MLflow with a local file store
   - W&B in offline mode
   - Hub and Kaggle clients mocked; real calls only in the nightly job
+- **Status: done.** See [TOOLS.md](TOOLS.md).
+  - **Tracking** follows the events every backend already reports, on a thread of its
+    own, so SSH / Kaggle / Colab / Modal runs mirror like local ones and a slow or
+    failing tracker never touches the run. A test checks that MLflow and W&B hold the
+    same per-epoch metrics as the local record.
+  - **MLflow's file store is deprecated**, so the default store is a local SQLite file
+    (`~/.aime/mlflow`) rather than the planned `./mlruns` folder.
+  - **Kaggle and Hub datasets are sources** (`kaggle:owner/name`, `hf:owner/repo`) that
+    download into a cache and become ordinary local data, not a new block type. Every
+    rule, profiler and remote bundle then treats them like a folder you picked. The
+    existing Hugging Face Dataset block still loads inside the training script.
+  - **Hub round trip:** push → pull → register → package; packaging loads the model and
+    predicts on the run's samples.
+  - **Submissions** need confirmation every time: a dialog in the app, a prompt in the
+    CLI, `confirm: true` in the API; they aren't an MCP tool.
+  - **Web UI** for these settings comes with the Phase 6 parity audit; the REST routes
+    are in.
 
 ## Phase 4 — AutoML for every family
 - **Multi-objective for classic ML:**
