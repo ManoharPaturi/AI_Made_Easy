@@ -99,7 +99,7 @@ def test_tables_offer_unsupervised_tasks(tmp_path):
     assert data["params"]["target_column"] == ""          # no labels: every column is used
     tasks = {t["id"]: t for t in api.wizard_tasks()["tasks"]}
     assert tasks["clustering"]["family_label"] == "Classic ML pipeline"
-    assert tasks["clustering"]["automl"] and not tasks["anomaly_detection"]["automl"]
+    assert tasks["clustering"]["automl"] and tasks["anomaly_detection"]["automl"]
     assert tasks["retrieval_qa"]["family_label"] == "LLM workflow"
 
 

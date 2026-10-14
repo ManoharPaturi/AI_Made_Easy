@@ -300,6 +300,31 @@ until the user turns it on.
 - **Remote trials:** AutoML trials can run on a Phase 1 backend, with a concurrency
   limit.
 
+- **Status: done.**
+  - **Metrics:** every trainable family now has one. Bayesian networks and HMMs use
+    held-out log-likelihood; PyMC models use PSIS-LOO ELPD (`elpd_loo`, from the run's
+    pointwise log-likelihood); GPs use test NLPD; state-space models use MASE on the
+    held-out horizon; flows use bits per dimension; anomaly detectors use ROC AUC on
+    labelled data.
+  - **Tuning:** the probabilistic recipes gained knobs: structure search and score,
+    HMM states and covariance, non-centred pooling and group prior scale, the trend and
+    AR order of structural models, and ARIMA orders.
+  - **Costs:** `core/budget_structured.py` estimates stored values, predict cost and
+    training memory for classic models, Bayesian networks, HMMs, PyMC posteriors (with
+    LOO's pointwise matrix), exact and sparse GPs and state-space models, sized from the
+    dataset block. The budget checks and the Summary use it, so a forest that won't fit a
+    size limit is flagged before training.
+  - **One Pareto front:** classic recipes join multi-objective searches. Their latency
+    and size are estimated before training, then replaced by what the run measured
+    (`costs.json`: the median time to predict one row and the saved model's size),
+    scaled from a laptop CPU to the target device.
+  - **Remote trials:** `on` sends trials to a backend and `concurrency` trains several
+    at once (CLI, MCP, desktop and web wizards). AutoML waits for the whole baseline
+    round before TPE proposes, so parallel trials don't skip it.
+  - **Test:** each family's search is checked to end at least as well as its baseline
+    round, with every finished trial scored. Strictly beating the baseline isn't
+    asserted: with three to five trials on demo data, the defaults are sometimes best.
+
 ## Phase 5 — The last deferred items
 - **Glow:** actnorm, invertible 1×1 conv, affine coupling, squeeze / split; image bits
   per dimension.

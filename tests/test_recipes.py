@@ -241,7 +241,8 @@ def test_api_and_cli(tmp_path):
     tasks = {t["id"]: t for t in api.wizard_tasks()["tasks"]}
     assert tasks["multiclass"]["demo_modalities"] == ["tabular", "image"]
     assert {"text", "audio"} <= set(tasks["binary"]["modalities"])
-    assert tasks["binary"]["automl"] and not tasks["probabilistic_inference"]["automl"]
+    assert tasks["binary"]["automl"] and tasks["probabilistic_inference"]["automl"]
+    assert not tasks["text_generation"]["automl"]
     out = api.recommend_recipes("binary", path=str(path), limit=2)
     assert out["facts"]["target"] == "label" and len(out["suggestions"]) == 2
     with pytest.raises(api.ApiError):

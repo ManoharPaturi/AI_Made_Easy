@@ -40,9 +40,11 @@ boilerplate. It runs on the desktop or in the browser.
   and retrieval-augmented answering) and where your data is, detects its format, target
   and classes, and ranks
   ready-to-train recipes for your data size and hardware budget, each explaining why
-  every block is there. Or let **AutoML** try the recipes and tune them for you,
-  optionally trading accuracy against latency or model size on your target device: the
-  result is a Pareto front of models to choose from.
+  every block is there. Or let **AutoML** try the recipes and tune them for you, for
+  every family (networks, classic ML, graphical models, PyMC, Gaussian processes,
+  state-space models, flows), optionally trading accuracy against latency or model size
+  on your target device: the result is one Pareto front of networks and classic models
+  to choose from. Trials can train several at a time, on any backend.
 - **544 blocks in 9 families** ([docs/FAMILIES.md](docs/FAMILIES.md) lists every
   family, task, block and design rule) across every major library: `torch.nn` layers, Keras 3
   equivalents, torchvision / `keras.applications` / timm pretrained backbones,

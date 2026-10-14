@@ -111,6 +111,7 @@ class SweepSpec:
     framework: str = "auto"
     skip_over_budget: bool = True  # trials that break the project's resource budget
     on: str = ""  # where trials train (a backend: ssh:<host>, kaggle, …); "" = here
+    concurrency: int = 1  # trials training at once (remote backends: a few in parallel)
 
     @property
     def minimize(self) -> bool:
@@ -127,6 +128,7 @@ class SweepSpec:
             raise SweepError("direction must be 'min' or 'max'")
         if self.max_trials < 1:
             raise SweepError("max_trials must be at least 1")
+        check_concurrency(self.concurrency)
         seen = set()
         for dim in self.dimensions:
             dim.check()
@@ -155,6 +157,17 @@ class SweepSpec:
         dims = [Dimension(**d) for d in data.pop("dimensions", [])]
         known = set(cls.__dataclass_fields__) - {"dimensions"}
         return cls(dimensions=dims, **{k: v for k, v in data.items() if k in known})
+
+
+MAX_CONCURRENCY = 16
+# a proposal that means "wait until every running trial has finished" (AutoML's baseline
+# round must be scored before TPE learns from it)
+BARRIER = object()
+
+
+def check_concurrency(value: int) -> None:
+    if not 1 <= int(value) <= MAX_CONCURRENCY:
+        raise SweepError(f"concurrency must be between 1 and {MAX_CONCURRENCY}")
 
 
 def sweepable_params(graph: Graph) -> list[dict]:
@@ -293,7 +306,8 @@ class SweepRunner:
         self.graph_dict = graph.to_dict()
         self.listener = listener
         self._stop = threading.Event()
-        self._current_run: str | None = None
+        self._running: set[str] = set()
+        self._lock = threading.RLock()
         self.record = SweepRecord(
             sweep_id=time.strftime("sw-%Y%m%d-%H%M%S-") + uuid.uuid4().hex[:4],
             name=graph.name, spec=spec.to_dict(), graph=self.graph_dict, project=project)
@@ -312,8 +326,13 @@ class SweepRunner:
 
     def stop(self) -> None:
         self._stop.set()
-        if self._current_run and self.manager.is_live(self._current_run):
-            self.manager.stop(self._current_run)
+        for run_id in list(self._running):
+            if self.manager.is_live(run_id):
+                self.manager.stop(run_id)
+
+    @property
+    def _current_run(self) -> str | None:  # one trial at a time (older callers)
+        return next(iter(self._running), None)
 
     def wait(self, timeout: float = 3600.0) -> SweepRecord:
         if self.thread is not None:
@@ -385,6 +404,9 @@ class SweepRunner:
     def _measure(self, row: TrialRow, graph: Graph) -> None:
         """Record design costs on the trial before it trains (AutoML's objectives)."""
 
+    def _measured(self, row: TrialRow) -> None:
+        """Replace estimates with what the finished run measured (AutoML)."""
+
     def _told(self, row: TrialRow):  # noqa: ANN202
         """What the sampler learns from a finished trial."""
         return "pruned" if row.state == "pruned" else row.score
@@ -398,15 +420,17 @@ class SweepRunner:
         return None
 
     def _save_trial(self, row: TrialRow) -> None:
-        trials = [t for t in self.record.trials if t["number"] != row.number]
-        trials.append(asdict(row))
-        self.record.trials = sorted(trials, key=lambda t: t["number"])
-        scored = [t for t in self.record.trials if t["score"] is not None]
-        if scored:
-            pick = min if self.spec.minimize else max
-            best = pick(scored, key=lambda t: t["score"])
-            self.record.best = {k: best[k] for k in ("number", "run_id", "score", "values")}
-        self.store.save(self.record)
+        with self._lock:
+            trials = [t for t in self.record.trials if t["number"] != row.number]
+            trials.append(asdict(row))
+            self.record.trials = sorted(trials, key=lambda t: t["number"])
+            scored = [t for t in self.record.trials if t["score"] is not None]
+            if scored:
+                pick = min if self.spec.minimize else max
+                best = pick(scored, key=lambda t: t["score"])
+                self.record.best = {k: best[k] for k in ("number", "run_id", "score",
+                                                         "values")}
+            self.store.save(self.record)
 
     @staticmethod
     def _over_budget(graph: Graph) -> str:
@@ -419,68 +443,103 @@ class SweepRunner:
         return "; ".join(f"{c.kind.replace('_', ' ')} {c.used:.2f} {c.unit} > {c.limit:g} {c.unit}"
                          for c in over)
 
+    def _reject(self, row: TrialRow, state: str, message: str, tell) -> None:  # noqa: ANN001
+        row.state, row.message = state, message
+        self._save_trial(row)
+        if tell:
+            tell(None)
+        self._emit({"type": "trial", **asdict(row)})
+
+    def _launch(self, number: int, values: dict, tell) -> TrialRow | None:  # noqa: ANN001
+        """Check and start one trial; None when it was rejected before training."""
+        row = TrialRow(number=number, values=values)
+        try:
+            trial_graph = self._trial_graph(values)
+        except Exception as exc:  # noqa: BLE001 — recorded on the trial
+            self._reject(row, "invalid", str(exc), tell)
+            return None
+        errors = [i for i in trial_graph.validate() if i.severity == "error"]
+        if errors:
+            self._reject(row, "invalid", errors[0].message, tell)
+            return None
+        over = self._over_budget(trial_graph) if self.spec.skip_over_budget else ""
+        if over:
+            self._reject(row, "over_budget", over, tell)
+            return None
+        self._measure(row, trial_graph)
+        trial_graph.name = f"{self.record.name}_t{number}"
+        try:
+            row.run_id = self.manager.start(
+                trial_graph, self.spec.framework, project=self.record.project,
+                parent=self.sweep_id, trial=values, on=self.spec.on or None)
+        except Exception as exc:  # noqa: BLE001 — recorded on the trial
+            row.state, row.message = "failed", str(exc)
+            self._save_trial(row)
+            if tell:
+                tell(None)
+            return None
+        with self._lock:
+            self._running.add(row.run_id)
+        row.state = "running"
+        self._save_trial(row)
+        self._emit({"type": "trial", **asdict(row)})
+        return row
+
+    def _finish(self, row: TrialRow, tell) -> None:  # noqa: ANN001
+        """Wait for a started trial, score it and tell the sampler."""
+        try:
+            status = self._await(row)
+        except Exception as exc:  # noqa: BLE001
+            status = {"state": "failed"}
+            row.message = str(exc)
+        with self._lock:
+            self._running.discard(row.run_id)
+        if row.state != "pruned":
+            row.state = status["state"] if status["state"] in FINAL_STATES else "failed"
+        row.score = self._score(row.run_id) if row.state == "finished" else None
+        if row.state == "finished" and row.score is None:
+            row.message = f"the run did not report {self.spec.metric!r}"
+        if row.state == "finished":
+            try:
+                self._measured(row)
+            except Exception:  # noqa: BLE001, S110 — measured costs are optional
+                pass
+        self._save_trial(row)
+        if tell:
+            with self._lock:
+                tell(self._told(row))
+        self._emit({"type": "trial", **asdict(row)})
+
     def _run(self) -> None:
+        from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
+
         self.record.state = "running"
         self.store.save(self.record)
         self._emit({"type": "sweep_started", "total": self.spec.max_trials})
+        limit = max(1, min(int(self.spec.concurrency or 1), MAX_CONCURRENCY))
+        pending: set = set()
         try:
-            for number, (values, tell) in enumerate(self._proposals()):
-                if self._stop.is_set():
-                    break
-                row = TrialRow(number=number, values=values)
-                try:
-                    trial_graph = self._trial_graph(values)
-                except Exception as exc:  # noqa: BLE001 — recorded on the trial
-                    row.state, row.message = "invalid", str(exc)
-                    self._save_trial(row)
-                    if tell:
-                        tell(None)
-                    self._emit({"type": "trial", **asdict(row)})
-                    continue
-                errors = [i for i in trial_graph.validate() if i.severity == "error"]
-                if errors:
-                    row.state, row.message = "invalid", errors[0].message
-                    self._save_trial(row)
-                    if tell:
-                        tell(None)
-                    self._emit({"type": "trial", **asdict(row)})
-                    continue
-                over = self._over_budget(trial_graph) if self.spec.skip_over_budget else ""
-                if over:
-                    row.state, row.message = "over_budget", over
-                    self._save_trial(row)
-                    if tell:
-                        tell(None)
-                    self._emit({"type": "trial", **asdict(row)})
-                    continue
-                self._measure(row, trial_graph)
-                trial_graph.name = f"{self.record.name}_t{number}"
-                try:
-                    row.run_id = self.manager.start(
-                        trial_graph, self.spec.framework, project=self.record.project,
-                        parent=self.sweep_id, trial=values, on=self.spec.on or None)
-                except Exception as exc:  # noqa: BLE001 — recorded on the trial
-                    row.state, row.message = "failed", str(exc)
-                    self._save_trial(row)
-                    if tell:
-                        tell(None)
-                    continue
-                self._current_run = row.run_id
-                row.state = "running"
-                self._save_trial(row)
-                self._emit({"type": "trial", **asdict(row)})
-                status = self._await(row)
-                self._current_run = None
-                if row.state != "pruned":
-                    row.state = status["state"] if status["state"] in FINAL_STATES \
-                        else "failed"
-                row.score = self._score(row.run_id) if row.state == "finished" else None
-                if row.state == "finished" and row.score is None:
-                    row.message = f"the run did not report {self.spec.metric!r}"
-                self._save_trial(row)
-                if tell:
-                    tell(self._told(row))
-                self._emit({"type": "trial", **asdict(row)})
+            with ThreadPoolExecutor(max_workers=limit,
+                                    thread_name_prefix="aime-trial") as pool:
+                number = 0
+                for values, tell in self._proposals():
+                    if self._stop.is_set():
+                        break
+                    if values is BARRIER:
+                        wait(pending)
+                        pending = {f for f in pending if not f.done()}
+                        continue
+                    while len(pending) >= limit:
+                        done, pending = wait(pending, return_when=FIRST_COMPLETED)
+                    if self._stop.is_set():
+                        break
+                    row = self._launch(number, values, tell)
+                    number += 1
+                    if row is not None:
+                        pending.add(pool.submit(self._finish, row, tell))
+                wait(pending)
+                for future in pending:
+                    future.result()
             self.record.state = "stopped" if self._stop.is_set() else "finished"
         except Exception as exc:  # noqa: BLE001
             self.record.state, self.record.message = "failed", str(exc)
