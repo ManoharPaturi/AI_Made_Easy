@@ -723,11 +723,69 @@ def main() -> None:
 {% if spec.predict %}
     preview_predictions(model, test_loader, device)
 {% endif %}
+{% if spec.explain %}
+    try:
+        explain_features(model, loss_fn, test_loader if len(test_loader.dataset) else val_loader,
+                         device)
+    except Exception as exc:  # noqa: BLE001 — an explanation is optional
+        print(f"(could not explain the features: {exc})")
+{% endif %}
 {% if spec.is_classification %}
     try:
         dump_test_results(model, test_loader, device)
     except Exception as exc:  # noqa: BLE001 — artefacts are optional
         print(f"(could not save predictions: {exc})")
+{% endif %}
+{% if spec.explain %}
+
+
+def feature_names(n: int) -> list[str]:
+    """Input column names after the table preprocessing, else feature 0..n-1."""
+    state = INFERENCE_STATE.get("table")
+    if state:
+        cats = state.get("categories", {})
+        names = [c for c in state["columns"] if c not in cats]
+        names += [f"{c}={v}" for c, values in cats.items() for v in values]
+        if len(names) == n:
+            return names
+    return [f"feature {i}" for i in range(n)]
+
+
+@torch.no_grad()
+def explain_features(model: nn.Module, loss_fn, loader: DataLoader, device: torch.device):
+    """Permutation importance: how much the loss rises when one feature is shuffled."""
+    model.eval()
+    xs, ys = [], []
+    for xb, yb in loader:
+        xs.append(xb)
+        ys.append(yb)
+    if not xs:
+        return
+    x, y = torch.cat(xs)[:{{ spec.explain.max_samples }}], torch.cat(ys)[:{{ spec.explain.max_samples }}]
+
+    def loss_of(inputs: torch.Tensor) -> float:
+        out, target = adapt(model(inputs.to(device)), y.to(device))
+        return float(loss_fn(out, target))
+
+    base = loss_of(x)
+    rng = torch.Generator().manual_seed(SEED)
+    rows = []
+    names = feature_names(x.shape[1])
+    for j in range(x.shape[1]):
+        drops = []
+        for _ in range({{ spec.explain.n_repeats }}):
+            shuffled = x.clone()
+            shuffled[:, j] = x[torch.randperm(len(x), generator=rng), j]
+            drops.append(loss_of(shuffled) - base)
+        mean = sum(drops) / len(drops)
+        std = (sum((d - mean) ** 2 for d in drops) / max(len(drops) - 1, 1)) ** 0.5
+        rows.append({"name": names[j], "importance": mean, "std": std})
+    rows.sort(key=lambda r: r["importance"], reverse=True)
+    Path("explain.json").write_text(json.dumps(
+        {"method": "permutation", "metric": "test loss increase", "baseline_loss": base,
+         "rows": len(x), "features": rows}, indent=1))
+    print("feature importance: " + ", ".join(f"{r['name']}={r['importance']:.4f}"
+                                             for r in rows[:5]))
 {% endif %}
 
 

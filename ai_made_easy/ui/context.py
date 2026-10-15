@@ -92,6 +92,7 @@ class AppContext(QtCore.QObject):
         self.run_store = RunStore(self)
         self.validation_store = ValidationStore(self)
         self.canvas = CanvasController()
+        self.canvas.on_files_dropped(self._on_canvas_files)
         self.graph_service = GraphService(self.canvas, self.log_bus, self)
         self.export_service = ExportService(self.log_bus)
         self.process_service = ProcessService(self.log_bus, self.run_store, self)
@@ -171,6 +172,7 @@ class AppContext(QtCore.QObject):
             lambda pid: self._run_pipeline(None, resume_from=pid))
         ep.results_requested.connect(self._load_run_results)
         ep.restore_requested.connect(self._restore_run)
+        ep.diff_requested.connect(self._diff_run)
         ep.folder_requested.connect(self._open_run_folder)
         ep.delete_requested.connect(self._delete_runs)
         ep.tag_requested.connect(self._tag_run)
@@ -1324,6 +1326,110 @@ class AppContext(QtCore.QObject):
 
     def act_select_all(self, *_):
         self.canvas.select_all()
+
+    # ---- clipboard, groups and notes (3.3)
+    @staticmethod
+    def _text_focus():
+        focus = QtWidgets.QApplication.focusWidget()
+        if isinstance(focus, (QtWidgets.QLineEdit, QtWidgets.QPlainTextEdit,
+                              QtWidgets.QTextEdit, QtWidgets.QAbstractSpinBox)):
+            return focus
+        return None
+
+    def act_copy(self, *_):
+        focus = self._text_focus()
+        if focus is not None:
+            if hasattr(focus, "copy"):
+                focus.copy()
+            return
+        text = self.canvas.copy_selection()
+        if text is None:
+            self.status_message.emit("Select blocks to copy")
+            return
+        QtWidgets.QApplication.clipboard().setText(text)
+        n = len(self.canvas.selected_ids())
+        self.status_message.emit(f"Copied {n} block{'s' if n != 1 else ''}")
+
+    def act_paste(self, *_):
+        focus = self._text_focus()
+        if focus is not None:
+            if hasattr(focus, "paste"):
+                focus.paste()
+            return
+        text = QtWidgets.QApplication.clipboard().text()
+        try:
+            n = self.canvas.paste_text(text)
+        except ValueError as exc:
+            self.status_message.emit(f"Can't paste: {exc}")
+            return
+        if n:
+            self.status_message.emit(f"Pasted {n} block{'s' if n != 1 else ''}")
+        else:
+            self.status_message.emit("The clipboard holds no blocks: copy some first")
+
+    def act_duplicate(self, *_):
+        if self._text_focus() is not None:
+            return
+        n = self.canvas.duplicate_selected()
+        if n:
+            self.status_message.emit(f"Duplicated {n} block{'s' if n != 1 else ''}")
+
+    def act_group(self, *_):
+        title, ok = QtWidgets.QInputDialog.getText(self.window, "Group", "Name of the group:",
+                                                   text="Group")
+        if not ok:
+            return
+        if self.canvas.group_selected(title.strip() or "Group") is None:
+            self.status_message.emit("Select the blocks to group first")
+
+    def act_ungroup(self, *_):
+        if not self.canvas.ungroup_selected():
+            self.status_message.emit("Select a group (or a block in one) to ungroup")
+
+    def act_add_note(self, *_):
+        text, ok = QtWidgets.QInputDialog.getMultiLineText(self.window, "Note", "Note:")
+        if ok:
+            self.canvas.add_note(text)
+
+    def _diff_run(self, run_id: str) -> None:
+        """What changed on the canvas since a run (3.3)."""
+        from ai_made_easy.core import api
+
+        try:
+            d = api.diff_run(run_id, self.canvas.to_ir(self.project_store.name).to_dict())
+        except Exception as exc:  # noqa: BLE001
+            self.status_message.emit(f"Could not compare: {exc}")
+            return
+        lines = [d["summary"], ""]
+        for c in d["changed"]:
+            lines.append(f"{c['id']}.{c['param']}: {c['from']!r} → {c['to']!r}")
+        for key, label in (("added", "Added"), ("removed", "Removed")):
+            lines += [f"{label}: {x['id']} ({x['type']})" for x in d[key]]
+        lines += [f"Replaced: {x['id']}: {x['from']} → {x['to']}" for x in d["retyped"]]
+        lines += [f"New wire: {w['from']} → {w['to']}" for w in d["wired"]]
+        lines += [f"Removed wire: {w['from']} → {w['to']}" for w in d["unwired"]]
+        box = QtWidgets.QMessageBox(self.window)
+        box.setWindowTitle(f"Run {run_id} vs the canvas")
+        box.setText(d["summary"])
+        if not d["same"]:
+            box.setDetailedText("\n".join(lines[2:]))
+        self.last_diff = d
+        box.open()
+
+    def open_data_file(self, path: str) -> None:
+        """A data file or folder dropped on the window: start a project from it."""
+        self.act_new_from_task(initial_path=path)
+
+    def _on_canvas_files(self, paths: list[str]) -> None:
+        from ai_made_easy.ui.workbench import Workbench
+
+        data = [p for p in paths if Path(p).is_dir()
+                or Path(p).suffix.lower() in Workbench.DATA_SUFFIXES]
+        if data:
+            self.open_data_file(data[0])
+        else:
+            self.status_message.emit("Drop a table (.csv, .parquet, .xlsx, .json), a text "
+                                     "file or a folder of images / audio")
 
     def act_find(self, *_):
         if self.window is not None:

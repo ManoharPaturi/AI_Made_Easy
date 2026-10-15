@@ -10,6 +10,9 @@ import {
 
 import { api } from "./api";
 import {
+  addGroup, addNote, cleanMeta, copyFragment, type Note, notesOf, parseClipboard, pasteFragment,
+} from "./canvas";
+import {
   autoLayout, defaultParams, type FlowNode, fromProject, hasOverlaps, newNodeId, structureKey,
   toProject,
 } from "./project";
@@ -35,6 +38,19 @@ interface Store {
   arrange: () => void;
   addBlock: (typeId: string, position: { x: number; y: number }) => string | null;
   setParam: (nodeId: string, name: string, value: unknown) => void;
+  /** Clipboard text for the selected blocks (null when nothing is selected). */
+  copySelection: () => string | null;
+  /** Paste blocks (a copied selection or a whole design); returns how many. */
+  pasteText: (text: string, at?: [number, number]) => number;
+  duplicateSelection: () => number;
+  selectedIds: () => string[];
+  selectIds: (ids: string[]) => void;
+  groupSelection: (title?: string) => string | null;
+  ungroup: (id: string) => void;
+  renameGroup: (id: string, title: string) => void;
+  addNoteAt: (position: [number, number], text?: string) => string;
+  updateNote: (id: string, patch: Partial<Note>) => void;
+  removeNote: (id: string) => void;
   commit: () => void;
   undo: () => void;
   redo: () => void;
@@ -145,6 +161,100 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     return id;
   }, [blockMap, commit]);
 
+  // ---- clipboard, groups and notes (3.3; see canvas.ts)
+  const latestNodes = useRef<FlowNode[]>([]);
+  latestNodes.current = nodes;
+  const selectedIds = useCallback(
+    () => latestNodes.current.filter((n) => n.selected).map((n) => n.id), []);
+  const selectIds = useCallback((ids: string[]) => {
+    const chosen = new Set(ids);
+    setNodes((ns) => ns.map((n) => ({ ...n, selected: chosen.has(n.id) })));
+    setSelected(ids.length === 1 ? ids[0] : null);
+  }, []);
+  const copySelection = useCallback(() => {
+    const ids = selectedIds();
+    if (!ids.length) return null;
+    return JSON.stringify(copyFragment(latest.current(), ids), null, 1);
+  }, [selectedIds]);
+  const pasteText = useCallback((text: string, at?: [number, number]) => {
+    const fragment = parseClipboard(text);
+    if (!fragment || !fragment.nodes.length) return 0;
+    const unknown = [...new Set(fragment.nodes.map((n) => n.type).filter((t) => !blockMap.has(t)))];
+    if (unknown.length) {
+      notify(`Can't paste: unknown block type ${unknown.join(", ")}`, true);
+      return 0;
+    }
+    commit();
+    const { design, ids } = pasteFragment(latest.current(), fragment, [40, 40], at);
+    const chosen = new Set(ids);
+    const added = fromProject({
+      ...design, nodes: design.nodes.filter((n) => chosen.has(n.id)),
+      edges: design.edges.filter((e) => chosen.has(e.from.slice(0, e.from.lastIndexOf("/")))),
+    });
+    setNodes((ns) => [...ns.map((n) => ({ ...n, selected: false })),
+                      ...added.nodes.map((n) => ({ ...n, selected: true }))]);
+    setEdgesState((es) => [...es, ...added.edges]);
+    setMeta((design.meta as Record<string, unknown>) ?? {});
+    setSelected(ids.length === 1 ? ids[0] : null);
+    return ids.length;
+  }, [blockMap, commit, notify]);
+  const duplicateSelection = useCallback(() => {
+    const text = copySelection();
+    return text ? pasteText(text) : 0;
+  }, [copySelection, pasteText]);
+  const groupSelection = useCallback((title = "Group") => {
+    const ids = selectedIds();
+    if (!ids.length) return null;
+    commit();
+    let made = "";
+    setMeta((m) => {
+      const { meta: next, id } = addGroup(m, ids, title);
+      made = id;
+      return next;
+    });
+    return made || "group";
+  }, [commit, selectedIds]);
+  const ungroup = useCallback((id: string) => {
+    commit();
+    setMeta((m) => cleanMeta({ ...m, groups: ((m.groups as { id: string }[]) ?? [])
+      .filter((g) => g.id !== id) }, new Set(latestNodes.current.map((n) => n.id))));
+  }, [commit]);
+  const renameGroup = useCallback((id: string, title: string) => {
+    setMeta((m) => ({ ...m, groups: ((m.groups as { id: string }[]) ?? [])
+      .map((g) => (g.id === id ? { ...g, title } : g)) }));
+  }, []);
+  const addNoteAt = useCallback((position: [number, number], text = "") => {
+    commit();
+    let made = "";
+    setMeta((m) => {
+      const { meta: next, id } = addNote(m, text, position);
+      made = id;
+      return next;
+    });
+    return made;
+  }, [commit]);
+  const updateNote = useCallback((id: string, patch: Partial<Note>) => {
+    setMeta((m) => ({ ...m, notes: notesOf(m).map((n) => (n.id === id ? { ...n, ...patch } : n)) }));
+  }, []);
+  const removeNote = useCallback((id: string) => {
+    commit();
+    setMeta((m) => {
+      const notes = notesOf(m).filter((n) => n.id !== id);
+      const next: Record<string, unknown> = { ...m, notes };
+      if (!notes.length) delete next.notes;
+      return next;
+    });
+  }, [commit]);
+  // deleting blocks takes them out of their groups (empty groups go)
+  const idsKey = nodes.map((n) => n.id).join("|");
+  useEffect(() => {
+    setMeta((m) => {
+      if (!Array.isArray(m.groups)) return m;
+      const next = cleanMeta(m, new Set(idsKey.split("|")));
+      return JSON.stringify(next) === JSON.stringify(m) ? m : next;
+    });
+  }, [idsKey]);
+
   const setParam = useCallback((nodeId: string, param: string, value: unknown) => {
     setNodes((ns) => ns.map((n) => (n.id === nodeId
       ? { ...n, data: { ...n.data, params: { ...n.data.params, [param]: value } } } : n)));
@@ -230,6 +340,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const store: Store = {
     blocks, blockMap, name, setName, nodes, edges, onNodesChange, onEdgesChange, setEdges,
     project, meta, setMeta, load, loads, arrange, addBlock, setParam, commit, undo, redo, validation, dataIssues, selected,
+    copySelection, pasteText, duplicateSelection, selectedIds, selectIds, groupSelection, ungroup,
+    renameGroup, addNoteAt, updateNote, removeNote,
     setSelected, selectNode, toast, notify, theme, toggleTheme, version,
   };
   return <Ctx.Provider value={store}>{children}</Ctx.Provider>;

@@ -211,7 +211,11 @@ export function App() {
         <button className="ghost" onClick={toggleTheme} title="Toggle theme">
           {theme === "dark" ? "☀" : "☾"}</button>
       </header>
-      {page === "design" && <Designer />}
+      {page === "design" && <Designer onDataFile={(file) => {
+        notify(`Reading ${file.name}…`);
+        api.uploadData(file).then((d) => { setStartFacts(d.facts); setDialog("new"); })
+          .catch((e) => notify(String((e as Error).message), true));
+      }} />}
       {page === "data" && <DataPage />}
       {page === "experiments" && <ExperimentsPage initialTab={experimentsTab} />}
       {page === "models" && <ModelsPage />}

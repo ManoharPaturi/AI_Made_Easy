@@ -638,6 +638,15 @@ PREDICT = Component(
     desc="Print predictions for test examples after training.")
 
 
+EXPLAIN = Component(
+    "eval.permutation_importance", "Feature Importance",
+    (P("n_repeats", "int", 5, lo=1, hi=50, help="Shuffles per feature (more = steadier)"),
+     P("max_samples", "int", 2000, lo=50, help="Test rows used (a sample keeps it fast)")),
+    desc="After training, shuffles each input feature of the test set in turn and "
+         "measures how much the loss gets worse: the features the model relies on most. "
+         "Tables and feature vectors, PyTorch.")
+
+
 def _losses_by_id() -> dict[str, Component]:
     return {c.type_id: c for c in LOSSES}
 
@@ -647,7 +656,8 @@ OPTIMIZER_IDS = tuple(c.type_id for c in OPTIMIZERS)
 SCHEDULER_IDS = tuple(c.type_id for c in SCHEDULERS)
 METRIC_IDS = tuple(c.type_id for c in METRICS)
 COMPONENTS: dict[str, Component] = {
-    c.type_id: c for c in (*LOSSES, *OPTIMIZERS, *SCHEDULERS, *METRICS, TRAINER, KFOLD, PREDICT)
+    c.type_id: c for c in (*LOSSES, *OPTIMIZERS, *SCHEDULERS, *METRICS, TRAINER, KFOLD, PREDICT,
+                           EXPLAIN)
 }
 
 _CATEGORY = {
@@ -658,10 +668,13 @@ _CATEGORY = {
     "train.trainer": ("Training", "training"),
     "train.kfold": ("Training", "training"),
     "eval.predict": ("Metrics", "evaluation"),
+    "eval.permutation_importance": ("Metrics", "evaluation"),
 }
 
 
 def _libraries(c: Component) -> str:
+    if c.type_id == "eval.permutation_importance":
+        return "PyTorch"
     if c.type_id in METRIC_IDS or c.type_id in ("train.trainer", "train.kfold", "eval.predict"):
         return "PyTorch · Keras"
     return " · ".join(lib for lib, ok in (("PyTorch", c.torch), ("Keras", c.keras)) if ok)

@@ -18,9 +18,25 @@
 - **Classic ML:** Isomap, Nystroem kernel features and UMAP (`pip install
   'ai-made-easy[umap]'`).
 - **Recipes:** Tiny Llama (language modelling), Vision Transformer and ConvNeXt (image
-  classification, from scratch). 573 blocks, 65 recipes.
+  classification, from scratch).
+- **Canvas conveniences (desktop and web):**
+  - Copy, paste and duplicate blocks (Ctrl/⌘ C, V, D) with their settings and the wires
+    between them. The clipboard holds design JSON, so blocks copied in one app paste in
+    the other, and a saved design pastes too.
+  - Groups (Ctrl/⌘ G): a titled frame around blocks. On the desktop it moves them
+    together; Ctrl/⌘ Shift U ungroups.
+  - Sticky notes. Groups and notes are saved with the design and never reach the code.
+  - Drop a data file (CSV, Parquet, Excel, JSON, text, or a zip of class folders) on the
+    window to start a project from it: the wizard opens with the data detected.
+- **Feature Importance** block: after training, permutation importance on the test set,
+  shown with the run on the Experiments page (PyTorch, tables and feature vectors).
+- **Compare with the canvas:** what changed since a run (blocks, parameters, wires).
+- `aime new --data table.csv` picks the task from the data. 574 blocks, 65 recipes.
 
 ### Fixed
+- The New Project wizard kept data from Tools ▸ Download a Dataset only until a task
+  was picked; it now starts on that data and keeps it.
+- Dropping a file on the desktop canvas tried to open it as a canvas session file.
 - On Windows, checking whether a run was still alive terminated its process. The check
   no longer sends a signal, and a reused process id no longer counts as the run.
 - The web server marks runs a crash left "running" as failed when it starts, and a run's

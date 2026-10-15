@@ -225,8 +225,16 @@ export function NewProjectWizard({ onClose, onCreated, onAutoml, initialFacts = 
   const [runOn] = useRunOn();
   const [epochs, setEpochs] = useState(0);
   useEffect(() => {
-    api.wizardTasks().then((r) => setTasks(r.tasks)).catch((e) => notify(String(e.message), true));
-  }, [notify]);
+    api.wizardTasks().then((r) => {
+      setTasks(r.tasks);
+      // data dropped on the canvas or fetched in Tools: pick a task it fits, show the data
+      const fit = initialFacts && r.tasks.find((t) => initialFacts.tasks.includes(t.id));
+      if (fit) {
+        setTask(fit);
+        setStep(1);
+      }
+    }).catch((e) => notify(String(e.message), true));
+  }, [notify, initialFacts]);
   const budgetValues = useMemo(() => Object.fromEntries(Object.entries(budget)
     .filter(([, v]) => v !== "" && v != null)
     .map(([k, v]) => [k, k === "device" ? v : Number(v)])), [budget]);
@@ -246,7 +254,7 @@ export function NewProjectWizard({ onClose, onCreated, onAutoml, initialFacts = 
   const pickTask = (t: WizardTask) => {
     setTask(t);
     setModality(t.demo_modalities[0] ?? "");
-    setFacts(null);
+    setFacts((f) => (f && f.tasks.includes(t.id) ? f : null));   // keep data that fits
   };
   const create = async () => {
     const pick = rows?.find((r) => r.recipe.id === chosen);

@@ -31,7 +31,42 @@ class Workbench(QtWidgets.QMainWindow):
         self.setup_ui()
         self.setup_menus()
         self._restore()
+        self.setAcceptDrops(True)   # data files dropped on the window start a project
         ctx.attach_window(self)
+
+    # ------------------------------------------------------------- data drops
+
+    DATA_SUFFIXES = (".csv", ".tsv", ".txt", ".parquet", ".pq", ".xlsx", ".xls", ".json",
+                     ".jsonl", ".zip")
+
+    @classmethod
+    def dropped_data(cls, mime) -> str | None:  # noqa: ANN001
+        """The first local data file or folder in a drop, else None."""
+        from pathlib import Path
+
+        if not mime.hasUrls():
+            return None
+        for url in mime.urls():
+            if not url.isLocalFile():
+                continue
+            path = Path(url.toLocalFile())
+            if path.is_dir() or path.suffix.lower() in cls.DATA_SUFFIXES:
+                return str(path)
+        return None
+
+    def dragEnterEvent(self, event) -> None:  # noqa: N802 (Qt name)
+        if self.dropped_data(event.mimeData()):
+            event.acceptProposedAction()
+        else:
+            super().dragEnterEvent(event)
+
+    def dropEvent(self, event) -> None:  # noqa: N802 (Qt name)
+        path = self.dropped_data(event.mimeData())
+        if path is None:
+            super().dropEvent(event)
+            return
+        event.acceptProposedAction()
+        self.ctx.open_data_file(path)
 
     # ------------------------------------------------------------- phases
 

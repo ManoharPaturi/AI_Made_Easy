@@ -7,7 +7,8 @@ import { useStore } from "../state";
 import { RunOnSelect, useRunOn } from "../components/Backends";
 import { PipelinesList } from "../components/Pipeline";
 import type {
-  ExportFormat, RunRecord, RunSamples, SweepParam, SweepRecord, SweepTrial,
+  DesignDiff, ExportFormat, FeatureImportance, RunRecord, RunSamples, SweepParam, SweepRecord,
+  SweepTrial,
 } from "../types";
 
 function DeployModal({ run, onClose }: { run: RunRecord; onClose: () => void }) {
@@ -76,6 +77,7 @@ function Runs({ scope }: { scope: string }) {
   const [curves, setCurves] = useState<Series[]>([]);
   const [compare, setCompare] = useState<Record<string, unknown> | null>(null);
   const [deploying, setDeploying] = useState<RunRecord | null>(null);
+  const [diffing, setDiffing] = useState("");
 
   const refresh = useCallback(() => {
     api.runs(scope || undefined).then((r) => setRuns(r.runs)).catch((e) => notify(String(e.message), true));
@@ -144,6 +146,8 @@ function Runs({ scope }: { scope: string }) {
       <div className="toolbar" style={{ marginBottom: 8 }}>
         <button onClick={refresh}>Refresh</button>
         <button disabled={ids.length !== 1} onClick={() => restore(ids[0])}>Restore design</button>
+        <button disabled={ids.length !== 1} onClick={() => setDiffing(ids[0])} data-testid="diff-run"
+                title="What changed on the canvas since this run">Compare with canvas</button>
         <button disabled={ids.length !== 1 || runs.find((r) => r.run_id === ids[0])?.status !== "finished"}
                 onClick={() => setDeploying(runs.find((r) => r.run_id === ids[0]) ?? null)}>Deploy…</button>
         <button disabled={!one || !one.backend || one.status !== "running"} onClick={follow}
@@ -176,9 +180,73 @@ function Runs({ scope }: { scope: string }) {
       {!runs.length && <div className="empty">No runs yet — train a design to record one.</div>}
       {curves.length > 0 && <><h3>Loss curves</h3><LineChart series={curves} /></>}
       {compare && <CompareTable data={compare} />}
+      {ids.length === 1 && <RunExplainView runId={ids[0]} />}
       {ids.length === 1 && <RunSamplesView runId={ids[0]} />}
+      {diffing && <DiffModal runId={diffing} onClose={() => setDiffing("")} />}
       {deploying && <DeployModal run={deploying} onClose={() => setDeploying(null)} />}
     </>
+  );
+}
+
+/** Permutation importance a run saved (the Feature Importance block). */
+function RunExplainView({ runId }: { runId: string }) {
+  const [data, setData] = useState<FeatureImportance | null>(null);
+  useEffect(() => {
+    setData(null);
+    api.runExplain(runId).then(setData).catch(() => setData(null));
+  }, [runId]);
+  if (!data?.features.length) return null;
+  const top = data.features.slice(0, 15);
+  const max = Math.max(...top.map((f) => Math.abs(f.importance)), 1e-12);
+  return (
+    <div data-testid="run-explain">
+      <h3>Feature importance</h3>
+      <p className="muted">How much the {data.metric ?? "test loss"} rises when each feature is
+        shuffled ({data.rows ?? "?"} test rows): the features the model relies on most.</p>
+      <table style={{ maxWidth: 560 }}>
+        <tbody>{top.map((f) => (
+          <tr key={f.name}>
+            <td style={{ whiteSpace: "nowrap" }}>{f.name}</td>
+            <td style={{ width: "60%" }}>
+              <div className="bar" style={{ width: `${Math.max(0, f.importance) / max * 100}%` }} />
+            </td>
+            <td className="num">{f.importance.toFixed(4)}<span className="muted"> ± {f.std.toFixed(4)}</span></td>
+          </tr>))}</tbody>
+      </table>
+    </div>
+  );
+}
+
+const show = (v: unknown) => (typeof v === "string" ? v : JSON.stringify(v));
+
+/** The canvas compared with the design a run trained. */
+function DiffModal({ runId, onClose }: { runId: string; onClose: () => void }) {
+  const { project, notify } = useStore();
+  const [d, setD] = useState<DesignDiff | null>(null);
+  useEffect(() => {
+    api.runDiff(runId, project()).then(setD).catch((e) => notify(String(e.message), true));
+  }, [runId, project, notify]);
+  return (
+    <Modal title={`Run ${runId} vs the canvas`} onClose={onClose} wide>
+      {!d ? <p className="muted">Comparing…</p> : (
+        <div data-testid="design-diff">
+          <p><b>{d.summary}</b></p>
+          {d.changed.length > 0 && (
+            <table><thead><tr><th>Block</th><th>Parameter</th><th>In the run</th><th>Now</th></tr></thead>
+              <tbody>{d.changed.map((c) => (
+                <tr key={`${c.id}.${c.param}`}><td>{c.id}</td><td>{c.param}</td>
+                  <td className="dim">{show(c.from)}</td><td>{show(c.to)}</td></tr>))}</tbody></table>)}
+          {[["Added", d.added.map((x) => `${x.id} (${x.type})`)],
+            ["Removed", d.removed.map((x) => `${x.id} (${x.type})`)],
+            ["Replaced", d.retyped.map((x) => `${x.id}: ${x.from} → ${x.to}`)],
+            ["New wires", d.wired.map((w) => `${w.from} → ${w.to}`)],
+            ["Removed wires", d.unwired.map((w) => `${w.from} → ${w.to}`)]]
+            .filter(([, items]) => (items as string[]).length)
+            .map(([label, items]) => (
+              <div key={label as string}><h3>{label as string}</h3>
+                <ul>{(items as string[]).map((i) => <li key={i}>{i}</li>)}</ul></div>))}
+        </div>)}
+    </Modal>
   );
 }
 

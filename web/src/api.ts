@@ -5,6 +5,7 @@ import type {
   AutoMLStarted, DataFacts, Explanation, RecipeInfo, RecipeSuggestion, WizardTask,
   BlockDef, BudgetReport, TableLayout, RunSamples, DataProfile, DeviceProfile, FamilyInfo, TaskInfo, ModelVersion, Project, RunEvent, RunRecord, SplitPreview, Summary,
   SweepParam, SweepRecord, Validation, ExportFormat, FetchedDataset, TrackingStatus,
+  FeatureImportance, DesignDiff,
 } from "./types";
 
 export class ApiError extends Error {}
@@ -96,6 +97,8 @@ export const api = {
   runs: (project?: string) =>
     get<{ runs: RunRecord[] }>(`/runs${project ? `?project=${encodeURIComponent(project)}` : ""}`),
   run: (id: string) => get<RunRecord>(`/runs/${id}`),
+  runExplain: (id: string) => get<FeatureImportance>(`/runs/${id}/explain`),
+  runDiff: (id: string, graph: Project) => post<DesignDiff>(`/runs/${id}/diff`, { graph }),
   runSamples: (id: string) => get<RunSamples>(`/runs/${id}/samples`),
   metrics: (id: string) => get<{ epochs: { epoch: number; metrics: Record<string, number> }[] }>(
     `/runs/${id}/metrics`),
@@ -122,6 +125,11 @@ export const api = {
     post<{ pipeline_id: string; resumed_from: string }>(`/pipelines/${id}/resume`),
 
   wizardTasks: () => get<{ tasks: WizardTask[] }>("/wizard/tasks"),
+  uploadData: (file: File) => {
+    const form = new FormData();
+    form.append("file", file);
+    return post<FetchedDataset>("/data/upload", form);
+  },
   detect: (path: string, target = "", task = "") =>
     post<DataFacts>("/wizard/detect", { path, target, task }),
   recommend: (body: { task: string; facts?: DataFacts | null; budget?: Record<string, unknown>;

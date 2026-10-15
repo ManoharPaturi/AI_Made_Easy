@@ -173,8 +173,10 @@ def main(argv: list[str] | None = None) -> int:
     p_rec = sub.add_parser("recipes", help="list design recipes")
     p_rec.add_argument("--task", default=None, help="only recipes for this task")
 
-    def wizard_args(p: argparse.ArgumentParser) -> None:
-        p.add_argument("--task", required=True, help="task id (see `aime recipes`)")
+    def wizard_args(p: argparse.ArgumentParser, task_required: bool = True) -> None:
+        p.add_argument("--task", required=task_required,
+                       default="", help="task id (see `aime recipes`)"
+                       + ("" if task_required else "; default: the first task --data fits"))
         p.add_argument("--data", default="", help="a table file or dataset folder "
                                                   "(default: each recipe's demo data)")
         p.add_argument("--target", default="", help="target column of a table")
@@ -188,8 +190,9 @@ def main(argv: list[str] | None = None) -> int:
         p.add_argument("--max-latency-ms", type=float, default=0.0,
                        help="budget: inference latency on the device")
 
-    p_new = sub.add_parser("new", help="create a project from the best recipe for a task")
-    wizard_args(p_new)
+    p_new = sub.add_parser("new", help="create a project from the best recipe for a task "
+                                       "(or for your data: aime new --data table.csv)")
+    wizard_args(p_new, task_required=False)
     p_new.add_argument("--recipe", default="", help="use this recipe instead of the best")
     p_new.add_argument("--list", action="store_true", help="rank the recipes and exit")
     p_new.add_argument("-o", "--out", default="", help="project .json to write")
@@ -504,6 +507,19 @@ def _wizard_command(args) -> int:  # noqa: ANN001
                       f"{','.join(r['tasks'])}{missing}")
             return 0
         budget = _budget_args(args)
+        if args.command == "new" and not args.task:
+            if not args.data:
+                print("error: give --task, or --data to pick the task from your data",
+                      file=sys.stderr)
+                return 1
+            facts = api.detect_data(args.data, args.target)
+            if not facts.get("tasks"):
+                print(f"error: {facts.get('summary') or args.data}: no task fits this data; "
+                      "give --task", file=sys.stderr)
+                return 1
+            args.task = facts["tasks"][0]
+            print(f"task: {args.task} (from the data; --task to choose another of "
+                  f"{', '.join(facts['tasks'])})", file=sys.stderr)
         if args.command == "new":
             if args.recipe:
                 graph = api.build_recipe(args.recipe, args.task, path=args.data or None,

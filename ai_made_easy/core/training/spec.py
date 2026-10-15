@@ -41,6 +41,7 @@ class TrainingSpec:
     metrics: list[tuple[str, dict]] = field(default_factory=list)
     kfold: dict[str, Any] | None = None
     predict: dict[str, Any] | None = None
+    explain: dict[str, Any] | None = None      # permutation importance after training
     warnings: list[str] = field(default_factory=list)
 
     # ---------------------------------------------------------- derived
@@ -185,6 +186,14 @@ def collect_spec(graph: Graph) -> TrainingSpec:
     pr = pick(("eval.predict",), "Prediction Preview")
     if pr is not None:
         spec.predict = cat.resolved("eval.predict", pr.params)
+    ex = pick(("eval.permutation_importance",), "Feature Importance")
+    if ex is not None:
+        if spec.modality in ("tabular", "array") and len(spec.input_shape) == 1 \
+                and spec.input_dtype.startswith("float"):
+            spec.explain = cat.resolved("eval.permutation_importance", ex.params)
+        else:
+            spec.warnings.append("Feature Importance explains tables and feature vectors "
+                                 "([F] float inputs); it is skipped for this design")
 
     # ------------------------------------------------------------ metrics
     for node in graph.nodes.values():
