@@ -57,6 +57,16 @@ def isolated_home(tmp_path, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _forget_api_manager():
+    """The process-wide RunManager keeps the run history of the test that made it (the
+    server makes one at startup): later tests must get a fresh one for their own home."""
+    from ai_made_easy.core import api
+
+    yield
+    api.set_manager(None)
+
+
+@pytest.fixture(autouse=True)
 def _forget_custom_blocks():
     """Custom blocks registered by a test must not leak into later tests."""
     from ai_made_easy.core.registry import get_registry
