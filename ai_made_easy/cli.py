@@ -205,6 +205,11 @@ def main(argv: list[str] | None = None) -> int:
     p_aml.add_argument("--objectives", default="",
                        help="also minimise these design costs on --device, comma-separated: "
                             "latency_ms, params_m, model_mb (a Pareto front, not one best)")
+    p_aml.add_argument("--on", default="", metavar="BACKEND",
+                       help="where trials train: ssh:<host>, kaggle, modal, … (see "
+                            "`aime backends`)")
+    p_aml.add_argument("--concurrency", type=int, default=1,
+                       help="trials training at once (default 1; a few on remote backends)")
     p_aml.add_argument("-o", "--out", default="", help="write the best design here")
     p_pipe = sub.add_parser("pipeline", help="run multi-stage pipelines")
     p_pipe.add_argument("action", choices=("run", "status", "list", "resume"))
@@ -534,7 +539,8 @@ def _wizard_command(args) -> int:  # noqa: ANN001
                 "recipes": [r for r in args.recipes.split(",") if r.strip()],
                 "metric": args.metric, "tune": not args.no_tune, "prune": not args.no_prune,
                 "budget": budget, "seed": args.seed,
-                "objectives": [o.strip() for o in args.objectives.split(",") if o.strip()]}
+                "objectives": [o.strip() for o in args.objectives.split(",") if o.strip()],
+                "on": args.on, "concurrency": args.concurrency}
         started = api.start_automl({k: v for k, v in spec.items() if v is not None})
     except (api.ApiError, KeyError, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr)

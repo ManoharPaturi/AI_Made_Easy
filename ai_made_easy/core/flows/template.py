@@ -349,7 +349,9 @@ def main() -> None:
     nll = mean_nll(model, test_x)
     baseline = gaussian_nll(train_x, test_x)
     metrics = {"nll": nll, "nll_per_dim": nll / INPUT_DIM, "baseline_nll": baseline,
-               "nll_gain": baseline - nll}
+               "nll_gain": baseline - nll,
+               # nats -> bits per dimension (AutoML's metric; comparable across sizes)
+               "bits_per_dim": nll / INPUT_DIM / math.log(2)}
     torch.save(model.state_dict(), CHECKPOINT)
     with open(INFERENCE_FILE, "wb") as fh:
         pickle.dump(dict(STATE), fh)

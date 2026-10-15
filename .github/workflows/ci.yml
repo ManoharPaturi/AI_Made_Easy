@@ -142,6 +142,8 @@ jobs:
         run: pytest -q -p no:cacheprovider tests/test_pgm.py tests/test_ppl.py tests/test_gp.py tests/test_ssm.py
       - name: Your series and grouped tables
         run: pytest -q -p no:cacheprovider tests/test_your_data.py -k "series_recipes or grouped_table"
+      - name: AutoML for every family (held-out metrics, structured costs, parallel trials)
+        run: pytest -q -p no:cacheprovider tests/test_automl_families.py
       - name: MvNormal / LKJ, MMHC, time-varying coefficients
         run: >-
           pytest -q -p no:cacheprovider tests/test_block_coverage.py
