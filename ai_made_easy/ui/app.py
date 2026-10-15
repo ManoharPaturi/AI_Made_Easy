@@ -52,14 +52,15 @@ def _ensure_qt_plugin_path() -> None:
         if any(str(resolved).startswith(str(r)) for r in icloud_roots):
             # We mirror the *whole* plugins tree — Qt also resolves sibling
             # plugin categories (styles, imageformats) relative to this path.
-            cached = Path("/tmp") / f"aime-qt-plugins-{PySide6.__version__}"
+            cached = (Path.home() / "Library" / "Caches"  # per user, unlike /tmp
+                      / f"aime-qt-plugins-{PySide6.__version__}")
             if not (cached / "platforms" / "libqcocoa.dylib").exists():
                 _fresh_copytree(platforms.parent, cached)
             os.environ["QT_QPA_PLATFORM_PLUGIN_PATH"] = str(cached / "platforms")
         else:
             os.environ["QT_QPA_PLATFORM_PLUGIN_PATH"] = str(platforms)
-    except Exception:
-        pass
+    except Exception as exc:  # noqa: BLE001 — Qt falls back to its own plugin search
+        print(f"AI Made Easy: could not set the Qt plugin path: {exc}", file=sys.stderr)
 
 
 def data_dir() -> Path:

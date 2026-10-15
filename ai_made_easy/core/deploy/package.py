@@ -22,7 +22,6 @@ import json
 import re
 import shutil
 import subprocess
-import sys
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -420,7 +419,9 @@ def build_package(run_dir: Path | str, out_dir: Path | str, *, formats: tuple[st
         run_env = {**os.environ, "PYTHONWARNINGS": "ignore"}
         if framework == "keras":
             run_env["KERAS_BACKEND"] = meta["keras_backend"]
-        proc = subprocess.run([python or sys.executable, "export_formats.py"], cwd=out_dir,
+        from ai_made_easy.core.runner.manager import python_executable
+
+        proc = subprocess.run([python or python_executable(), "export_formats.py"], cwd=out_dir,
                               capture_output=True, text=True, timeout=timeout, env=run_env)
         result.log = proc.stdout + proc.stderr
         if "EXPORT-DONE" not in proc.stdout:

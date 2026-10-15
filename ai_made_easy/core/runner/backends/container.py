@@ -24,6 +24,7 @@ if TYPE_CHECKING:
 
 BASE_IMAGE = "python:3.11-slim"
 CPU_TORCH = "https://download.pytorch.org/whl/cpu"
+BUILD_TIMEOUT = 3600  # seconds; a first build downloads PyTorch
 _SKIP = ("bundle.tar.gz", LAUNCHER_NAME, "pid", "exit_code")
 
 
@@ -74,10 +75,15 @@ class ContainerBackend(RemoteBackend):
         text = dockerfile(run.bundle.requirements, gpus)
         tag = "aime-train:" + hashlib.sha256(text.encode()).hexdigest()[:12]
         docker = docker_command()
-        if subprocess.run([*docker, "image", "inspect", tag], capture_output=True).returncode:
+        if subprocess.run([*docker, "image", "inspect", tag], capture_output=True,
+                          timeout=60).returncode:
             self.note(run, f"building the training image {tag} (once per set of packages)")
-            build = subprocess.run([*docker, "build", "-t", tag, "-"], input=text,
-                                   capture_output=True, text=True)
+            try:
+                build = subprocess.run([*docker, "build", "-t", tag, "-"], input=text,
+                                       capture_output=True, text=True, timeout=BUILD_TIMEOUT)
+            except subprocess.TimeoutExpired as exc:
+                raise BackendError(f"the image did not build in {BUILD_TIMEOUT // 60} "
+                                   "minutes") from exc
             if build.returncode:
                 raise BackendError("the image did not build:\n" + build.stderr[-2000:])
         return tag

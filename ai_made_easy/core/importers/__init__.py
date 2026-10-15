@@ -11,7 +11,6 @@ from __future__ import annotations
 import json
 import os
 import subprocess
-import sys
 import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -95,7 +94,9 @@ def import_model(kind: str, *, source: str, attr: str = "", input_shape: list[in
         req = Path(tmp) / "request.json"
         req.write_text(json.dumps(request))
         try:
-            proc = subprocess.run([python or sys.executable, "-m", _WORKERS[kind], str(req)],
+            from ai_made_easy.core.runner.manager import python_executable
+
+            proc = subprocess.run([python or python_executable(), "-m", _WORKERS[kind], str(req)],
                                   capture_output=True, text=True, timeout=timeout, env=env)
         except subprocess.TimeoutExpired as exc:
             raise ModelImportError(f"the import took longer than {timeout:.0f}s") from exc

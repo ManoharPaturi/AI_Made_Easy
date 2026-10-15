@@ -1,5 +1,8 @@
 # AI Made Easy 3.2 — plan
 
+*Status: shipped in 3.2.0. Every phase below is done, including the deferred items in
+gap 6; the gaps list describes 3.1 as it was.*
+
 ## Context
 3.1 shipped 9 families, 35 tasks, 59 recipes and 544 blocks.
 - Every design has a task.

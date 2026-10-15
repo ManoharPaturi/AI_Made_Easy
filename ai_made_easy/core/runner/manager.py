@@ -26,6 +26,26 @@ Listener = Callable[[str, dict], None]
 FRAMEWORKS = ("auto", "pytorch", "keras", "sklearn")  # built-ins; see families.FRAMEWORK_PACKAGES
 
 
+MAX_EVENTS = 20_000  # kept in memory per run; the full log is events.jsonl / history
+MAX_LOG_LINES = 5_000
+KEEP_FINISHED = 200  # finished runs RunManager keeps in memory (older ones read history)
+
+
+def max_upload_bytes() -> int:
+    """Largest upload or results zip accepted (``AIME_MAX_UPLOAD_MB``, default 2 GB)."""
+    import os
+
+    try:
+        return int(float(os.environ.get("AIME_MAX_UPLOAD_MB", "2048")) * (1 << 20))
+    except ValueError:
+        return 2048 << 20
+
+
+def max_unpacked_bytes() -> int:
+    """A results zip may unpack to 4x the upload limit (curves and checkpoints compress)."""
+    return 4 * max_upload_bytes()
+
+
 def python_executable() -> str:
     """Interpreter for training runs: ``$AIME_PYTHON``, else this interpreter
     (or python3 on PATH when running from a frozen app bundle)."""
@@ -62,7 +82,8 @@ class TrainingRun:
         self.state = "starting"  # starting | running | finished | failed | stopped
         self.returncode: int | None = None
         self.started_at = time.time()
-        self.events: list[dict] = []
+        self.events: list[dict] = []   # the latest MAX_EVENTS; event_count counts all
+        self.event_count = 0
         self.logs: list[str] = []
         self.epochs: list[dict] = []
         self.latest_samples: dict | None = None   # last "samples" event (live sample grid)
@@ -84,15 +105,27 @@ class TrainingRun:
         self.mirror = None             # MLflow / W&B trackers (core.tracking.RunMirror)
         self.closing_mirror = None     # the mirror finishing after the run ended
 
+    def events_since(self, seen: int) -> tuple[list[dict], int]:
+        """Events after the first ``seen`` (as far as memory still holds them), and the
+        new total to pass next time."""
+        with self._lock:
+            new = min(self.event_count - seen, len(self.events))
+            return (self.events[len(self.events) - new:] if new > 0 else []), self.event_count
+
     def record(self, event: dict) -> None:
         finished = False
         with self._lock:
             self.events.append(event)
+            self.event_count += 1
+            if len(self.events) > MAX_EVENTS:
+                del self.events[: len(self.events) - MAX_EVENTS]
             kind = event.get("type")
             if kind == "epoch":
                 self.epochs.append(event)
             elif kind == "log":
                 self.logs.append(str(event.get("line", "")))
+                if len(self.logs) > MAX_LOG_LINES:
+                    del self.logs[: len(self.logs) - MAX_LOG_LINES]
             elif kind == "samples":
                 self.latest_samples = event
             elif kind == "error":
@@ -183,6 +216,7 @@ class RunManager:
         self.python = python
         self._runs: dict[str, TrainingRun] = {}
         self._listeners: list[Listener] = []
+        self._lock = threading.Lock()  # attach: one poller per remote run
 
     def subscribe(self, listener: Listener) -> None:
         """Receive ``(run_id, event)`` for every event of every run."""
@@ -243,6 +277,7 @@ class RunManager:
         run.backend = backend or backends.LocalBackend()
         run.bundle = bundle
         run.graph = graph
+        self._prune()
         self._runs[record.run_id] = run
         run.state = "running"
         self.history.update(record.run_id, status="running",
@@ -255,6 +290,12 @@ class RunManager:
             run.process_exited(1)
         return record.run_id
 
+    def _prune(self) -> None:
+        """Forget the oldest finished runs beyond KEEP_FINISHED (history still has them)."""
+        done = [rid for rid, r in self._runs.items() if r.state in FINAL_STATES]
+        for rid in done[: max(0, len(done) - KEEP_FINISHED)]:
+            self._runs.pop(rid, None)
+
     def _track(self, run: TrainingRun, graph: Graph | None) -> None:
         from ai_made_easy.core import tracking
 
@@ -266,7 +307,12 @@ class RunManager:
         run.start_tracking(names)
 
     def attach(self, run_id: str) -> dict:
-        """Follow a remote run again (after the app restarted or the link dropped)."""
+        """Follow a remote run again (after the app restarted or the link dropped).
+        Calling it again while it is followed returns its status (one poller)."""
+        with self._lock:
+            return self._attach(run_id)
+
+    def _attach(self, run_id: str) -> dict:
         if run_id in self._runs and self._runs[run_id].state not in FINAL_STATES:
             return self._runs[run_id].status()
         record = self.history.get(run_id)
@@ -300,6 +346,10 @@ class RunManager:
             for member in archive.namelist():
                 if not (root / member).resolve().is_relative_to(root):
                     raise ValueError(f"unsafe path in the zip: {member}")
+            unpacked = sum(info.file_size for info in archive.infolist())
+            if unpacked > max_unpacked_bytes():
+                raise ValueError(f"the zip unpacks to {unpacked >> 20} MB, more than "
+                                 f"{max_unpacked_bytes() >> 20} MB (AIME_MAX_UPLOAD_MB)")
             archive.extractall(root)
             meta_files = sorted(root.rglob("bundle.json"), key=lambda p: len(p.parts))
             if not meta_files:
@@ -359,8 +409,11 @@ class RunManager:
 
     def stop(self, run_id: str) -> dict:
         run = self.get(run_id)
-        if run.state not in FINAL_STATES:
-            run.state = "stopped"
+        with run._lock:  # a run that just finished stays finished
+            stopping = run.state not in FINAL_STATES
+            if stopping:
+                run.state = "stopped"
+        if stopping:
             run.backend.stop(run)
         return run.status()
 

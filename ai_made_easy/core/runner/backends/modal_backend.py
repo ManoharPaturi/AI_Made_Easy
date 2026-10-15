@@ -147,5 +147,6 @@ class ModalBackend(RemoteBackend):
         if client is not None:
             try:
                 client.terminate()
-            except Exception:  # noqa: BLE001
-                pass
+            except Exception as exc:  # noqa: BLE001 — say so: the GPU may still be billing
+                self.note(run, f"could not stop the Modal job ({exc}); it may still be "
+                               "running: stop it with `modal app stop` or the Modal dashboard")

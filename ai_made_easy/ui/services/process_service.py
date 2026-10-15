@@ -5,7 +5,6 @@ scripts. One QProcess + worker-protocol pipeline, one set of signals.
 from __future__ import annotations
 
 import queue
-import sys
 import tempfile
 from pathlib import Path
 
@@ -26,15 +25,12 @@ def python_executable() -> str:
     their own executable, so they need a real Python environment.
     """
     import os
-    import shutil
+
+    from ai_made_easy.core.runner import manager
 
     override = os.environ.get("AIME_PYTHON") or QtCore.QSettings("aime/workbench").value(
         "python", "")
-    if override:
-        return str(override)
-    if not getattr(sys, "frozen", False):
-        return sys.executable
-    return shutil.which("python3") or shutil.which("python") or sys.executable
+    return str(override) if override else manager.python_executable()
 
 
 class ProcessService(QtCore.QObject):

@@ -26,6 +26,7 @@ import sys
 import tarfile
 import threading
 
+PIP_TIMEOUT = 1800  # seconds
 BUNDLE = ""  # base64 .tar.gz, filled in when the bundle travels inside this file
 DEFAULT_ARGS: list = []  # used when the file runs without arguments (a Kaggle kernel)
 
@@ -74,10 +75,14 @@ def main(argv: list[str]) -> int:
     reqs = os.path.join(run_dir, "requirements.txt")
     if "--install" in argv and os.path.exists(reqs) and os.path.getsize(reqs):
         write(json.dumps({"type": "log", "line": "installing requirements …"}))
-        pip = subprocess.run([sys.executable, "-m", "pip", "install", "-q", "-r", reqs],
-                             capture_output=True, text=True)
-        if pip.returncode:
-            write(json.dumps({"type": "log", "line": pip.stderr[-2000:], "stream": "stderr"}))
+        try:
+            pip = subprocess.run([sys.executable, "-m", "pip", "install", "-q", "-r", reqs],
+                                 capture_output=True, text=True, timeout=PIP_TIMEOUT)
+            failed = pip.stderr[-2000:] if pip.returncode else ""
+        except subprocess.TimeoutExpired:
+            failed = f"pip install took longer than {PIP_TIMEOUT // 60} minutes; training anyway"
+        if failed:
+            write(json.dumps({"type": "log", "line": failed, "stream": "stderr"}))
 
     proc = subprocess.Popen([sys.executable, "-u", meta["worker"], meta["script"]],
                             cwd=run_dir, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
