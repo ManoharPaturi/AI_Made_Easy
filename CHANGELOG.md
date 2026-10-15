@@ -1,6 +1,10 @@
 # Changelog
 
-## Unreleased (3.3)
+## 3.3.0
+
+More blocks, a canvas that keeps up, and a more polished web app. 583 blocks, 66 recipes.
+See [docs/ROADMAP_3.3.md](docs/ROADMAP_3.3.md) for what is in this release and what moves
+to the next one.
 
 ### Added
 - **Modern network parts** (Transformer Parts, Vision Blocks):
