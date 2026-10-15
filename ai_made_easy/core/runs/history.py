@@ -126,7 +126,8 @@ class RunHistory:
 
     # ------------------------------------------------------------- paths
     def path(self, run_id: str) -> Path:
-        if not run_id or "/" in run_id or "\\" in run_id or run_id.startswith("."):
+        if (not run_id or run_id.startswith(".")
+                or any(ch in run_id for ch in ("/", "\\", ":", "\0"))):
             raise KeyError(f"invalid run id {run_id!r}")
         return self.root / run_id
 
@@ -250,17 +251,40 @@ class RunHistory:
         for rec in self.list():
             if rec.backend not in ("", "local"):
                 continue
-            if rec.status in ("created", "running") and not _alive(rec.pid):
+            if rec.status in ("created", "running") and not _alive(rec.pid, rec.created_at):
                 self.finalize(rec.run_id, "failed", error="interrupted (the app exited)")
                 count += 1
         return count
 
 
-def _alive(pid: int | None) -> bool:
+_REUSE_SLACK = 600.0  # seconds
+
+
+def _alive(pid: int | None, since: float | None = None) -> bool:
+    """Is ``pid`` still the process that started the run at ``since``?
+
+    Never signals the process: on Windows ``os.kill(pid, 0)`` terminates it. The worker
+    starts right after its record is created, so a process that started well after
+    that (``_REUSE_SLACK``) is a reused PID, not the run.
+    """
     if not pid:
         return False
     try:
-        os.kill(pid, 0)
+        import psutil
+    except ImportError:
+        psutil = None
+    if psutil is not None:
+        try:
+            started = psutil.Process(pid).create_time()
+        except (psutil.NoSuchProcess, psutil.ZombieProcess):
+            return False
+        except psutil.Error:  # access denied: it exists
+            return True
+        return since is None or started <= since + _REUSE_SLACK
+    if os.name == "nt":
+        return _alive_windows(pid)
+    try:
+        os.kill(pid, 0)  # POSIX: signal 0 only checks
     except ProcessLookupError:
         return False
     except PermissionError:
@@ -268,6 +292,22 @@ def _alive(pid: int | None) -> bool:
     except OSError:
         return False
     return True
+
+
+def _alive_windows(pid: int) -> bool:
+    import ctypes
+
+    kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
+    handle = kernel32.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+    if not handle:
+        return ctypes.get_last_error() == 5  # access denied: it exists
+    try:
+        code = ctypes.c_ulong()
+        if not kernel32.GetExitCodeProcess(handle, ctypes.byref(code)):
+            return False
+        return code.value == 259  # STILL_ACTIVE
+    finally:
+        kernel32.CloseHandle(handle)
 
 
 def compare(records: list[RunRecord]) -> dict[str, Any]:

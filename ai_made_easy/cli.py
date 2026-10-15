@@ -327,9 +327,9 @@ def main(argv: list[str] | None = None) -> int:
         seen = 0
         while True:
             st = mgr.status(run_id)
-            for event in mgr.get(run_id).events[seen:]:
+            events, seen = mgr.get(run_id).events_since(seen)
+            for event in events:
                 print(json.dumps(event), flush=True)
-            seen = len(mgr.get(run_id).events)
             if st["state"] in ("finished", "failed", "stopped"):
                 print(json.dumps({"type": "run_" + st["state"],
                                   "returncode": st["returncode"]}), flush=True)
@@ -374,7 +374,9 @@ def main(argv: list[str] | None = None) -> int:
         script.write_text(code)
         print(script)
         if args.run:
-            result = subprocess.run([sys.executable, str(script)], cwd=".")
+            from ai_made_easy.core.runner.manager import python_executable
+
+            result = subprocess.run([python_executable(), str(script)], cwd=".")
             return result.returncode
         return 0
 
@@ -733,7 +735,9 @@ def _deploy_command(args) -> int:  # noqa: ANN001
     also = [t.strip() for t in getattr(args, "also", "").split(",") if t.strip()]
     try:
         if args.command == "serve":
-            result = subprocess.run([sys.executable, "-m", "uvicorn", "app:app", "--host",
+            from ai_made_easy.core.runner.manager import python_executable
+
+            result = subprocess.run([python_executable(), "-m", "uvicorn", "app:app", "--host",
                                      args.host, "--port", str(args.port)], cwd=args.package)
             return result.returncode
         if args.command == "deploy":

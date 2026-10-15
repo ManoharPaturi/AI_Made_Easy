@@ -15,11 +15,13 @@ from __future__ import annotations
 import asyncio
 import base64
 import json
+import logging
 import os
 import re
 import secrets
 import shutil
 import tempfile
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -42,9 +44,41 @@ from starlette.background import BackgroundTask
 from ai_made_easy import __version__
 from ai_made_easy.core import api
 from ai_made_easy.core.paths import subdir
+from ai_made_easy.core.runner.manager import max_upload_bytes
 
 STATIC = Path(__file__).parent / "static"
 _NAME = re.compile(r"^[\w][\w .-]{0,99}$")
+_STALE_POLLS = 5  # ~10 s without events from a run no process is running
+_CHUNK = 1 << 20
+log = logging.getLogger(__name__)
+
+
+def _too_large() -> HTTPException:
+    return HTTPException(413, f"upload larger than {max_upload_bytes() >> 20} MB "
+                              "(set AIME_MAX_UPLOAD_MB to change)")
+
+
+async def _save_body(request: Request, target: Path) -> int:
+    """Stream a raw request body to ``target`` without holding it in memory."""
+    limit, size = max_upload_bytes(), 0
+    with target.open("wb") as fh:
+        async for chunk in request.stream():
+            size += len(chunk)
+            if size > limit:
+                raise _too_large()
+            fh.write(chunk)
+    return size
+
+
+async def _save_upload(file: UploadFile, target: Path) -> int:
+    limit, size = max_upload_bytes(), 0
+    with target.open("wb") as fh:
+        while chunk := await file.read(_CHUNK):
+            size += len(chunk)
+            if size > limit:
+                raise _too_large()
+            fh.write(chunk)
+    return size
 
 
 def _graph_body(payload: dict) -> dict:
@@ -73,6 +107,10 @@ def create_app(*, token: str | None = None, projects_dir: str | Path | None = No
     token = (token if token is not None else os.environ.get("AIME_WEB_TOKEN")) or None
     projects = Path(projects_dir) if projects_dir else subdir("projects")
     projects.mkdir(parents=True, exist_ok=True)
+    try:  # runs a crashed server or app left "running" would be followed forever
+        api.manager().history.mark_interrupted()
+    except Exception as exc:  # noqa: BLE001 — never block the server from starting
+        log.warning("could not check for interrupted runs: %s", exc)
 
     def authorize(request: Request) -> None:
         if token is None:
@@ -221,7 +259,7 @@ def create_app(*, token: str | None = None, projects_dir: str | Path | None = No
             graph = stamp({**graph, "name": name})
         except Exception as exc:  # noqa: BLE001 — refuse unreadable projects
             raise HTTPException(400, f"not a valid project: {exc}") from exc
-        tmp = file.with_suffix(".tmp")
+        tmp = file.with_name(f"{file.stem}.{uuid.uuid4().hex[:8]}.tmp")  # one per save
         tmp.write_text(json.dumps(graph, indent=1))
         tmp.replace(file)
         return {"saved": name}
@@ -249,13 +287,12 @@ def create_app(*, token: str | None = None, projects_dir: str | Path | None = No
     @app.post("/api/runs/import", dependencies=guard)
     async def import_results(request: Request) -> dict:
         """A Colab hand-off run's results zip, as the raw request body."""
-        data = await request.body()
-        if not data:
-            raise HTTPException(400, "send the results .zip as the request body")
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "results.zip"
-            path.write_bytes(data)
-            return api.import_run_results(str(path))
+            size = await _save_body(request, path)
+            if not size:
+                raise HTTPException(400, "send the results .zip as the request body")
+            return await asyncio.to_thread(api.import_run_results, str(path))
 
     @app.post("/api/runs/{run_id}/attach", dependencies=guard)
     def attach(run_id: str) -> dict:
@@ -343,9 +380,12 @@ def create_app(*, token: str | None = None, projects_dir: str | Path | None = No
                 await ws.send_json({"type": "epoch", **epoch})
             if (samples := mgr.latest_samples(run_id)) is not None:
                 await ws.send_json(samples)
+            idle = 0
             while True:
                 record = mgr.history.get(run_id)
-                if record.status != "running" and queue.empty():
+                # nothing will change a run no process is running: report it and stop
+                stale = idle >= _STALE_POLLS and not mgr.is_live(run_id)
+                if (record.status != "running" or stale) and queue.empty():
                     await ws.send_json({"type": "status", "status": record.status,
                                         "final_metrics": record.final_metrics})
                     break
@@ -353,8 +393,10 @@ def create_app(*, token: str | None = None, projects_dir: str | Path | None = No
                     event = await asyncio.wait_for(queue.get(), timeout=2.0)
                 except TimeoutError:
                     if not mgr.is_live(run_id):
+                        idle += 1
                         await asyncio.sleep(0.3)  # let the history catch up
                     continue
+                idle = 0
                 await ws.send_json(event)
                 if event.get("type") == "done":
                     await asyncio.sleep(0.3)  # finalize writes the status after "done"
@@ -536,9 +578,15 @@ def create_app(*, token: str | None = None, projects_dir: str | Path | None = No
                     project: str | None = None) -> FileResponse:
         if format not in ("csv", "parquet"):
             raise HTTPException(400, "format must be csv or parquet")
-        out = Path(tempfile.mkdtemp(prefix="aime_runs_")) / f"runs.{format}"
-        api.export_runs(str(out), project=project, epochs=epochs)
-        return FileResponse(out, filename=f"{'epochs' if epochs else 'runs'}.{format}")
+        work = Path(tempfile.mkdtemp(prefix="aime_runs_"))
+        out = work / f"runs.{format}"
+        try:
+            api.export_runs(str(out), project=project, epochs=epochs)
+        except Exception:
+            shutil.rmtree(work, ignore_errors=True)
+            raise
+        return FileResponse(out, filename=f"{'epochs' if epochs else 'runs'}.{format}",
+                            background=BackgroundTask(shutil.rmtree, work, True))
 
     @app.post("/api/data/fetch", dependencies=guard)
     async def data_fetch(payload: dict = Body(...)) -> dict:  # noqa: B008
@@ -591,7 +639,7 @@ def create_app(*, token: str | None = None, projects_dir: str | Path | None = No
         work = Path(tempfile.mkdtemp(prefix="aime_upload_"))
         try:
             target = work / Path(file.filename or "model").name
-            target.write_bytes(await file.read())
+            await _save_upload(file, target)
             shape = [int(d) for d in re.split(r"[,x\s]+", input_shape.strip("()[] ")) if d] or None
             return await asyncio.to_thread(
                 api.import_model, kind, str(target), attr, shape, dtype,
@@ -661,8 +709,25 @@ def create_app(*, token: str | None = None, projects_dir: str | Path | None = No
     return app
 
 
+_TOKEN_Q = re.compile(r"([?&]token=)[^&\s\"]*")
+
+
+class RedactToken(logging.Filter):
+    """Keep ``?token=`` (download links, WebSockets) out of the access log."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if isinstance(record.args, tuple):
+            record.args = tuple(_TOKEN_Q.sub(r"\1***", a) if isinstance(a, str) else a
+                                for a in record.args)
+        record.msg = _TOKEN_Q.sub(r"\1***", str(record.msg))
+        return True
+
+
 def main(host: str = "127.0.0.1", port: int = 8765, open_browser: bool = False) -> None:
     import uvicorn
+
+    for name in ("uvicorn.access", "uvicorn.error"):
+        logging.getLogger(name).addFilter(RedactToken())
 
     if host not in ("127.0.0.1", "localhost", "::1") and not os.environ.get("AIME_WEB_TOKEN"):
         print("warning: serving on a public interface without AIME_WEB_TOKEN — anyone who can "

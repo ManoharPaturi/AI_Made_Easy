@@ -11,7 +11,6 @@ from __future__ import annotations
 import json
 import os
 import subprocess
-import sys
 from pathlib import Path
 
 from ai_made_easy.core.data.profile import IMAGE_SUFFIXES, resolve_path
@@ -86,7 +85,9 @@ def run_preview(script: str, cfg: dict, out: Path, python: str | None, timeout: 
     (out / "preview.py").write_text(script)
     env = {**os.environ, "PYTHONWARNINGS": "ignore"}
     try:
-        proc = subprocess.run([python or sys.executable, str(out / "preview.py"),
+        from ai_made_easy.core.runner.manager import python_executable
+
+        proc = subprocess.run([python or python_executable(), str(out / "preview.py"),
                                str(out / "preview.json")], capture_output=True, text=True,
                               timeout=timeout, env=env)
     except subprocess.TimeoutExpired as exc:

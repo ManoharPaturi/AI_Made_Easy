@@ -231,14 +231,19 @@ def _budget(graph, plan) -> list:  # noqa: ANN001
         for stage in plan:
             if stage.kind != "pipeline.ensemble":
                 continue
-            total = 0
+            total, unknown = 0, []
             for sid in stage.inputs:
                 model = plan.stages[sid].model
                 if model is not None:
                     try:
                         total += budget.estimate(model).params
-                    except Exception:  # noqa: BLE001
-                        pass
+                    except Exception:  # noqa: BLE001 — counted as unknown, said below
+                        unknown.append(sid)
+            if unknown:
+                out.append(_issue("warning", "Ensemble: the size of "
+                                             f"{', '.join(unknown)} is unknown, so the "
+                                             "parameter limit is checked without it",
+                                  stage.id))
             if total / 1e6 > limits["max_params_m"]:
                 out.append(_issue("error", f"Ensemble: the members have {total / 1e6:.3g} M "
                                            f"parameters together > the pipeline's "

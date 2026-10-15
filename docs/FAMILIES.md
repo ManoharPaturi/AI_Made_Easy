@@ -420,6 +420,7 @@ The generic checks and the neural network rules for the layers it uses.
 - *error*: Ensemble (stack) learns from out-of-fold predictions: replace … with a Cross-validate stage (refit on)
 - *error*: Ensemble (stack): give every Cross-validate stage the same number of folds so their out-of-fold predictions line up
 - *error*: Ensemble (stack) fits its meta-learner with scikit-learn: pip install 'ai-made-easy[classic]'
+- *warning*: Ensemble: the size of … is unknown, so the parameter limit is checked without it
 - *error*: Ensemble: the members have … M parameters together > the pipeline's … M
 
 ## Gaussian process

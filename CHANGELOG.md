@@ -1,5 +1,27 @@
 # Changelog
 
+## Unreleased (3.3)
+
+### Fixed
+- On Windows, checking whether a run was still alive terminated its process. The check
+  no longer sends a signal, and a reused process id no longer counts as the run.
+- The web server marks runs a crash left "running" as failed when it starts, and a run's
+  live view ends once no process is running it, instead of waiting forever.
+- The access token in download and WebSocket links is hidden in the server's access log.
+- Uploads are limited to `AIME_MAX_UPLOAD_MB` (default 2 GB) and streamed to disk. A
+  results zip is checked for its unpacked size before it is extracted.
+- Stopping a run that had just finished no longer marks it stopped. Following a remote
+  run again from two places starts one poller.
+- Long runs and long-lived servers no longer keep every event in memory.
+- If a Modal job can't be stopped, the run log says so and how to stop it yourself.
+- Imports, augmentation previews, export checks and `aime run` use the configured
+  Python (`AIME_PYTHON`) instead of the app's own binary in the packaged app.
+- Exporting run history no longer leaves a temporary folder behind, and two saves of
+  one project at once no longer share a temporary file.
+- Docker image builds and `pip install` on remote machines have timeouts.
+- An ensemble whose member sizes can't be estimated gets a warning instead of passing
+  the parameter limit silently.
+
 ## 3.2.0
 
 3.2 makes the app solid and gets designs out of it. Runs train on SSH hosts, Kaggle,
