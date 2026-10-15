@@ -92,7 +92,7 @@ def _blocks() -> list[BlockDefinition]:
             meta={"rl": "env"}),
         BlockDefinition(
             type_id="rl.atari_preprocessing", display_name="Atari Preprocessing",
-            category=CATEGORY, color=family_color("data"), library="Gymnasium",
+            category="Data", color=family_color("data"), library="Gymnasium",
             requires=("gymnasium", "ale_py"), extra=ATARI_EXTRA,
             params=(P("frame_skip", "int", 4, lo=1, hi=16, help="Repeat each action"),
                     P("screen_size", "int", 84, lo=32, hi=210, help="Square, grayscale"),
@@ -104,8 +104,9 @@ def _blocks() -> list[BlockDefinition]:
                         "random no-op starts.",
             meta={"rl": "wrapper"}),
         BlockDefinition(
-            type_id="rl.frame_stack", display_name="Frame Stack", category=CATEGORY,
+            type_id="rl.frame_stack", display_name="Frame Stack", category="Data",
             color=family_color("data"), library="Gymnasium", requires=("gymnasium",),
+            extra=EXTRA,
             params=(P("frames", "int", 4, lo=1, hi=16,
                       help="Recent frames the policy sees as channels"),),
             description="Stacks the last frames as channels so the policy sees motion "
