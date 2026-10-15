@@ -32,8 +32,25 @@
   shown with the run on the Experiments page (PyTorch, tables and feature vectors).
 - **Compare with the canvas:** what changed since a run (blocks, parameters, wires).
 - `aime new --data table.csv` picks the task from the data. 574 blocks, 65 recipes.
+- **Web app, matching the desktop:**
+  - A command palette (Ctrl/⌘ K) for every command, and find a block on the canvas
+    (Ctrl/⌘ F, or `@` in the palette).
+  - A keyboard shortcuts sheet (`?`), select all (Ctrl/⌘ A) and zoom (Ctrl/⌘ =, −, 0).
+  - A File menu with recent projects, and Export canvas as PNG.
+  - Questions such as "Delete 3 runs?" and the access-token prompt now appear in the app
+    instead of as browser pop-ups.
+  - Messages stack (up to four), repeats are counted, and each has a × to close it.
+  - Lists show loading, error (with Try again) and empty states.
+  - A restored autosave can be discarded ("Start fresh").
+  - Add a block from the library with the keyboard (Enter), and every icon button has a
+    label for screen readers.
+- **Desktop:** a minimap (View ▸ Minimap, Ctrl+Shift+M) that you can click or drag to move
+  around, and screen-reader names for the panels.
+- **Both apps:** a three-step first-run tour (Help ▸ Show the Tour) and one chart palette,
+  so a run's curve has the same colour in both.
 
 ### Fixed
+- The web app's Ctrl/⌘ S shortcut was registered again on every render.
 - The New Project wizard kept data from Tools ▸ Download a Dataset only until a task
   was picked; it now starts on that data and keeps it.
 - Dropping a file on the desktop canvas tried to open it as a canvas session file.

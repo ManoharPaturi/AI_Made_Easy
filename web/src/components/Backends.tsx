@@ -6,8 +6,9 @@ import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 
 import { api } from "../api";
 import { useStore } from "../state";
+import { useDialogs } from "./Dialogs";
 import type { BackendInfo, BackendList, BackendTest } from "../types";
-import { Modal } from "./Modal";
+import { ListState, Modal } from "./Modal";
 
 const KEY = "aime.runOn";
 const listeners = new Set<() => void>();
@@ -80,13 +81,16 @@ function parseOption(text: string): unknown {
 
 export function BackendsModal({ onClose }: { onClose: () => void }) {
   const { notify } = useStore();
+  const { confirm } = useDialogs();
   const [data, setData] = useState<BackendList | null>(null);
+  const [error, setError] = useState("");
   const [tests, setTests] = useState<Record<string, BackendTest | "testing">>({});
   const [name, setName] = useState("");
   const [kind, setKind] = useState("ssh");
   const [options, setOptions] = useState<Record<string, string>>({});
   const refresh = useCallback(() => {
-    api.backends().then(setData).catch((e) => notify(String(e.message), true));
+    api.backends().then((d) => { setData(d); setError(""); })
+      .catch((e) => setError(String(e.message)));
   }, [notify]);
   useEffect(refresh, [refresh]);
 
@@ -117,7 +121,8 @@ export function BackendsModal({ onClose }: { onClose: () => void }) {
     }
   };
   const remove = async (n: string) => {
-    if (!confirm(`Remove the backend ${n}? Its runs stay in the history.`)) return;
+    if (!(await confirm(`Remove the backend ${n}? Its runs stay in the history.`,
+                        { title: "Remove backend", ok: "Remove", danger: true }))) return;
     await api.deleteBackend(n).catch((e) => notify(String(e.message), true));
     refresh();
   };
@@ -155,6 +160,8 @@ export function BackendsModal({ onClose }: { onClose: () => void }) {
           })}
         </tbody>
       </table>
+      <ListState items={data?.backends ?? null} error={error} onRetry={refresh} what="backends"
+                 empty="No backends." />
       <h3>Add a backend</h3>
       <div className="form">
         <div className="field"><label htmlFor="backend-name">Name</label>

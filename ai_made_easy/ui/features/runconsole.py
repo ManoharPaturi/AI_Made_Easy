@@ -13,9 +13,10 @@ import pyqtgraph as pg
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from ai_made_easy.ui import icons
+from ai_made_easy.ui.theme import SERIES
 from ai_made_easy.ui.stores import LogBus, RunStore
 
-_SERIES_COLORS = ("#4c8dff", "#f0883e", "#3fb950", "#d2a8ff", "#e3a008", "#56d4dd", "#ff7b72")
+_SERIES_COLORS = SERIES
 
 
 class OutputPage(QtWidgets.QPlainTextEdit):

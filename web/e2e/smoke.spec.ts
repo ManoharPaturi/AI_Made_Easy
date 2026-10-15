@@ -2,6 +2,7 @@ import { expect, test } from "@playwright/test";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { fileMenu } from "./helpers";
 
 test.beforeEach(async ({ page }) => {
   await page.goto("/");
@@ -45,7 +46,7 @@ test("code preview and pages", async ({ page }) => {
 });
 
 test("open an example from the Open dialog", async ({ page }) => {
-  await page.getByRole("button", { name: "Open" }).click();
+  await fileMenu(page, "open-project");
   await page.getByTestId("sample-iris_mlp.json").click();
   await expect(page.getByLabel("Project name").first()).toHaveValue("iris_mlp");
   await expect(page.getByTestId("status")).toHaveText("No problems");
@@ -55,7 +56,7 @@ test("saved projects show their family and task", async ({ page, request }) => {
   const sample = await (await request.get("/api/samples/student_network.json")).json();
   expect((await request.put("/api/projects/e2e_kinds", { data: sample })).ok()).toBeTruthy();
   try {
-    await page.getByRole("button", { name: "Open" }).click();
+    await fileMenu(page, "open-project");
     const row = page.locator(".issue", { hasText: "e2e_kinds" });
     await expect(row.locator(".chip").first()).toHaveText("Graphical model");
     await expect(row.locator(".chip").nth(1)).toHaveText("Probabilistic inference");
@@ -75,7 +76,7 @@ test("summary shows costs and checks the resource budget", async ({ page }) => {
 });
 
 test("vision sample: detection design with box-aware pipeline", async ({ page }) => {
-  await page.getByRole("button", { name: "Open" }).click();
+  await fileMenu(page, "open-project");
   await page.getByTestId("sample-shapes_detection.json").click();
   await expect(page.getByTestId("design-kind")).toHaveText("Neural network · Object detection");
   await expect(page.getByTestId("status")).toHaveText("No problems");
@@ -86,12 +87,12 @@ test("vision sample: detection design with box-aware pipeline", async ({ page })
 });
 
 test("forecasting and speech samples", async ({ page }) => {
-  await page.getByRole("button", { name: "Open" }).click();
+  await fileMenu(page, "open-project");
   await page.getByTestId("sample-demand_forecasting.json").click();
   await expect(page.getByTestId("design-kind")).toHaveText(
     "Neural network · Time-series forecasting");
   await expect(page.getByTestId("status")).toHaveText("No problems");
-  await page.getByRole("button", { name: "Open" }).click();
+  await fileMenu(page, "open-project");
   await page.getByTestId("sample-speech_recognition_ctc.json").click();
   await expect(page.getByTestId("design-kind")).toHaveText(
     "Neural network · Speech recognition (CTC)");
@@ -101,12 +102,12 @@ test("forecasting and speech samples", async ({ page }) => {
 });
 
 test("generative samples", async ({ page }) => {
-  await page.getByRole("button", { name: "Open" }).click();
+  await fileMenu(page, "open-project");
   await page.getByTestId("sample-shapes_diffusion.json").click();
   await expect(page.getByTestId("design-kind")).toHaveText(
     "Neural network · Image generation (diffusion)");
   await expect(page.getByTestId("status")).toHaveText("No problems");
-  await page.getByRole("button", { name: "Open" }).click();
+  await fileMenu(page, "open-project");
   await page.getByTestId("sample-tiny_gpt.json").click();
   await expect(page.getByTestId("design-kind")).toHaveText("Neural network · Language modeling");
   await expect(page.getByTestId("status")).toHaveText("No problems");
@@ -115,7 +116,7 @@ test("generative samples", async ({ page }) => {
 });
 
 test("probabilistic samples and the CPD table editor", async ({ page }) => {
-  await page.getByRole("button", { name: "Open" }).click();
+  await fileMenu(page, "open-project");
   await page.getByTestId("sample-student_network.json").click();
   await expect(page.getByTestId("design-kind")).toHaveText(
     "Graphical model · Probabilistic inference");
@@ -134,7 +135,7 @@ test("probabilistic samples and the CPD table editor", async ({ page }) => {
     ["flow_checkerboard_spline.json", "Neural network · Density estimation (normalizing flow)"],
     ["structural_time_series.json", "State-space model · State-space forecasting"],
   ]) {
-    await page.getByRole("button", { name: "Open" }).click();
+    await fileMenu(page, "open-project");
     await page.getByTestId(`sample-${sample}`).click();
     await expect(page.getByTestId("design-kind")).toHaveText(kind);
     await expect(page.getByTestId("status")).toHaveText("No problems");
@@ -152,7 +153,7 @@ test("graph, tabular, recommender and reinforcement-learning samples", async ({ 
     ["recommender_dlrm.json", "Neural network · Recommendation"],
     ["rl_cartpole_ppo.json", "Neural network · Reinforcement learning"],
   ]) {
-    await page.getByRole("button", { name: "Open" }).click();
+    await fileMenu(page, "open-project");
     await page.getByTestId(`sample-${sample}`).click();
     await expect(page.getByTestId("design-kind")).toHaveText(kind);
     // the graph and rl extras may be missing (CI's web job): "needs … not installed" warnings
@@ -164,7 +165,7 @@ test("graph, tabular, recommender and reinforcement-learning samples", async ({ 
 });
 
 test("new-project wizard: task, demo data, recipes, explanation", async ({ page }) => {
-  await page.getByTestId("new-project").click();
+  await fileMenu(page, "new-project");
   await page.getByTestId("task-multiclass").click();
   await page.getByTestId("wizard-next").click();
   await page.getByTestId("wizard-modality").selectOption("image");
@@ -189,7 +190,7 @@ test("new-project wizard: task, demo data, recipes, explanation", async ({ page 
 });
 
 test("wizard: classic clustering and the LLM tasks", async ({ page, request }) => {
-  await page.getByTestId("new-project").click();
+  await fileMenu(page, "new-project");
   await expect(page.getByTestId("task-retrieval_qa")).toBeVisible();
   await page.getByTestId("task-clustering").click();
   await page.getByTestId("wizard-next").click();
@@ -204,7 +205,7 @@ test("wizard: classic clustering and the LLM tasks", async ({ page, request }) =
   const sample = await (await request.get("/api/samples/classic_random_forest.json")).json();
   expect((await request.put("/api/projects/e2e_classic", { data: sample })).ok()).toBeTruthy();
   try {
-    await page.getByRole("button", { name: "Open" }).click();
+    await fileMenu(page, "open-project");
     const row = page.locator(".issue", { hasText: "e2e_classic" });
     await expect(row.locator(".chip").nth(1)).toHaveText("Binary classification");
   } finally {
@@ -219,7 +220,7 @@ test("wizard: a flow learns the density of your own table", async ({ page }) => 
     `${Math.sin(i).toFixed(4)},${Math.cos(i * 0.7).toFixed(4)},${((i * 37) % 11).toFixed(1)}`);
   fs.writeFileSync(table, ["a,b,c", ...rows].join("\n"));
   try {
-    await page.getByTestId("new-project").click();
+    await fileMenu(page, "new-project");
     await page.getByTestId("task-density_estimation").click();
     await page.getByTestId("wizard-next").click();
     await page.getByTestId("own-data").check();
@@ -239,7 +240,7 @@ test("wizard: a flow learns the density of your own table", async ({ page }) => 
 });
 
 test("a pipeline stage expands to show its design inline", async ({ page }) => {
-  await page.getByRole("button", { name: "Open" }).click();
+  await fileMenu(page, "open-project");
   await page.getByTestId("sample-pipeline_distill_quantize.json").click();
   await expect(page.getByTestId("expand-train")).toHaveText("▸ digits_teacher · 13 blocks");
   await expect(page.getByTestId("inline-train")).toHaveCount(0);
@@ -255,7 +256,7 @@ test("a pipeline stage expands to show its design inline", async ({ page }) => {
 
 test("pipeline samples open with the pipeline panel", async ({ page }) => {
   for (const sample of ["pipeline_distill_quantize.json", "pipeline_finetune_prune_ensemble.json"]) {
-    await page.getByRole("button", { name: "Open" }).click();
+    await fileMenu(page, "open-project");
     await page.getByTestId(`sample-${sample}`).click();
     await expect(page.getByTestId("design-kind")).toHaveText(
       "Pipeline · Multi-class classification");
@@ -270,7 +271,7 @@ test("pipeline samples open with the pipeline panel", async ({ page }) => {
 
 test("multi-objective AutoML: accuracy against latency, Pareto front", async ({ page }) => {
   test.setTimeout(240_000);
-  await page.getByTestId("new-project").click();
+  await fileMenu(page, "new-project");
   await page.getByTestId("task-binary").click();
   await page.getByTestId("wizard-next").click();
   await page.getByTestId("wizard-next").click();

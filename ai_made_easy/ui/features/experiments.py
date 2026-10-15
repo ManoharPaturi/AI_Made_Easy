@@ -12,8 +12,9 @@ from PySide6 import QtCore, QtWidgets
 
 from ai_made_easy.core.runs.history import RunRecord, compare
 from ai_made_easy.ui import icons
+from ai_made_easy.ui.theme import SERIES
 
-_SERIES = ("#4c8dff", "#f0883e", "#3fb950", "#d2a8ff", "#e3a008", "#56d4dd", "#ff7b72")
+_SERIES = SERIES
 _MAX_METRIC_COLUMNS = 5
 
 

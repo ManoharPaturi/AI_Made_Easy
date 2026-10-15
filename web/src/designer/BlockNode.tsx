@@ -22,7 +22,7 @@ function BlockNodeView({ id, data, selected }: NodeProps<FlowNode>) {
   return (
     <div className={`block-node ${selected ? "selected" : ""} ${severity ? `has-${severity}` : ""}`}
          title={title || def?.description} data-testid={`node-${id}`}>
-      <div className="head" style={{ background: def?.color ?? "#888" }}>
+      <div className="head" style={{ background: def?.color ?? "var(--text-muted)" }}>
         <span>{def?.display_name ?? data.typeId}</span>
         {severity && <span className={`sev-${severity}`}>{severity === "error" ? "✕" : "⚠"}</span>}
       </div>

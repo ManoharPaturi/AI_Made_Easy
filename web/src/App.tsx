@@ -1,148 +1,49 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import type { DataFacts, SavedProject } from "./types";
+import { ACTIONS, type ActionDef, matchesKeys } from "./actions";
 import { api } from "./api";
 import { BackendsModal } from "./components/Backends";
-import { Modal } from "./components/Modal";
+import { CommandPalette, type PaletteMode, ShortcutsSheet } from "./components/CommandPalette";
+import { FileMenu } from "./components/FileMenu";
+import { ImportDialog } from "./components/ImportDialog";
+import { OpenDialog } from "./components/OpenDialog";
+import { Toasts } from "./components/Toasts";
 import { ToolsModal } from "./components/Tools";
+import { resetTour, Tour, tourDone } from "./components/Tour";
 import { NewProjectWizard } from "./components/Wizard";
 import { Designer } from "./designer/Designer";
+import { downloadCanvas } from "./exportPng";
 import { DataPage } from "./pages/DataPage";
 import { ExperimentsPage } from "./pages/ExperimentsPage";
 import { ModelsPage } from "./pages/ModelsPage";
+import { rememberProject } from "./recent";
 import { useStore } from "./state";
+import type { DataFacts } from "./types";
 
 const PAGES = [["design", "Design"], ["data", "Data"], ["experiments", "Experiments"],
                ["models", "Models"]] as const;
 type Page = (typeof PAGES)[number][0];
+type Dialog = "" | "open" | "import" | "new" | "tools" | "backends" | "shortcuts";
 
-function OpenDialog({ onClose }: { onClose: () => void }) {
-  const { load, notify } = useStore();
-  const [samples, setSamples] = useState<string[]>([]);
-  const [projects, setProjects] = useState<SavedProject[]>([]);
-  useEffect(() => {
-    api.samples().then((r) => setSamples(r.samples)).catch(() => undefined);
-    api.projects().then((r) => setProjects(r.projects)).catch(() => undefined);
-  }, []);
-  const open = async (fn: () => Promise<Parameters<typeof load>[0]>) => {
-    try {
-      load(await fn());
-      onClose();
-    } catch (e) {
-      notify(String((e as Error).message), true);
-    }
-  };
-  const upload = (file: File) => file.text().then((t) => open(async () => JSON.parse(t)));
-  return (
-    <Modal title="Open" onClose={onClose}>
-      <h4>Saved projects</h4>
-      {projects.length ? projects.map((p) => (
-        <div key={p.name} className="issue" onClick={() => open(() => api.project(p.name))}>
-          <span style={{ flex: 1 }}>{p.name}</span>
-          {p.family && <span className="chip" title="Family">{p.family}</span>}
-          {p.task && <span className="chip" title="Task">{p.task}</span>}
-          <span className="muted">{new Date(p.modified * 1000).toLocaleString()}</span>
-        </div>
-      )) : <p className="muted">No saved projects yet.</p>}
-      <h4>Examples</h4>
-      <div className="cards">
-        {samples.map((s) => (
-          <button key={s} onClick={() => open(() => api.sample(s))} data-testid={`sample-${s}`}>
-            {s.replace(/\.json$/, "").replace(/_/g, " ")}</button>
-        ))}
-      </div>
-      <h4>From your computer</h4>
-      <input type="file" accept=".json,.aime" onChange={(e) => e.target.files?.[0] && upload(e.target.files[0])} />
-    </Modal>
-  );
-}
+/** Keys typed into a field belong to the field (Escape and the palette still work). */
+const typing = () => !!(document.activeElement as HTMLElement | null)
+  ?.closest?.("input, textarea, select, [contenteditable=true]");
+// the Designer handles these itself (it needs the selection and the clipboard events)
+const CANVAS_OWNED = new Set(["edit.undo", "edit.redo", "edit.copy", "edit.paste", "edit.duplicate",
+                              "edit.group", "edit.ungroup", "edit.delete"]);
+// in a text field these keep their usual meaning
+const FIELD_KEYS = new Set(["edit.select_all", "edit.find", "view.zoom_in", "view.zoom_out",
+                            "view.zoom_fit", "help.shortcuts"]);
 
-function ImportDialog({ onClose }: { onClose: () => void }) {
-  const { load, notify } = useStore();
-  const [kind, setKind] = useState("onnx");
-  const [file, setFile] = useState<File | null>(null);
-  const [attr, setAttr] = useState("");
-  const [shape, setShape] = useState("");
-  const [report, setReport] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [graph, setGraph] = useState<Parameters<typeof load>[0] | null>(null);
-  const [uri, setUri] = useState("");
-  const mlflow = kind === "mlflow";
-  const show = (r: { graph: Parameters<typeof load>[0]; summary: string; ok: boolean;
-                     warnings: string[] }) => {
-    setReport(r.summary + (r.warnings.length ? `\n\nNotes:\n  - ${r.warnings.join("\n  - ")}` : ""));
-    setGraph(r.ok ? r.graph : null);
-  };
-  const run = async () => {
-    if (mlflow) {
-      setBusy(true);
-      setReport("Loading the MLflow model…");
-      try {
-        show(await api.importMlflow(uri.trim(), shape));
-      } catch (e) {
-        setReport(`Import failed:\n${(e as Error).message}`);
-        setGraph(null);
-      } finally {
-        setBusy(false);
-      }
-      return;
-    }
-    if (!file) return;
-    const form = new FormData();
-    form.append("kind", kind);
-    form.append("file", file);
-    form.append("attr", attr);
-    form.append("input_shape", shape);
-    setBusy(true);
-    setReport("Importing…");
-    try {
-      show(await api.importModel(form));
-    } catch (e) {
-      setReport(`Import failed:\n${(e as Error).message}`);
-      setGraph(null);
-    } finally {
-      setBusy(false);
-    }
-  };
-  return (
-    <Modal title="Import model" onClose={onClose} actions={
-      <>
-        <button onClick={run} disabled={(mlflow ? !uri.trim() : !file) || busy}>Import</button>
-        <button className="primary" disabled={!graph} onClick={() => {
-          load(graph!);
-          notify("Imported model opened as a project");
-          onClose();
-        }}>Open as project</button>
-      </>}>
-      <p className="dim">Turns an existing model into editable blocks. The rebuilt model is
-        verified against the original (parameter count, outputs).</p>
-      <div className="form">
-        <div className="field"><label htmlFor="imp-kind">Format</label>
-          <select id="imp-kind" value={kind} onChange={(e) => setKind(e.target.value)}>
-            <option value="onnx">ONNX (.onnx)</option>
-            <option value="keras">Keras (.keras / .h5)</option>
-            <option value="pytorch">PyTorch module (.py, .pt)</option>
-            <option value="mlflow">MLflow model (URI)</option>
-          </select></div>
-        {mlflow ? <div className="field"><label htmlFor="imp-uri">Model URI</label>
-          <input id="imp-uri" value={uri} placeholder="models:/name/1 or runs:/id/model"
-                 onChange={(e) => setUri(e.target.value)} /></div>
-          : <div className="field"><label htmlFor="imp-file">File</label>
-          <input id="imp-file" type="file" onChange={(e) => setFile(e.target.files?.[0] ?? null)} /></div>}
-        {kind === "pytorch" && <div className="field"><label htmlFor="imp-attr">Model class</label>
-          <input id="imp-attr" value={attr} onChange={(e) => setAttr(e.target.value)} /></div>}
-        <div className="field"><label htmlFor="imp-shape">Input shape (per sample)</label>
-          <input id="imp-shape" placeholder="3, 224, 224" value={shape}
-                 onChange={(e) => setShape(e.target.value)} /></div>
-      </div>
-      {report && <pre className="code" style={{ marginTop: 10, whiteSpace: "pre-wrap" }}>{report}</pre>}
-    </Modal>
-  );
-}
+// the first-run tour; automated browsers (tests) only see it when asked for
+const showTourAtStart = () => !tourDone()
+  && (!navigator.webdriver || localStorage.getItem("aime.tour") === "show");
 
 export function App() {
-  const { name, setName, project, notify, toast, theme, toggleTheme, version, validation, nodes,
-          dataIssues } = useStore();
+  const store = useStore();
+  const { name, setName, project, notify, theme, toggleTheme, version, validation, nodes,
+          dataIssues, undo, redo, duplicateSelection, groupSelection, copySelection, arrange,
+          canvas, load, restored, discardRestored } = store;
   const [page, setPage] = useState<Page>("design");
   const [experimentsTab, setExperimentsTab] = useState("runs");
   const [design, setDesign] = useState("");
@@ -150,38 +51,120 @@ export function App() {
     if (!nodes.length) return setDesign("");
     api.describe(project())
       .then((d) => setDesign(d.task ? `${d.family.label} · ${d.task.label}` : d.family.label))
-      .catch(() => setDesign(""));
+      .catch((e) => {  // only the status bar label: say why it is missing in the console
+        console.warn("describe failed:", e);
+        setDesign("");
+      });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [validation]);
-  const [dialog, setDialog] = useState<"" | "open" | "import" | "new" | "tools" | "backends">("");
+  const [dialog, setDialog] = useState<Dialog>("");
+  const [palette, setPalette] = useState<PaletteMode | null>(null);
+  const [tour, setTour] = useState(showTourAtStart);
   const [startFacts, setStartFacts] = useState<DataFacts | null>(null);
 
-  const save = async () => {
+  const save = useCallback(async () => {
     try {
       await api.saveProject(name, project());
+      rememberProject(name);
       notify(`Saved “${name}”`);
     } catch (e) {
       notify(String((e as Error).message), true);
     }
-  };
-  const download = () => {
+  }, [name, project, notify]);
+  const download = useCallback(() => {
     const blob = new Blob([JSON.stringify(project(), null, 1)], { type: "application/json" });
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
     a.download = `${name || "project"}.json`;
     a.click();
     URL.revokeObjectURL(a.href);
-  };
+  }, [name, project]);
+  const openRecent = useCallback((saved: string) => {
+    api.project(saved).then((p) => { load(p); rememberProject(saved); setPage("design"); })
+      .catch((e) => notify(`Could not open “${saved}”: ${(e as Error).message}`, true));
+  }, [load, notify]);
+  /** Canvas commands need the Design page: switch there first. */
+  const onCanvas = useCallback((fn: () => void) => {
+    if (page !== "design") {
+      setPage("design");
+      window.setTimeout(fn, 80);
+    } else {
+      fn();
+    }
+  }, [page]);
+
+  const handlers: Record<string, () => void> = useMemo(() => ({
+    "file.new": () => setDialog("new"),
+    "file.open": () => setDialog("open"),
+    "file.save": save,
+    "file.download": download,
+    "file.import_model": () => setDialog("import"),
+    "file.export_png": () => onCanvas(() => {
+      if (!nodes.length) return notify("The canvas is empty: nothing to export", true);
+      const image = canvas.current?.image();
+      if (image) downloadCanvas(image, `${name || "design"}.png`);
+    }),
+    "edit.undo": undo,
+    "edit.redo": redo,
+    "edit.copy": () => {
+      const text = copySelection();
+      if (!text) return notify("Select blocks to copy first", true);
+      navigator.clipboard?.writeText(text).then(() => notify("Copied"))
+        .catch(() => notify("Press Ctrl/⌘ C on the canvas to copy", true));
+    },
+    "edit.paste": () => notify("Press Ctrl/⌘ V on the canvas to paste"),
+    "edit.duplicate": () => onCanvas(() => { duplicateSelection(); }),
+    "edit.select_all": () => onCanvas(() => canvas.current?.selectAll()),
+    "edit.delete": () => onCanvas(() => canvas.current?.deleteSelection()),
+    "edit.group": () => onCanvas(() => {
+      if (!groupSelection()) notify("Select the blocks to group first", true);
+    }),
+    "edit.ungroup": () => onCanvas(() => canvas.current?.ungroupSelection()),
+    "edit.note": () => onCanvas(() => canvas.current?.addNote()),
+    "edit.find": () => onCanvas(() => setPalette("find")),
+    "view.auto_layout": () => onCanvas(arrange),
+    "view.zoom_in": () => onCanvas(() => canvas.current?.zoomIn()),
+    "view.zoom_out": () => onCanvas(() => canvas.current?.zoomOut()),
+    "view.zoom_fit": () => onCanvas(() => canvas.current?.fit()),
+    "view.theme": toggleTheme,
+    "go.design": () => setPage("design"),
+    "go.data": () => setPage("data"),
+    "go.experiments": () => setPage("experiments"),
+    "go.models": () => setPage("models"),
+    "run.tracking": () => setDialog("tools"),
+    "run.backends": () => setDialog("backends"),
+    "help.palette": () => setPalette("commands"),
+    "help.shortcuts": () => setDialog("shortcuts"),
+    "help.tour": () => { resetTour(); setPage("design"); setTour(true); },
+  }), [save, download, onCanvas, nodes.length, notify, canvas, name, undo, redo, copySelection,
+       duplicateSelection, groupSelection, arrange, toggleTheme]);
+  const run = useCallback((id: string) => handlers[id]?.(), [handlers]);
+  const available: ActionDef[] = useMemo(() => ACTIONS.filter((a) => handlers[a.id]), [handlers]);
+
+  // one listener for the app's shortcuts; it reads the latest handlers through a ref
+  const latest = useRef({ handlers, page, overlay: false });
+  latest.current = { handlers, page, overlay: !!dialog || !!palette };
   useEffect(() => {
     const key = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "s") {
+      const { handlers: h, page: p, overlay } = latest.current;
+      for (const a of ACTIONS) {
+        if (!a.keys || CANVAS_OWNED.has(a.id) || !matchesKeys(e, a.keys)) continue;
+        if (a.id !== "help.palette" && a.id !== "file.save" && overlay) return;
+        if (typing() && (FIELD_KEYS.has(a.id) || !a.keys.includes("Mod"))) return;
+        const canvasOnly = a.id.startsWith("view.zoom") || a.id === "edit.select_all";
+        if (canvasOnly && p !== "design") return;
         e.preventDefault();
-        save();
+        if (a.id === "help.palette") {
+          setPalette((m) => (m ? null : "commands"));
+        } else {
+          h[a.id]?.();
+        }
+        return;
       }
     };
     window.addEventListener("keydown", key);
     return () => window.removeEventListener("keydown", key);
-  });
+  }, []);
 
   const errors = validation?.issues.filter((i) => i.severity === "error").length ?? 0;
   const warnings = (validation?.issues.length ?? 0) - errors + dataIssues.length;
@@ -189,28 +172,37 @@ export function App() {
     <div className="app">
       <header className="topbar">
         <div className="brand">AI <span>Made Easy</span></div>
-        <nav className="nav">
+        <FileMenu run={run} openRecent={openRecent} />
+        <nav className="nav" aria-label="Pages">
           {PAGES.map(([id, label]) => (
-            <button key={id} className={page === id ? "active" : ""} onClick={() => setPage(id)}>
+            <button key={id} className={page === id ? "active" : ""} onClick={() => setPage(id)}
+                    aria-current={page === id ? "page" : undefined}>
               {label}</button>
           ))}
         </nav>
         <div className="spacer" />
         <input className="project-name" value={name} onChange={(e) => setName(e.target.value)}
                aria-label="Project name" />
-        <button onClick={() => setDialog("new")} data-testid="new-project"
-                title="Start from a task: recipes ranked for your data and budget, or AutoML">New</button>
-        <button onClick={() => setDialog("open")}>Open</button>
-        <button onClick={save} title="Save on the server (Ctrl+S)">Save</button>
-        <button onClick={download} title="Download the project JSON">Download</button>
-        <button onClick={() => setDialog("import")}>Import model</button>
+        <button onClick={save} title="Save on the server (Ctrl/⌘ S)">Save</button>
         <button onClick={() => setDialog("tools")} data-testid="open-tools"
                 title="Experiment tracking, Kaggle and Hub datasets, run history">Tools</button>
         <button onClick={() => setDialog("backends")} data-testid="open-backends"
                 title="Where runs train: this machine, SSH, Kaggle, Colab, Modal">Backends</button>
-        <button className="ghost" onClick={toggleTheme} title="Toggle theme">
+        <button className="ghost palette-button" onClick={() => setPalette("commands")}
+                title="Command palette (Ctrl/⌘ K)" aria-label="Command palette" data-testid="open-palette">
+          ⌘K</button>
+        <button className="ghost" onClick={() => setDialog("shortcuts")} aria-label="Keyboard shortcuts"
+                title="Keyboard shortcuts (?)">?</button>
+        <button className="ghost" onClick={toggleTheme} aria-label="Toggle theme"
+                title={theme === "dark" ? "Light theme" : "Dark theme"}>
           {theme === "dark" ? "☀" : "☾"}</button>
       </header>
+      {restored && (
+        <div className="banner" role="region" aria-label="Restored design" data-testid="restored">
+          <span>Restored your unsaved design from last time.</span>
+          <button onClick={() => discardRestored(true)}>Keep it</button>
+          <button className="ghost" onClick={() => discardRestored(false)}>Start fresh</button>
+        </div>)}
       {page === "design" && <Designer onDataFile={(file) => {
         notify(`Reading ${file.name}…`);
         api.uploadData(file).then((d) => { setStartFacts(d.facts); setDialog("new"); })
@@ -233,11 +225,15 @@ export function App() {
       {dialog === "tools" && <ToolsModal onClose={() => setDialog("")}
         onUseData={(d) => { setStartFacts(d.facts); setDialog("new"); }} />}
       {dialog === "backends" && <BackendsModal onClose={() => setDialog("")} />}
+      {dialog === "shortcuts" && <ShortcutsSheet actions={available} onClose={() => setDialog("")} />}
       {dialog === "new" && <NewProjectWizard initialFacts={startFacts}
         onClose={() => { setDialog(""); setStartFacts(null); }}
         onCreated={() => { setDialog(""); setStartFacts(null); setPage("design"); }}
         onAutoml={() => { setDialog(""); setExperimentsTab("sweeps"); setPage("experiments"); }} />}
-      {toast && <div className={`toast ${toast.error ? "error" : ""}`} role="status">{toast.text}</div>}
+      {palette && <CommandPalette mode={palette} actions={available} run={run}
+                                  onClose={() => setPalette(null)} />}
+      {tour && page === "design" && !dialog && <Tour onClose={() => setTour(false)} />}
+      <Toasts />
     </div>
   );
 }

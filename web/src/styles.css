@@ -298,4 +298,69 @@ fieldset.budget label { display: flex; justify-content: space-between; align-ite
 .check { display: inline-flex; align-items: center; gap: 6px; margin-right: 18px; }
 
 /* feature importance bars (3.3) */
-.bar { height: 10px; border-radius: 3px; background: var(--accent); min-width: 1px; }
+.importance-bar { height: 10px; border-radius: 3px; background: var(--accent); min-width: 1px; }
+
+/* ---- 3.3 polish: toasts, menus, palette, dialogs, tour */
+.toasts { position: fixed; bottom: 36px; right: 20px; display: flex; flex-direction: column;
+          gap: 8px; align-items: flex-end; z-index: 60; pointer-events: none; }
+.toasts .toast { position: static; display: flex; gap: 10px; align-items: flex-start;
+                 pointer-events: auto; animation: toast-in .16s ease-out; }
+.toasts .toast > span { flex: 1; }
+@keyframes toast-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .toasts .toast { animation: none; } }
+
+kbd { font: 11px "SF Mono", Menlo, Consolas, monospace; color: var(--text-dim);
+      background: var(--raised); border: 1px solid var(--border); border-bottom-width: 2px;
+      border-radius: 4px; padding: 0 5px; white-space: nowrap; }
+
+.menu { position: relative; }
+.menu-list { position: absolute; top: calc(100% + 4px); left: 0; min-width: 250px; z-index: 45;
+             background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
+             padding: 4px; box-shadow: 0 10px 30px rgba(0,0,0,.35); }
+.menu-item { display: flex; width: 100%; justify-content: space-between; gap: 16px;
+             background: transparent; border: 0; text-align: left; padding: 6px 10px; }
+.menu-item:hover, .menu-item:focus-visible { background: var(--hover); }
+.menu-sep { height: 1px; background: var(--border-soft); margin: 4px 2px; }
+.menu-heading { font-size: 11px; color: var(--text-muted); padding: 4px 10px 2px;
+                text-transform: uppercase; letter-spacing: .5px; }
+
+.palette-backdrop { place-items: start center; padding-top: 12vh; }
+.palette { width: min(620px, 92vw); background: var(--panel); border: 1px solid var(--border);
+           border-radius: 10px; box-shadow: 0 16px 48px rgba(0,0,0,.45); overflow: hidden; }
+.palette > input { width: 100%; border: 0; border-bottom: 1px solid var(--border); border-radius: 0;
+                   padding: 12px 14px; font-size: 15px; background: var(--panel); }
+.palette-list { max-height: 50vh; overflow: auto; padding: 4px; }
+.palette-item { display: flex; align-items: center; gap: 8px; padding: 7px 10px; border-radius: 6px;
+                cursor: pointer; }
+.palette-item.active { background: var(--accent-soft); }
+.palette-group { font-size: 11px; }
+.palette-button { font: 11px "SF Mono", Menlo, monospace; color: var(--text-dim); }
+
+.modal.narrow { width: min(440px, 92vw); }
+button.danger-fill { background: var(--error); border-color: var(--error); }
+button.danger-fill:hover:not(:disabled) { background: var(--error); filter: brightness(1.1); }
+.shortcut-groups { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 4px 20px; }
+.shortcut-groups h4 { margin: 10px 0 4px; color: var(--text-dim); }
+.shortcut-groups td { padding: 3px 4px; }
+
+.banner { display: flex; gap: 10px; align-items: center; padding: 6px 12px; font-size: 12.5px;
+          background: var(--accent-soft); border-bottom: 1px solid var(--border); }
+.banner > span { flex: 1; }
+.state-error { color: var(--error); }
+.spinner { display: inline-block; width: 12px; height: 12px; border-radius: 50%; vertical-align: -2px;
+           border: 2px solid var(--border); border-top-color: var(--accent); margin-right: 6px;
+           animation: spin .8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .spinner { animation: none; } }
+
+.tour-ring { position: fixed; border: 2px solid var(--accent); border-radius: 8px; z-index: 55;
+             pointer-events: none; box-shadow: 0 0 0 4px var(--accent-soft); }
+.tour-card { position: fixed; z-index: 56; background: var(--panel); border: 1px solid var(--accent);
+             border-radius: 10px; padding: 12px 14px; box-shadow: 0 12px 36px rgba(0,0,0,.4); }
+.tour-card h4 { margin: 2px 0 6px; }
+.tour-card p { margin: 0 0 10px; color: var(--text-dim); }
+.tour-step { font-size: 11px; }
+
+/* keyboard focus is always visible */
+button:focus-visible, .block-item:focus-visible, [role=button]:focus-visible, select:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: 1px; }

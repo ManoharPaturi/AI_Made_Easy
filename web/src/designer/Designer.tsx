@@ -10,7 +10,8 @@ import { groupBounds, groupsOf, notesOf } from "../canvas";
 import { RunOnSelect, useRunOn } from "../components/Backends";
 import { LineChart, metricSeries } from "../components/LineChart";
 import { PipelinePanel } from "../components/Pipeline";
-import { type FlowNode, edgeId, shapeLabel } from "../project";
+import { drawDesign, type PngBox } from "../exportPng";
+import { type FlowNode, edgeId, paramSummary, shapeLabel } from "../project";
 import { useStore } from "../state";
 import type { Explanation, RunEvent } from "../types";
 import { GroupNode, NoteNode } from "./Annotations";
@@ -29,7 +30,7 @@ function Canvas({ onDataFile }: { onDataFile?: (file: File) => void }) {
   const { nodes, edges, onNodesChange, onEdgesChange, setEdges, addBlock, setSelected, commit,
           validation, undo, redo, loads, arrange, blockMap, meta, copySelection, pasteText,
           duplicateSelection, groupSelection, ungroup, addNoteAt, updateNote, removeNote,
-          notify } = useStore();
+          notify, canvas, selectIds } = useStore();
   const flow = useReactFlow();
 
   // notes and group frames are drawn as extra nodes around the blocks
@@ -183,11 +184,66 @@ function Canvas({ onDataFile }: { onDataFile?: (file: File) => void }) {
   }, [undo, redo, duplicateSelection, groupSelection, ungroup, copySelection, pasteText, notify,
       nodes, groups]);
 
-  const addNote = () => {
+  const addNote = useCallback(() => {
     const el = wrapper.current?.getBoundingClientRect();
     const at = flow.screenToFlowPosition(el ? { x: el.left + 60, y: el.top + 60 } : { x: 100, y: 100 });
     addNoteAt([Math.round(at.x), Math.round(at.y)]);
-  };
+  }, [flow, addNoteAt]);
+
+  // what the command palette, menus and shortcuts can do with this canvas
+  const latest = useRef({ nodes, edges, groups, notes, validation, blockMap });
+  latest.current = { nodes, edges, groups, notes, validation, blockMap };
+  useEffect(() => {
+    canvas.current = {
+      zoomIn: () => flow.zoomIn({ duration: 150 }),
+      zoomOut: () => flow.zoomOut({ duration: 150 }),
+      fit: () => flow.fitView({ padding: 0.15, maxZoom: 1.2, duration: 200 }),
+      focus: (id) => {
+        const n = latest.current.nodes.find((x) => x.id === id);
+        if (!n) return;
+        selectIds([id]);
+        const w = n.measured?.width ?? 180;
+        const h = n.measured?.height ?? 60;
+        flow.setCenter(n.position.x + w / 2, n.position.y + h / 2,
+                       { zoom: Math.max(flow.getZoom(), 1), duration: 250 });
+      },
+      selectAll: () => selectIds(latest.current.nodes.map((n) => n.id)),
+      deleteSelection: () => {
+        const ids = new Set(latest.current.nodes.filter((n) => n.selected).map((n) => n.id));
+        if (!ids.size) return;
+        flow.deleteElements({ nodes: [...ids].map((id) => ({ id })) });
+      },
+      ungroupSelection: () => {
+        const ids = new Set(latest.current.nodes.filter((n) => n.selected).map((n) => n.id));
+        latest.current.groups.filter((g) => g.nodes.some((n) => ids.has(n))).forEach((g) => ungroup(g.id));
+      },
+      addNote,
+      image: () => {
+        const { nodes: ns, edges: es, groups: gs, notes: nts, validation: v, blockMap: bm } = latest.current;
+        const boxes: PngBox[] = ns.map((n) => {
+          const def = bm.get(n.data.typeId);
+          const shape = v?.shapes[n.id];
+          return { id: n.id, kind: "block", x: n.position.x, y: n.position.y,
+                   w: n.measured?.width ?? 180, h: n.measured?.height ?? 50,
+                   title: def?.display_name ?? n.data.typeId, color: def?.color ?? "#9aa0a9",
+                   subtitle: `${shape ? `${shapeLabel(shape)} ` : ""}${paramSummary(def, n.data.params)}` };
+        });
+        const positions = new Map(ns.map((n) => [n.id, n.position]));
+        for (const g of gs) {
+          const b = groupBounds(g, positions);
+          if (b) boxes.push({ id: `group:${g.id}`, kind: "group", x: b.x, y: b.y, w: b.width, h: b.height,
+                              title: g.title, color: g.color });
+        }
+        for (const n of nts) {
+          boxes.push({ id: `note:${n.id}`, kind: "note", x: n.position[0], y: n.position[1],
+                       w: n.size[0], h: n.size[1], title: n.text, color: "" });
+        }
+        return drawDesign(boxes, es.map((e) => ({ from: e.source, to: e.target,
+          label: v?.shapes[e.source] ? shapeLabel(v.shapes[e.source]) : undefined })));
+      },
+    };
+    return () => { canvas.current = null; };
+  }, [canvas, flow, selectIds, ungroup, addNote]);
   const selectedCount = nodes.filter((n) => n.selected).length;
 
   // wires show the tensor shape flowing through them

@@ -77,7 +77,10 @@ CATALOG: list[ActionSpec] = [
                icon="zoom_out"),
     ActionSpec("view.zoom_fit", "&Fit to View", "&View", "act_zoom_fit", "Ctrl+0", icon="fit"),
     ActionSpec("view.auto_layout", "Auto-&Arrange Blocks", "&View", "act_auto_layout",
-               "Ctrl+L", "Lay blocks out left to right by data flow", separator_after=True),
+               "Ctrl+L", "Lay blocks out left to right by data flow"),
+    ActionSpec("view.minimap", "&Minimap", "&View", "act_minimap", "Ctrl+Shift+M",
+               "An overview of the whole design in the canvas corner", checkable=True,
+               separator_after=True),
 
     # ---- Model ----
     ActionSpec("model.validate", "&Validate", "&Model", "act_validate", "Ctrl+Shift+V",
@@ -164,6 +167,8 @@ CATALOG: list[ActionSpec] = [
     # ---- Help ----
     ActionSpec("help.shortcuts", "&Keyboard Shortcuts", "&Help", "act_shortcuts",
                icon="keyboard"),
+    ActionSpec("help.tour", "Show the &Tour", "&Help", "act_tour", "",
+               "Three steps: the library, the canvas, training"),
     ActionSpec("help.about", "&About AI Made Easy", "&Help", "act_about", icon="help"),
 ]
 
