@@ -81,6 +81,8 @@ class TrainingRun:
         self.remote_url = ""
         self.slug = ""
         self.graph: Graph | None = None  # the design, for budget checks on the backend's GPU
+        self.mirror = None             # MLflow / W&B trackers (core.tracking.RunMirror)
+        self.closing_mirror = None     # the mirror finishing after the run ended
 
     def record(self, event: dict) -> None:
         finished = False
@@ -100,6 +102,8 @@ class TrainingRun:
                 self.returncode = code
                 self.state = "finished" if code == 0 else "failed"
                 finished = True
+        if self.mirror is not None and kind == "epoch":
+            self.mirror.epoch(event)
         if self.history is not None:
             if kind == "epoch":
                 self.history.append_epoch(self.run_id, event)
@@ -112,6 +116,8 @@ class TrainingRun:
             if finished:
                 self.history.finalize(self.run_id, self.state, self.returncode,
                                       self.error or "")
+        if finished:
+            self._finish_tracking()
         for listener in list(self.listeners):
             try:
                 listener(self.run_id, event)
@@ -123,8 +129,32 @@ class TrainingRun:
         if self.state in FINAL_STATES:
             if self.state == "stopped" and self.history is not None:
                 self.history.finalize(self.run_id, "stopped", code)
+            self._finish_tracking()
             return
         self.record({"type": "done", "returncode": code if code else 1})
+
+    def _finish_tracking(self) -> None:
+        mirror, self.mirror = self.mirror, None
+        if mirror is not None:
+            mirror.finish(self.state, Path(self.workdir))
+            self.closing_mirror = mirror
+
+    def start_tracking(self, names: list[str]) -> None:
+        """Mirror this run to MLflow / W&B (``core.tracking``) from its events."""
+        from ai_made_easy.core import tracking
+
+        if not names or self.history is None:
+            return
+        record = self.history.get(self.run_id).to_dict()
+
+        def log(line: str) -> None:
+            self.record({"type": "log", "line": f"[tracking] {line}"})
+
+        def started(info: list[dict]) -> None:
+            if info and self.history is not None:
+                self.history.update(self.run_id, tracking=info)
+
+        self.mirror = tracking.RunMirror(record, names, log=log, on_start=started)
 
     def status(self) -> dict[str, Any]:
         with self._lock:
@@ -201,7 +231,7 @@ class RunManager:
             self.history.finalize(record.run_id, "failed", None,
                                   f"could not prepare the stage: {exc}")
             raise
-        return self._launch(record.run_id, script, workdir)
+        return self._launch(record.run_id, script, workdir, graph=graph)
 
     def _launch(self, run_id: str, script, workdir,  # noqa: ANN001
                 backend: backends.Backend | None = None, bundle=None,  # noqa: ANN001
@@ -217,12 +247,23 @@ class RunManager:
         run.state = "running"
         self.history.update(record.run_id, status="running",
                             backend="" if run.backend.kind == "local" else run.backend.spec)
+        self._track(run, graph)
         try:
             run.backend.launch(run, self.python or python_executable())
         except Exception as exc:
             run.record({"type": "error", "traceback": str(exc)})
             run.process_exited(1)
         return record.run_id
+
+    def _track(self, run: TrainingRun, graph: Graph | None) -> None:
+        from ai_made_easy.core import tracking
+
+        try:
+            names = tracking.selected(graph.meta if graph is not None else None)
+        except tracking.TrackingError as exc:
+            run.record({"type": "log", "line": f"[tracking] {exc}"})
+            return
+        run.start_tracking(names)
 
     def attach(self, run_id: str) -> dict:
         """Follow a remote run again (after the app restarted or the link dropped)."""
@@ -337,6 +378,8 @@ class RunManager:
                 while (time.time() < rec_deadline
                        and self.history.get(run_id).status not in FINAL_STATES):
                     time.sleep(0.05)
+                if run.closing_mirror is not None:  # MLflow / W&B finish mirroring
+                    run.closing_mirror.join(max(1.0, deadline - time.time()))
                 return run.status()
             time.sleep(0.1)
         raise TimeoutError(f"run {run_id} did not finish within {timeout}s")

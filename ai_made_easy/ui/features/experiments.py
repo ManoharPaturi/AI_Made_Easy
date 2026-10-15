@@ -79,6 +79,7 @@ class ExperimentsPage(QtWidgets.QWidget):
     model_deploy_requested = QtCore.Signal(str, int)          # name, version
     model_stage_requested = QtCore.Signal(str, int, str)      # name, version, stage
     model_delete_requested = QtCore.Signal(str, int)          # name, version
+    model_share_requested = QtCore.Signal(str, int, str)      # name, version, target
     stop_pipeline_requested = QtCore.Signal(str)               # pipeline_id
     resume_pipeline_requested = QtCore.Signal(str)             # pipeline_id
 
@@ -521,10 +522,22 @@ class ExperimentsPage(QtWidgets.QWidget):
         self.stage_btn = QtWidgets.QPushButton("Set Stage")
         self.model_deploy_btn = QtWidgets.QPushButton("Deploy…")
         self.model_deploy_btn.setIcon(icons.icon("download"))
+        self.model_share_btn = QtWidgets.QPushButton("Share")
+        self.model_share_btn.setToolTip("MLflow / W&B registries, the Hugging Face Hub")
+        share_menu = QtWidgets.QMenu(self.model_share_btn)
+        from ai_made_easy.ui.features.tools import SHARE_TARGETS
+
+        for target, label in SHARE_TARGETS:
+            action = share_menu.addAction(label)
+            action.setObjectName(f"share_{target}")
+            action.triggered.connect(lambda _=False, t=target: self._emit_model(
+                lambda n, v: self.model_share_requested.emit(n, v, t)))
+        self.model_share_btn.setMenu(share_menu)
         self.model_delete_btn = QtWidgets.QPushButton("")
         self.model_delete_btn.setIcon(icons.icon("trash"))
         self.model_delete_btn.setToolTip("Delete the selected model version")
-        for w in (self.stage_combo, self.stage_btn, self.model_deploy_btn, self.model_delete_btn):
+        for w in (self.stage_combo, self.stage_btn, self.model_deploy_btn, self.model_share_btn,
+                  self.model_delete_btn):
             bar.addWidget(w)
         box.addLayout(bar)
         self.models_table = _readonly_table(["Model", "Version", "Stage", "Framework", "Task",
@@ -559,7 +572,8 @@ class ExperimentsPage(QtWidgets.QWidget):
 
     def _update_model_buttons(self) -> None:
         on = self._selected_model() is not None
-        for w in (self.stage_btn, self.model_deploy_btn, self.model_delete_btn):
+        for w in (self.stage_btn, self.model_deploy_btn, self.model_share_btn,
+                  self.model_delete_btn):
             w.setEnabled(on)
 
 

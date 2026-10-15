@@ -79,9 +79,11 @@ def import_model(kind: str, *, source: str, attr: str = "", input_shape: list[in
     """Import ``source`` (a .py file / module for PyTorch, an .onnx file, a .keras file)."""
     if kind not in KINDS:
         raise ModelImportError(f"unknown model kind {kind!r}; one of {KINDS}")
-    if kind == "pytorch" and (not attr or not input_shape):
-        raise ModelImportError("PyTorch imports need the model class / factory name and the "
-                           "input shape (without the batch dimension)")
+    saved = kind == "pytorch" and source.endswith((".pt", ".pth"))
+    if kind == "pytorch" and (not (attr or saved) or not input_shape):
+        raise ModelImportError("PyTorch imports need the model class / factory name (or a "
+                               "saved .pt module) and the input shape (without the batch "
+                               "dimension)")
     request = {"source": source, "attr": attr, "input_shape": input_shape, "dtype": dtype,
                "kwargs": kwargs or {}, "weights_out": weights_out}
     package_root = str(Path(__file__).resolve().parents[3])

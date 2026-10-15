@@ -54,6 +54,7 @@ class RunRecord:
     pid: int | None = None
     backend: str = ""  # where it trained: "" / local, ssh:<host>, kaggle, … (see backends)
     remote: dict[str, Any] = field(default_factory=dict)  # what following it again needs
+    tracking: list[dict] = field(default_factory=list)  # [{tracker, id, url}] (core.tracking)
 
     @property
     def duration(self) -> float | None:

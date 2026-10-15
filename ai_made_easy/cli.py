@@ -63,8 +63,13 @@ def main(argv: list[str] | None = None) -> int:
     p_run.add_argument("--on", default=None, metavar="BACKEND", help=on_help)
     p_runs = sub.add_parser("runs", help="run history")
     p_runs.add_argument("action", nargs="?", default="list",
-                        choices=("list", "show", "compare", "delete", "attach", "import"))
+                        choices=("list", "show", "compare", "delete", "attach", "import",
+                                 "export"))
     p_runs.add_argument("ids", nargs="*", help="run id(s); import: the results .zip")
+    p_runs.add_argument("-o", "--out", default="runs.csv",
+                        help="export: .csv or .parquet file (default runs.csv)")
+    p_runs.add_argument("--epochs", action="store_true",
+                        help="export: one row per epoch instead of per run")
     p_be = sub.add_parser("backends", help="where runs train: list, add, test, remove")
     p_be.add_argument("action", nargs="?", default="list",
                       choices=("list", "add", "test", "remove"))
@@ -106,13 +111,17 @@ def main(argv: list[str] | None = None) -> int:
     p_mod.add_argument("args", nargs="*")
     p_mod.add_argument("-o", "--out", default=None)
     p_mod.add_argument("--formats", default="")
+    p_mod.add_argument("--also", default="", metavar="mlflow,wandb",
+                       help="register / stage: also register the version in MLflow's model "
+                            "registry and / or as a W&B model artifact")
     p_srv = sub.add_parser("serve", help="serve a deployment package with uvicorn")
     p_srv.add_argument("package")
     p_srv.add_argument("--host", default="127.0.0.1")
     p_srv.add_argument("--port", type=int, default=8000)
     p_imp = sub.add_parser("import", help="import a PyTorch / ONNX / Keras model as a project")
-    p_imp.add_argument("kind", choices=("pytorch", "onnx", "keras"))
-    p_imp.add_argument("source", help=".py file or module (pytorch), .onnx, .keras / .h5")
+    p_imp.add_argument("kind", choices=("pytorch", "onnx", "keras", "mlflow"))
+    p_imp.add_argument("source", help=".py file, module or saved .pt module (pytorch), .onnx, "
+                       ".keras / .h5, or an MLflow model URI (models:/name/1, runs:/id/model)")
     p_imp.add_argument("--attr", default="", help="model class or factory (pytorch)")
     p_imp.add_argument("--shape", default="", help="per-sample input shape, e.g. 3,224,224")
     p_imp.add_argument("--dtype", default="float32", choices=("float32", "int64"))
@@ -120,12 +129,36 @@ def main(argv: list[str] | None = None) -> int:
     p_imp.add_argument("-o", "--out", required=True, help="project .json to write")
     p_data = sub.add_parser("data", help="profile datasets, preview splits and augmentation")
     p_data.add_argument("action", choices=("profile", "check", "split", "augment",
-                                           "fingerprint"))
-    p_data.add_argument("source", help="project .json, or a data file / folder (profile)")
+                                           "fingerprint", "fetch"))
+    p_data.add_argument("source", help="project .json, or a data file / folder (profile); "
+                        "fetch: kaggle:owner/name, kaggle-competition:name[/file] or "
+                        "hf:owner/repo[:split]")
+    p_data.add_argument("--force", action="store_true", help="fetch: download again")
     p_data.add_argument("--target", default=None, help="target column (profiling a table)")
     p_data.add_argument("--json", action="store_true", help="print JSON")
     p_data.add_argument("-o", "--out", default="augmentation_preview",
                         help="output folder (augment)")
+    p_hub = sub.add_parser("hub", help="the Hugging Face Hub: push a run, pull it back, "
+                                       "deploy a Space (sign in with `hf auth login`)")
+    p_hub.add_argument("action", choices=("push", "pull", "space"))
+    p_hub.add_argument("args", nargs="+", help="push RUN_ID REPO | pull REPO | "
+                                               "space RUN_ID SPACE")
+    p_hub.add_argument("--model", action="store_true",
+                       help="push / space: the first argument is a registered model "
+                            "(NAME or NAME/VERSION) instead of a run id")
+    p_hub.add_argument("--public", action="store_true", help="make the repo public")
+    p_hub.add_argument("--name", default="", help="pull: registry name (default: repo name)")
+    p_hub.add_argument("--formats", default="", help="space: export formats to include")
+    p_kag = sub.add_parser("kaggle", help="submit predictions to a Kaggle competition")
+    p_kag.add_argument("action", choices=("submit",))
+    p_kag.add_argument("competition")
+    p_kag.add_argument("file", help="predictions file (the competition's format)")
+    p_kag.add_argument("-m", "--message", required=True)
+    p_kag.add_argument("--yes", action="store_true",
+                       help="don't ask (a submission counts against the daily limit)")
+    p_trk = sub.add_parser("tracking", help="MLflow / W&B experiment tracking status")
+    p_trk.add_argument("project", nargs="?", default="",
+                       help="project .json (shows its meta.tracking setting)")
     p_web = sub.add_parser("web", help="serve the browser UI and REST API")
     p_web.add_argument("--host", default="127.0.0.1")
     p_web.add_argument("--port", type=int, default=8765)
@@ -211,6 +244,8 @@ def main(argv: list[str] | None = None) -> int:
         return _wizard_command(args)
     if args.command == "pipeline":
         return _pipeline_command(args)
+    if args.command in ("hub", "kaggle", "tracking"):
+        return _tools_command(args)
     if args.command == "web":
         try:
             from ai_made_easy.server.app import main as serve_web
@@ -585,8 +620,12 @@ def _import_command(args) -> int:  # noqa: ANN001
 
     try:
         shape = [int(d) for d in args.shape.replace("x", ",").split(",") if d.strip()] or None
-        result = api.import_model(args.kind, args.source, attr=args.attr, input_shape=shape,
-                                  dtype=args.dtype, kwargs=json.loads(args.kwargs))
+        if args.kind == "mlflow":
+            result = api.open_mlflow_model(args.source, input_shape=shape)
+        else:
+            result = api.import_model(args.kind, args.source, attr=args.attr,
+                                      input_shape=shape, dtype=args.dtype,
+                                      kwargs=json.loads(args.kwargs))
     except (ValueError, KeyError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
@@ -606,6 +645,21 @@ def _data_command(args) -> int:  # noqa: ANN001
     from ai_made_easy.core import api
     from ai_made_easy.core.data.lints import project_base
 
+    if args.action == "fetch":
+        try:
+            result = api.fetch_dataset(args.source, force=args.force)
+        except ValueError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 1
+        if args.json:
+            print(json.dumps(result, indent=1, default=str))
+            return 0
+        facts = result["facts"]
+        print(f"{args.source} -> {result['path']}")
+        print(f"{facts.get('kind', '')}: {facts.get('rows', 0):,} rows; fits "
+              f"{', '.join(facts.get('tasks') or []) or 'no task detected'}")
+        print(f"start a project: aime new <task> --data {result['path']}")
+        return 0
     source = Path(args.source).expanduser()
     is_project = source.suffix == ".json" and source.is_file() and \
         "nodes" in json.loads(source.read_text() or "{}")
@@ -670,6 +724,7 @@ def _deploy_command(args) -> int:  # noqa: ANN001
     from ai_made_easy.core import api
 
     formats = [f.strip() for f in getattr(args, "formats", "").split(",") if f.strip()]
+    also = [t.strip() for t in getattr(args, "also", "").split(",") if t.strip()]
     try:
         if args.command == "serve":
             result = subprocess.run([sys.executable, "-m", "uvicorn", "app:app", "--host",
@@ -703,11 +758,13 @@ def _deploy_command(args) -> int:  # noqa: ANN001
                 print(f"{m['name']:<24} v{m['version']:<4} {m['stage']:<11} "
                       f"{m['framework']:<8} {metrics}")
         elif args.action == "register" and len(a) == 2:
-            m = api.register_model(a[0], a[1])
+            m = api.register_model(a[0], a[1], also=also)
             print(f"registered {m['name']} v{m['version']}")
+            _print_mirrors(m)
         elif args.action == "stage" and len(a) == 3:
-            m = api.set_model_stage(a[0], int(a[1]), a[2])
+            m = api.set_model_stage(a[0], int(a[1]), a[2], also=also)
             print(f"{m['name']} v{m['version']} -> {m['stage']}")
+            _print_mirrors(m)
         elif args.action == "deploy" and len(a) in (1, 2) and args.out:
             result = api.deploy_model(a[0], a[1] if len(a) == 2 else "latest", args.out,
                                       formats)
@@ -726,10 +783,78 @@ def _deploy_command(args) -> int:  # noqa: ANN001
         return 1
 
 
+def _print_mirrors(model: dict) -> None:
+    for where in model.get("mirrors") or []:
+        print(f"  also in {where['target']}: {where['uri']}")
+
+
+def _tools_command(args) -> int:  # noqa: ANN001
+    """``aime hub``, ``aime kaggle submit`` and ``aime tracking``."""
+    from pathlib import Path
+
+    from ai_made_easy.core import api
+
+    try:
+        if args.command == "tracking":
+            graph = json.loads(Path(args.project).read_text()) if args.project else None
+            status = api.tracking_status(graph)
+            chosen = ", ".join(status["selected"]) or "off"
+            print(f"tracking: {chosen}  (AIME_TRACKING={status['env'] or '-'}; per project: "
+                  f"meta.tracking)")
+            print(f"MLflow store: {status['mlflow_uri']}")
+            for t in status["trackers"]:
+                print(f"  {t['label']:<18} {'installed' if t['installed'] else 'not installed'}")
+            return 0
+        if args.command == "kaggle":
+            if not args.yes:
+                answer = input(f"Submit {args.file} to {args.competition}? It counts against "
+                               "the daily limit. [y/N] ")
+                if answer.strip().lower() not in ("y", "yes"):
+                    print("not submitted")
+                    return 1
+            result = api.submit_to_kaggle(args.competition, args.file, args.message,
+                                          confirm=True)
+            print(f"submitted: {result['result'] or 'ok'}\n{result['url']}")
+            return 0
+        a = args.args
+
+        def source(ref: str) -> dict:
+            if not args.model:
+                return {"run_id": ref}
+            name, _, version = ref.partition("/")
+            return {"model": name, "version": version or "latest"}
+
+        if args.action == "push" and len(a) == 2:
+            result = api.push_to_hub(a[1], private=not args.public, **source(a[0]))
+            print(f"pushed: {result['url']}")
+        elif args.action == "pull" and len(a) == 1:
+            m = api.pull_from_hub(a[0], name=args.name)
+            print(f"registered {m['name']} v{m['version']}; package it with: "
+                  f"aime models deploy {m['name']} {m['version']} -o server")
+        elif args.action == "space" and len(a) == 2:
+            formats = [f.strip() for f in args.formats.split(",") if f.strip()]
+            result = api.deploy_to_space(a[1], formats=formats, private=not args.public,
+                                         **source(a[0]))
+            print(f"Space: {result['url']} (it builds the Docker image on the Hub)")
+        else:
+            print("usage: aime hub push RUN_ID REPO | pull REPO | space RUN_ID SPACE",
+                  file=sys.stderr)
+            return 2
+        return 0
+    except (KeyError, ValueError, OSError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+
+
 def _runs_command(args) -> int:  # noqa: ANN001
     from ai_made_easy.core import api
 
     try:
+        if args.action == "export":
+            result = api.export_runs(args.out, project=args.project, epochs=args.epochs)
+            print(f"wrote {result['rows']} row(s), {result['columns']} column(s) to "
+                  f"{result['path']}")
+            return 0
         if args.action == "list":
             rows = api.list_runs(args.project)["runs"]
             for r in rows:

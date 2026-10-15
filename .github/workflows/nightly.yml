@@ -52,6 +52,12 @@ jobs:
         run: |
           pip install -e ".[kaggle]"
           AIME_ONLINE=1 pytest -q -p no:cacheprovider tests/test_backends.py -k real_kaggle
+          AIME_ONLINE=1 pytest -q -p no:cacheprovider tests/test_integrations.py -k real_kaggle
+      - name: Real Hub datasets, and a Hub push when HF_TOKEN / AIME_HF_TEST_REPO are set
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          AIME_HF_TEST_REPO: ${{ vars.AIME_HF_TEST_REPO }}
+        run: AIME_ONLINE=1 pytest -q -p no:cacheprovider tests/test_integrations.py -k "real_hub"
       - uses: actions/upload-artifact@v4
         if: always()
         with:

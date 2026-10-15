@@ -465,6 +465,7 @@ def _facts(facts: dict | None = None, path: str | None = None, target: str = "",
     from ai_made_easy.core.recipes import DataFacts, detect
 
     if path:
+        path = _local(path)
         found = detect(path, target=target, task=task)
         if found.error:
             raise ApiError(found.error)
@@ -495,10 +496,26 @@ def wizard_tasks() -> dict:
     return {"tasks": rows}
 
 
+def _local(path: str) -> str:
+    """A Kaggle / Hub source (``kaggle:owner/name``, ``hf:repo``) becomes its downloaded
+    file or folder; anything else is returned unchanged."""
+    from ai_made_easy.core.integrations import datasets
+
+    if not datasets.is_source(path):
+        return path
+    try:
+        return str(datasets.fetch(path))
+    except datasets.SourceError as exc:
+        raise ApiError(str(exc)) from exc
+
+
 def detect_data(path: str, target: str = "", task: str = "") -> dict:
-    """Format, size, target, classes and the tasks the data at ``path`` fits."""
+    """Format, size, target, classes and the tasks the data at ``path`` fits. ``path``
+    may also be a Kaggle or Hub source (``kaggle:owner/name``, ``hf:repo``), downloaded
+    into the cache first."""
     from ai_made_easy.core.recipes import detect
 
+    path = _local(path)
     if not Path(path).expanduser().exists():
         raise ApiError(f"{path} does not exist")
     return detect(path, target=target, task=task).to_dict()
@@ -697,12 +714,17 @@ def deploy_run(run_id: str, out_dir: str, formats: list[str] | None = None,
     return _package(manager().history.path(run_id), out_dir, formats, name)
 
 
-def register_model(run_id: str, name: str, description: str = "") -> dict:
+def register_model(run_id: str, name: str, description: str = "",
+                   also: list[str] | None = None) -> dict:
+    """Register a finished run; ``also`` mirrors the version to ``mlflow`` / ``wandb``."""
     from ai_made_easy.core.deploy import RegistryError
 
+    registry = model_registry()
     try:
-        return model_registry().register(manager().history.path(run_id), name,
-                                         description).to_dict()
+        mv = registry.register(manager().history.path(run_id), name, description)
+        if also:
+            mv = registry.mirror(name, mv.version, also)
+        return mv.to_dict()
     except RegistryError as exc:
         raise ApiError(str(exc)) from exc
 
@@ -712,12 +734,155 @@ def list_models() -> dict:
     return {"count": len(rows), "models": rows}
 
 
-def set_model_stage(name: str, version: int, stage: str) -> dict:
+def set_model_stage(name: str, version: int, stage: str,
+                    also: list[str] | None = None) -> dict:
+    """Promote a version; ``also`` registers it in MLflow / W&B with the same stage."""
     from ai_made_easy.core.deploy import RegistryError
 
+    registry = model_registry()
     try:
-        return model_registry().set_stage(name, int(version), stage).to_dict()
+        mv = registry.set_stage(name, int(version), stage)
+        if also:
+            mv = registry.mirror(name, mv.version, also)
+        return mv.to_dict()
     except RegistryError as exc:
+        raise ApiError(str(exc)) from exc
+
+
+def mirror_model(name: str, version: str | int, to: list[str]) -> dict:
+    """Register an existing version in MLflow's model registry and / or W&B."""
+    from ai_made_easy.core.deploy import RegistryError
+
+    registry = model_registry()
+    try:
+        mv = registry.get(name, version)
+        return registry.mirror(name, mv.version, to).to_dict()
+    except RegistryError as exc:
+        raise ApiError(str(exc)) from exc
+
+
+# ---------------------------------------------------------------- tools you use
+
+def tracking_status(graph: dict | None = None) -> dict:
+    """Which trackers a design (or every run, ``$AIME_TRACKING``) mirrors to, and
+    whether their packages are installed."""
+    import importlib.util
+    import os
+
+    from ai_made_easy.core import tracking
+
+    meta = (graph or {}).get("meta") or {}
+    try:
+        chosen = tracking.selected(meta)
+    except tracking.TrackingError as exc:
+        raise ApiError(str(exc)) from exc
+    return {"selected": chosen, "env": os.environ.get("AIME_TRACKING", ""),
+            "mlflow_uri": tracking.mlflow_uri(),
+            "trackers": [{"id": t, "label": tracking.LABELS[t],
+                          "installed": importlib.util.find_spec(t) is not None}
+                         for t in tracking.TRACKERS]}
+
+
+def export_runs(out: str, *, project: str | None = None, fmt: str = "",
+                epochs: bool = False) -> dict:
+    """Write run records (or every epoch, ``epochs=True``) as CSV / Parquet."""
+    from ai_made_easy.core.runs.export import export_runs as _export
+
+    try:
+        return _export(manager().history, out, project=project, fmt=fmt, epochs=epochs)
+    except ValueError as exc:
+        raise ApiError(str(exc)) from exc
+
+
+def open_mlflow_model(uri: str, input_shape: list[int] | None = None, name: str = "") -> dict:
+    """Open an MLflow PyTorch / ONNX model as a design (through the importers)."""
+    from ai_made_easy.core import tracking
+
+    try:
+        kind, file = tracking.open_mlflow_model(uri)
+    except tracking.TrackingError as exc:
+        raise ApiError(str(exc)) from exc
+    return import_model("onnx" if kind == "onnx" else "pytorch", str(file),
+                        input_shape=input_shape, name=name or uri.rstrip("/").split("/")[-1])
+
+
+def _source_dir(run_id: str | None, model: str | None, version: str | int) -> Path:
+    if run_id:
+        return manager().history.path(run_id)
+    if model:
+        registry = model_registry()
+        mv = registry.get(model, version)
+        return registry.path(model, mv.version)
+    raise ApiError("give a run or a registered model")
+
+
+def push_to_hub(repo_id: str, *, run_id: str | None = None, model: str | None = None,
+                version: str | int = "latest", private: bool = True) -> dict:
+    """Push a trained run (or a registered version) to the Hugging Face Hub as a model
+    repo with its model card. Sign-in: ``huggingface-cli login``."""
+    from ai_made_easy.core.integrations import hub
+
+    try:
+        return hub.push_model(_source_dir(run_id, model, version), repo_id, private=private)
+    except hub.HubError as exc:
+        raise ApiError(str(exc)) from exc
+
+
+def pull_from_hub(repo_id: str, name: str = "", revision: str | None = None) -> dict:
+    """Download a model AI Made Easy pushed to the Hub and register it locally."""
+    from ai_made_easy.core.integrations import hub
+
+    try:
+        folder = hub.pull_model(repo_id, revision=revision)
+        mv = model_registry().register(folder, name or hub.model_name(repo_id),
+                                       f"from the Hugging Face Hub: {repo_id}")
+    except (hub.HubError, ValueError) as exc:
+        raise ApiError(str(exc)) from exc
+    return mv.to_dict()
+
+
+def deploy_to_space(space_id: str, *, run_id: str | None = None, model: str | None = None,
+                    version: str | int = "latest", formats: list[str] | None = None,
+                    private: bool = True) -> dict:
+    """Build the FastAPI package and deploy it as a Hugging Face Docker Space."""
+    import tempfile
+
+    from ai_made_easy.core.integrations import hub
+
+    source = _source_dir(run_id, model, version)
+    with tempfile.TemporaryDirectory(prefix="aime_space_") as tmp:
+        built = _package(source, str(Path(tmp) / "package"), formats)
+        try:
+            return {**hub.deploy_space(Path(built["path"]), space_id, private=private),
+                    "package": built}
+        except hub.HubError as exc:
+            raise ApiError(str(exc)) from exc
+
+
+def fetch_dataset(source: str, *, force: bool = False) -> dict:
+    """Download a Kaggle dataset / competition file or a Hub dataset into the cache
+    (``kaggle:owner/name``, ``kaggle-competition:name[/file]``, ``hf:repo[:split]``)
+    and detect it like a local folder."""
+    from ai_made_easy.core.integrations import datasets
+
+    try:
+        path = datasets.fetch(source, force=force)
+    except datasets.SourceError as exc:
+        raise ApiError(str(exc)) from exc
+    return {"source": source, "path": str(path), "facts": detect_data(str(path))}
+
+
+def submit_to_kaggle(competition: str, file: str, message: str, *,
+                     confirm: bool = False) -> dict:
+    """Submit predictions to a Kaggle competition. Every caller must ask the user first
+    and pass ``confirm=True``: a submission counts against the daily limit."""
+    from ai_made_easy.core.integrations import datasets
+
+    if not confirm:
+        raise ApiError("submitting to Kaggle needs confirmation (confirm=True) each time")
+    try:
+        return datasets.submit(competition, file, message)
+    except datasets.SourceError as exc:
         raise ApiError(str(exc)) from exc
 
 

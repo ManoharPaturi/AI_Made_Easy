@@ -63,6 +63,18 @@ class StatusChip(QtWidgets.QLabel):
         self.style().polish(self)
 
 
+def api_module():  # noqa: ANN201
+    from ai_made_easy.core import api
+
+    return api
+
+
+def tracking_label(target: str) -> str:
+    from ai_made_easy.core.tracking import LABELS
+
+    return LABELS.get(target, target)
+
+
 class AppContext(QtCore.QObject):
     """Builds and wires everything. One instance per application."""
 
@@ -170,6 +182,7 @@ class AppContext(QtCore.QObject):
         ep.model_deploy_requested.connect(self._deploy_model)
         ep.model_stage_requested.connect(self._set_model_stage)
         ep.model_delete_requested.connect(self._delete_model)
+        ep.model_share_requested.connect(self._share_model)
         es.changed.connect(self._refresh_experiments)
         es.sweep_finished.connect(self._on_sweep_finished)
         self.process_service.history_changed.connect(self._refresh_experiments)
@@ -1032,6 +1045,84 @@ class AppContext(QtCore.QObject):
         self._refresh_experiments()
         self.status_message.emit(f"{name} v{version} → {stage}")
 
+    def _share_model(self, name: str, version: int, target: str) -> None:
+        """MLflow / W&B registries, a Hub model repo, or a Docker Space (in the
+        background; publishing to the Hub is confirmed first)."""
+        from ai_made_easy.ui.features import tools
+
+        if target in ("mlflow", "wandb"):
+            label = tracking_label(target)
+            work = lambda: api_module().mirror_model(name, version, [target])  # noqa: E731
+            done = lambda r: f"{name} v{version} registered in {label}: {r['mirrors'][-1]['uri']}"  # noqa: E731
+        else:
+            space = target == "space"
+            repo = tools.ask_repo(self.window, "Hugging Face Space" if space else
+                                  "Hugging Face Hub", "Space id (owner/name):" if space else
+                                  "Model repo (owner/name):", f"your-name/{name}")
+            if not repo or not tools.confirm_publish(
+                    self.window, f"{name} v{version}" + (" as a model server" if space else ""),
+                    repo):
+                return
+            if space:
+                work = lambda: api_module().deploy_to_space(repo, model=name, version=version)  # noqa: E731
+            else:
+                work = lambda: api_module().push_to_hub(repo, model=name, version=version)  # noqa: E731
+            done = lambda r: f"Published to {r['url']}"  # noqa: E731
+        worker = tools.Background(self.window)
+
+        def finished(result, error: str) -> None:  # noqa: ANN001
+            if result is None:
+                QtWidgets.QMessageBox.warning(self.window, "Share model", error)
+                return
+            self._refresh_experiments()
+            self.status_message.emit(done(result))
+
+        worker.done.connect(finished)
+        self.status_message.emit(f"Sharing {name} v{version}…")
+        worker.start(work)
+
+    def act_tracking(self, *_):
+        from ai_made_easy.core import tracking
+        from ai_made_easy.ui.features.tools import TrackingDialog
+
+        meta = self.graph_service.adapter.meta
+        try:
+            chosen = tracking.parse(meta.get("tracking"))
+        except tracking.TrackingError:
+            chosen = []
+        dialog = TrackingDialog(self.window, chosen)
+        if dialog.exec() != QtWidgets.QDialog.DialogCode.Accepted:
+            return
+        picked = dialog.selected()
+        if picked:
+            meta["tracking"] = picked
+        else:
+            meta.pop("tracking", None)
+        self.project_store.mark_dirty()
+        self.status_message.emit("Runs of this project mirror to "
+                                 + (", ".join(tracking.LABELS[p] for p in picked) or
+                                    "no tracker"))
+
+    def act_fetch_dataset(self, *_):
+        from ai_made_easy.ui.features.tools import FetchDatasetDialog
+
+        dialog = FetchDatasetDialog(self.window)
+        if dialog.exec() == QtWidgets.QDialog.DialogCode.Accepted and dialog.path:
+            self.act_new_from_task(initial_path=dialog.path)
+
+    def act_export_runs(self, *_):
+        path, _ = QtWidgets.QFileDialog.getSaveFileName(
+            self.window, "Export Run History", str(Path(self._last_dir()) / "runs.csv"),
+            "CSV (*.csv);;Parquet (*.parquet)")
+        if not path:
+            return
+        try:
+            result = api_module().export_runs(path, project=None)
+        except ValueError as exc:
+            QtWidgets.QMessageBox.warning(self.window, "Export Run History", str(exc))
+            return
+        self.status_message.emit(f"Wrote {result['rows']} run(s) to {result['path']}")
+
     def _delete_model(self, name: str, version: int) -> None:
         answer = QtWidgets.QMessageBox.question(
             self.window, "Delete model version",
@@ -1046,11 +1137,13 @@ class AppContext(QtCore.QObject):
         if self._confirm_discard():
             self.project_service.new_project()
 
-    def act_new_from_task(self, *_):
+    def act_new_from_task(self, *_, initial_path: str = ""):
         from ai_made_easy.ui.features.wizard import NewProjectWizard
 
         dialog = NewProjectWizard(self.window, start_dir=self._last_dir(),
                                   project=self.project_store.name)
+        if initial_path:
+            dialog.path.setText(initial_path)
         if dialog.exec() != QtWidgets.QDialog.DialogCode.Accepted:
             return
         if dialog.automl_spec is not None:
