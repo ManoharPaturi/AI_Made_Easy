@@ -1,0 +1,160 @@
+{
+  "schema_version": 1,
+  "name": "tiny_llama",
+  "meta": {
+    "title": "Text \u2014 Tiny Llama Language Model",
+    "description": "A small Llama-style decoder: token embeddings, two decoder blocks (RMSNorm, grouped-query attention with rotary positions, SwiGLU) and a final RMSNorm. It writes toy sentences byte by byte. Swap Synthetic Text for a Text Corpus to train on your own writing."
+  },
+  "nodes": [
+    {
+      "id": "input",
+      "type": "core.input",
+      "params": {
+        "shape": "64",
+        "dtype": "int64"
+      },
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "embed",
+      "type": "core.embedding",
+      "params": {
+        "num_embeddings": 256,
+        "embedding_dim": 128
+      },
+      "position": [
+        200,
+        0
+      ]
+    },
+    {
+      "id": "block1",
+      "type": "core.llama_block",
+      "params": {
+        "heads": 4,
+        "kv_heads": 2
+      },
+      "position": [
+        400,
+        0
+      ]
+    },
+    {
+      "id": "block2",
+      "type": "core.llama_block",
+      "params": {
+        "heads": 4,
+        "kv_heads": 2
+      },
+      "position": [
+        600,
+        0
+      ]
+    },
+    {
+      "id": "norm",
+      "type": "core.rms_norm",
+      "params": {},
+      "position": [
+        800,
+        0
+      ]
+    },
+    {
+      "id": "lm_head",
+      "type": "core.dense",
+      "params": {
+        "units": 256,
+        "bias": false
+      },
+      "position": [
+        1000,
+        0
+      ]
+    },
+    {
+      "id": "output",
+      "type": "core.output",
+      "params": {},
+      "position": [
+        1200,
+        0
+      ]
+    },
+    {
+      "id": "text",
+      "type": "data.synthetic_text",
+      "params": {
+        "n_sentences": 4000,
+        "seed": 0,
+        "val_fraction": 0.1
+      },
+      "position": [
+        0,
+        240
+      ]
+    },
+    {
+      "id": "optimizer",
+      "type": "train.adamw",
+      "params": {
+        "lr": 0.001
+      },
+      "position": [
+        200,
+        240
+      ]
+    },
+    {
+      "id": "perplexity",
+      "type": "eval.perplexity",
+      "params": {},
+      "position": [
+        400,
+        240
+      ]
+    },
+    {
+      "id": "trainer",
+      "type": "train.trainer",
+      "params": {
+        "epochs": 30,
+        "batch_size": 64,
+        "device": "auto"
+      },
+      "position": [
+        600,
+        240
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "from": "input/out",
+      "to": "embed/in"
+    },
+    {
+      "from": "embed/out",
+      "to": "block1/in"
+    },
+    {
+      "from": "block1/out",
+      "to": "block2/in"
+    },
+    {
+      "from": "block2/out",
+      "to": "norm/in"
+    },
+    {
+      "from": "norm/out",
+      "to": "lm_head/in"
+    },
+    {
+      "from": "lm_head/out",
+      "to": "output/in"
+    }
+  ]
+}

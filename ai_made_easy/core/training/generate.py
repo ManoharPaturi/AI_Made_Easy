@@ -216,9 +216,13 @@ def _torch_ctx(graph: Graph, spec: TrainingSpec) -> dict:
                      for n in graph.nodes.values()),
         loss_expr=loss_expr,
         optimizer_expr=cat.render(spec.optimizer["kind"], spec.optimizer, "pytorch"),
+        ema=bool(float(spec.trainer.get("ema_decay") or 0)),
         scheduler_expr=sched_expr, scheduler_step=sched_step,
         uses_functional=ctx["uses_functional"] or ctx["loss_helper"] == "FocalLoss",
     )
+    helper = cat.COMPONENTS[spec.optimizer["kind"]].meta.get("torch_helper")
+    if helper:
+        ctx["torch_helpers"] = [*ctx["torch_helpers"], cat.TRAIN_HELPERS[helper]]
     image_train, after_tensor = [], []
     for tid, params in spec.image_train:
         blk = dcat.BLOCKS[tid]
@@ -290,6 +294,9 @@ def _keras_ctx(graph: Graph, spec: TrainingSpec) -> dict:
     opt_expr = cat.render(spec.optimizer["kind"], spec.optimizer, "keras")
     if opt_expr is None:
         unsupported.append(cat.COMPONENTS[spec.optimizer["kind"]].name)
+    elif float(spec.trainer.get("ema_decay") or 0):  # Keras keeps the average itself
+        opt_expr = (f"{opt_expr[:-1]}, use_ema=True, "
+                    f"ema_momentum={float(spec.trainer['ema_decay'])})")
     sched = None
     if spec.scheduler:
         comp = cat.COMPONENTS[spec.scheduler["kind"]]

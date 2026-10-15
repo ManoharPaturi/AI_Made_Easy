@@ -156,7 +156,8 @@ def test_modalities_and_demo_tasks():
     image = recipes.recommend("multiclass", modality="image")
     assert {s.recipe.id for s in image} == {"image_cnn", "image_cnn_augmented",
                                             "image_transfer", "timm_probe", "timm_finetune",
-                                            "dinov2_probe", "dinov2_finetune"}
+                                            "dinov2_probe", "dinov2_finetune",
+                                            "image_vit", "image_convnext"}
     assert all(Graph.from_dict(s.graph).nodes["dense"].params["units"] == 10 for s in image)
     assert not recipes.recommend("binary", modality="image")   # the image demo has 10 classes
 

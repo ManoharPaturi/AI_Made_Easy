@@ -47,6 +47,9 @@ EARLY_STOP = {{ spec.trainer.early_stopping_patience }}
 GRAD_CLIP = {{ spec.trainer.grad_clip_norm }}
 ACCUM_STEPS = {{ spec.trainer.accumulation_steps }}
 MIXED_PRECISION = {{ spec.trainer.mixed_precision }}
+{% if ema %}
+EMA_DECAY = {{ spec.trainer.ema_decay }}   # evaluate and keep the averaged weights
+{% endif %}
 VAL_FRACTION = {{ spec.split.val_fraction }}
 TEST_FRACTION = {{ spec.split.test_fraction }}
 SPLIT_SEED = {{ spec.split.seed }}
@@ -443,6 +446,11 @@ def fit(model: nn.Module, train_loader, val_loader, device, log: bool = True):
     optimizer = {{ optimizer_expr | replace("model.parameters()", "params") }}
     for group in optimizer.param_groups:
         group["lr"] *= LR_SCALE * group.get("lr_mult", 1.0)
+{% if ema %}
+    ema = torch.optim.swa_utils.AveragedModel(
+        model, multi_avg_fn=torch.optim.swa_utils.get_ema_multi_avg_fn(EMA_DECAY),
+        use_buffers=True)
+{% endif %}
 {% if scheduler_expr %}
     scheduler = {{ scheduler_expr }}
 {% endif %}
@@ -486,6 +494,9 @@ def fit(model: nn.Module, train_loader, val_loader, device, log: bool = True):
                 scaler.step(optimizer)
                 scaler.update()
                 optimizer.zero_grad(set_to_none=True)
+{% if ema %}
+                ema.update_parameters(model)
+{% endif %}
 {% if scheduler_step == "batch" %}
                 scheduler.step()
 {% endif %}
@@ -494,7 +505,7 @@ def fit(model: nn.Module, train_loader, val_loader, device, log: bool = True):
         if epoch == 1 and log:
             report_resources(device, (time.time() - started) / max(step, 1))
         train_loss = running / max(seen, 1)
-        val_loss, val_metrics = evaluate(model, loss_fn, val_loader, device)
+        val_loss, val_metrics = evaluate({{ "ema.module" if ema else "model" }}, loss_fn, val_loader, device)
         monitored = val_loss if not math.isnan(val_loss) else train_loss
 {% if scheduler_step == "epoch" %}
         scheduler.step()
@@ -509,7 +520,7 @@ def fit(model: nn.Module, train_loader, val_loader, device, log: bool = True):
                   f"{extra} lr={lr:.3g} ({time.time() - started:.1f}s)", flush=True)
         if monitored < best_loss:
             best_loss, bad_epochs = monitored, 0
-            best_state = {k: v.detach().cpu().clone() for k, v in model.state_dict().items()}
+            best_state = {k: v.detach().cpu().clone() for k, v in {{ "ema.module" if ema else "model" }}.state_dict().items()}
         else:
             bad_epochs += 1
             if EARLY_STOP and bad_epochs >= EARLY_STOP:

@@ -287,7 +287,126 @@ OPTIMIZERS: list[Component] = [
         torch=lambda p: (f"torch.optim.Rprop(model.parameters(), lr={p['lr']}, "
                          f"etas=({p['eta_minus']}, {p['eta_plus']}))"),
         desc="Resilient backpropagation (sign-based, full-batch friendly)."),
+    Component(
+        "train.lion", "Lion",
+        (_LR(1e-4), _B1, P("beta2", "float", 0.99, lo=0.0, hi=0.999999), _WD(1e-2)),
+        torch=lambda p: (f"Lion(model.parameters(), lr={p['lr']}, "
+                         f"betas=({p['beta1']}, {p['beta2']}), "
+                         f"weight_decay={p['weight_decay']})"),
+        keras=lambda p: (f"keras.optimizers.Lion(learning_rate={p['lr']}, beta_1={p['beta1']}, "
+                         f"beta_2={p['beta2']}{_kwd(p)})"),
+        desc="Evolved sign momentum (Chen et al., 2023): one state per weight, half Adam's "
+             "memory. Use a learning rate about 10x smaller than AdamW's.",
+        meta={"torch_helper": "Lion"}),
+    Component(
+        "train.lamb", "LAMB",
+        (_LR(1e-3), _B1, _B2, _EPS(1e-6), _WD(1e-2)),
+        torch=lambda p: (f"Lamb(model.parameters(), lr={p['lr']}, "
+                         f"betas=({p['beta1']}, {p['beta2']}), eps={p['eps']}, "
+                         f"weight_decay={p['weight_decay']})"),
+        keras=lambda p: (f"keras.optimizers.Lamb(learning_rate={p['lr']}, beta_1={p['beta1']}, "
+                         f"beta_2={p['beta2']}, epsilon={p['eps']}{_kwd(p)})"),
+        desc="Adam with a per-layer trust ratio (You et al., 2020): stays stable at very "
+             "large batch sizes.",
+        meta={"torch_helper": "Lamb"}),
+    Component(
+        "train.lookahead_adamw", "Lookahead (AdamW)",
+        (_LR(1e-3), _B1, _B2, _WD(1e-2), P("k", "int", 5, lo=1, help="Fast steps per sync"),
+         P("alpha", "float", 0.5, lo=0.0, hi=1.0, help="How far the slow weights move")),
+        torch=lambda p: (f"LookaheadAdamW(model.parameters(), lr={p['lr']}, "
+                         f"betas=({p['beta1']}, {p['beta2']}), "
+                         f"weight_decay={p['weight_decay']}, k={int(p['k'])}, "
+                         f"alpha={p['alpha']})"),
+        desc="AdamW whose weights are pulled toward a slow moving copy every k steps "
+             "(Zhang et al., 2019): less sensitive to the learning rate.",
+        meta={"torch_helper": "LookaheadAdamW"}),
 ]
+
+# PyTorch optimizers that are not in torch.optim: emitted into the training script
+TRAIN_HELPERS = {
+    "Lion": '''\
+class Lion(torch.optim.Optimizer):
+    """Lion (Chen et al., 2023): steps by the sign of an interpolated momentum."""
+
+    def __init__(self, params, lr: float = 1e-4, betas=(0.9, 0.99),
+                 weight_decay: float = 0.0) -> None:
+        super().__init__(params, dict(lr=lr, betas=betas, weight_decay=weight_decay))
+
+    @torch.no_grad()
+    def step(self, closure=None):
+        loss = closure() if closure is not None else None
+        for group in self.param_groups:
+            beta1, beta2 = group["betas"]
+            for p in group["params"]:
+                if p.grad is None:
+                    continue
+                state = self.state[p]
+                if not state:
+                    state["exp_avg"] = torch.zeros_like(p)
+                m = state["exp_avg"]
+                p.mul_(1 - group["lr"] * group["weight_decay"])
+                p.add_(torch.sign(m * beta1 + p.grad * (1 - beta1)), alpha=-group["lr"])
+                m.mul_(beta2).add_(p.grad, alpha=1 - beta2)
+        return loss
+''',
+    "Lamb": '''\
+class Lamb(torch.optim.Optimizer):
+    """LAMB (You et al., 2020): Adam scaled per layer by ||w|| / ||update||."""
+
+    def __init__(self, params, lr: float = 1e-3, betas=(0.9, 0.999), eps: float = 1e-6,
+                 weight_decay: float = 0.01) -> None:
+        super().__init__(params, dict(lr=lr, betas=betas, eps=eps, weight_decay=weight_decay))
+
+    @torch.no_grad()
+    def step(self, closure=None):
+        loss = closure() if closure is not None else None
+        for group in self.param_groups:
+            beta1, beta2 = group["betas"]
+            for p in group["params"]:
+                if p.grad is None:
+                    continue
+                state = self.state[p]
+                if not state:
+                    state["step"] = 0
+                    state["exp_avg"] = torch.zeros_like(p)
+                    state["exp_avg_sq"] = torch.zeros_like(p)
+                state["step"] += 1
+                t, m, v = state["step"], state["exp_avg"], state["exp_avg_sq"]
+                m.mul_(beta1).add_(p.grad, alpha=1 - beta1)
+                v.mul_(beta2).addcmul_(p.grad, p.grad, value=1 - beta2)
+                update = (m / (1 - beta1 ** t)) / ((v / (1 - beta2 ** t)).sqrt() + group["eps"])
+                update.add_(p, alpha=group["weight_decay"])
+                w_norm, u_norm = p.norm(), update.norm()
+                trust = torch.where((w_norm > 0) & (u_norm > 0), w_norm / u_norm,
+                                    torch.ones_like(w_norm))
+                p.add_(update * trust, alpha=-group["lr"])
+        return loss
+''',
+    "LookaheadAdamW": '''\
+class LookaheadAdamW(torch.optim.AdamW):
+    """Lookahead (Zhang et al., 2019) around AdamW: every k steps the slow weights move
+    alpha of the way to the fast ones, and the fast weights restart from there."""
+
+    def __init__(self, params, lr: float = 1e-3, betas=(0.9, 0.999),
+                 weight_decay: float = 0.01, k: int = 5, alpha: float = 0.5) -> None:
+        super().__init__(params, lr=lr, betas=betas, weight_decay=weight_decay)
+        self.k, self.alpha, self.fast_steps = k, alpha, 0
+
+    @torch.no_grad()
+    def step(self, closure=None):
+        loss = super().step(closure)
+        self.fast_steps += 1
+        for group in self.param_groups:
+            for p in group["params"]:
+                state = self.state[p]
+                if "slow" not in state:
+                    state["slow"] = p.detach().clone()
+                elif self.fast_steps % self.k == 0:
+                    state["slow"].add_(p - state["slow"], alpha=self.alpha)
+                    p.copy_(state["slow"])
+        return loss
+''',
+}
 
 
 # ================================================================= schedulers
@@ -496,8 +615,12 @@ TRAINER = Component(
      P("accumulation_steps", "int", 1, lo=1, help="Batches per optimizer step"),
      P("mixed_precision", "bool", False, help="Automatic mixed precision on CUDA/MPS"),
      P("deterministic", "bool", False,
-       help="Deterministic kernels for bit-reproducible runs (slower)")),
-    desc="Training loop: epochs, batching, device, early stopping, clipping, AMP.")
+       help="Deterministic kernels for bit-reproducible runs (slower)"),
+     P("ema_decay", "float", 0.0, lo=0.0, hi=0.99999,
+       help="Evaluate and keep an exponential moving average of the weights "
+            "(e.g. 0.999); 0 = off")),
+    desc="Training loop: epochs, batching, device, early stopping, clipping, AMP, "
+         "weight averaging.")
 
 KFOLD = Component(
     "train.kfold", "K-Fold Cross-Validation",

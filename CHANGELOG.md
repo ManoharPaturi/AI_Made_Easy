@@ -2,6 +2,24 @@
 
 ## Unreleased (3.3)
 
+### Added
+- **Modern network parts** (Transformer Parts, Vision Blocks):
+  - Rotary embedding (RoPE), grouped-query attention, a SwiGLU / GeGLU feed-forward and
+    a Llama decoder block (RMSNorm, GQA with rotary positions, SwiGLU).
+  - Mixture of Experts: top-k routed SwiGLU experts with a load-balancing loss.
+  - LayerScale, DropPath (stochastic depth), FiLM conditioning, LoRA Dense.
+  - Patch Embedding (ViT), ConvNeXt block, Swin Transformer block (shifted windows with a
+    relative position bias), Conformer block.
+  - Every one is checked against the designer's shapes and parameter counts. Rotary
+    embedding, the gated feed-forward, LayerScale and DropPath also generate Keras.
+- **Optimizers:** Lion, LAMB and Lookahead (AdamW).
+- **Weight averaging:** the Trainer's `ema_decay` evaluates and keeps an exponential
+  moving average of the weights (PyTorch and Keras).
+- **Classic ML:** Isomap, Nystroem kernel features and UMAP (`pip install
+  'ai-made-easy[umap]'`).
+- **Recipes:** Tiny Llama (language modelling), Vision Transformer and ConvNeXt (image
+  classification, from scratch). 573 blocks, 65 recipes.
+
 ### Fixed
 - On Windows, checking whether a run was still alive terminated its process. The check
   no longer sends a signal, and a reused process id no longer counts as the run.

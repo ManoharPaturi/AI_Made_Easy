@@ -23,7 +23,7 @@ TABLE_PREP = ("prep.drop_columns", "prep.impute", "prep.one_hot", "prep.ordinal_
               "prep.minmax", "prep.variance_filter")
 FEATURE_ORDER = ("ml.polynomial", "ml.spline", "ml.power_transform", "ml.quantile_transform",
                  "ml.kbins", "ml.select_k_best", "ml.pca", "ml.truncated_svd", "ml.kernel_pca",
-                 "ml.fast_ica")
+                 "ml.fast_ica", "ml.nystroem", "ml.isomap", "ml.umap")
 NN_PREFIXES = ("core.", "arch.", "llm.")
 
 
@@ -358,6 +358,7 @@ def classic_context(spec: ClassicSpec) -> dict:
         reqs.append("datasets")
     if est.package != "scikit-learn":
         reqs.append(est.package)
+    reqs += sorted({tr.package for tr, _ in spec.features if tr.package})
     return {
         "spec": spec, "d": d, "est": est,
         "est_ctor": est.constructor(spec.est_params,
