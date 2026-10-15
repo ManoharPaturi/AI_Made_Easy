@@ -204,8 +204,11 @@ def node_task(g: dict, device) -> dict:
     def scores(part: str) -> dict:
         out = model(x, ei)
         pred = out[idx[part]].argmax(-1).cpu().numpy()
-        m = accuracy_f1(pred, y[idx[part]].cpu().numpy(), n_classes)
+        truth = y[idx[part]].cpu().numpy()
+        m = accuracy_f1(pred, truth, n_classes)
         m["loss"] = float(loss_fn(out[idx[part]], y[idx[part]]))
+        if g.get("ogb"):
+            m.update(ogb_score(g["ogb"], y_true=truth[:, None], y_pred=pred[:, None]))
         return m
 
     model = train_loop(model, run_epoch, lambda: scores("val" if len(parts["val"]) else "train"),
@@ -230,8 +233,13 @@ def to_data(g: dict):
 def graph_task(graphs: list, classes: list, device) -> dict:
     from torch_geometric.loader import DataLoader
 
-    parts = split_ids(len(graphs), float(DATASET.get("val_fraction", 0.1)),
-                      float(DATASET.get("test_fraction", 0.2)), SEED)
+    official = graphs[0].get("ogb")
+    if official:                                       # the benchmark's own split
+        parts = {k: np.array([i for i, g in enumerate(graphs) if g["split"] == k], np.int64)
+                 for k in ("train", "val", "test")}
+    else:
+        parts = split_ids(len(graphs), float(DATASET.get("val_fraction", 0.1)),
+                          float(DATASET.get("test_fraction", 0.2)), SEED)
     sets = {k: [to_data(graphs[i]) for i in v] for k, v in parts.items()}
     print(f"graphs: train={len(sets['train'])} val={len(sets['val'])} "
           f"test={len(sets['test'])} classes={len(classes)}")
@@ -250,19 +258,23 @@ def graph_task(graphs: list, classes: list, device) -> dict:
         return total / max(count, 1)
 
     def scores(items: list) -> dict:
-        preds, ys, loss = [], [], 0.0
+        preds, ys, probs, loss = [], [], [], 0.0
         for batch in DataLoader(items, batch_size=256):
             batch = batch.to(device)
             out = model(batch.x, batch.edge_index, batch.batch)
             loss += float(loss_fn(out, batch.y)) * batch.num_graphs
             preds.append(out.argmax(-1).cpu().numpy())
+            probs.append(torch.softmax(out, -1)[:, -1].cpu().numpy())
             ys.append(batch.y.cpu().numpy())
         m = accuracy_f1(np.concatenate(preds), np.concatenate(ys), len(classes))
         m["loss"] = loss / max(len(items), 1)
+        if official:
+            m.update(ogb_score(official, y_true=np.concatenate(ys)[:, None],
+                               y_pred=np.concatenate(probs)[:, None]))
         return m
 
     model = train_loop(model, run_epoch, lambda: scores(sets["val"] or sets["train"]),
-                       "accuracy", True, device)
+                       "ogb_rocauc" if official else "accuracy", True, device)
     model.eval()
     with torch.no_grad():
         metrics = scores(sets["test"] or sets["val"])
@@ -297,7 +309,11 @@ def link_task(g: dict, device) -> dict:
     from torch_geometric.utils import negative_sampling
 
     n = len(g["x"])
-    split = edge_split(np.asarray(g["edge_index"], np.int64), n)
+    if g.get("ogb_split"):                     # the benchmark's own edges and negatives
+        split = dict(g["ogb_split"])
+        split["message"] = _undirected(split["train"])
+    else:
+        split = edge_split(np.asarray(g["edge_index"], np.int64), n)
     print(f"edges: train={split['train'].shape[1]} val={split['val'].shape[1]} "
           f"test={split['test'].shape[1]} nodes={n}")
     x = torch.from_numpy(np.asarray(g["x"], np.float32)).to(device)
@@ -320,14 +336,20 @@ def link_task(g: dict, device) -> dict:
         z = model(x, mp)
         p = torch.from_numpy(split[part]).to(device)
         q = torch.from_numpy(split[part + "_neg"]).to(device)
-        s = torch.cat([model.score(z, p), model.score(z, q)]).cpu().numpy()
+        s_pos, s_neg = model.score(z, p), model.score(z, q)
+        s = torch.cat([s_pos, s_neg]).cpu().numpy()
         labels = np.concatenate([np.ones(p.shape[1]), np.zeros(q.shape[1])])
-        return {"roc_auc": roc_auc(s, labels), "average_precision": average_precision(s, labels)}
+        m = {"roc_auc": roc_auc(s, labels), "average_precision": average_precision(s, labels)}
+        if g.get("ogb") and q.shape[1]:
+            m.update(ogb_score(g["ogb"], y_pred_pos=s_pos.cpu(), y_pred_neg=s_neg.cpu()))
+        return m
 
     part = "val" if split["val"].shape[1] else "train"
     if part == "train":
         split["train_neg"] = split.get("val_neg", np.zeros((2, 0), np.int64))
-    model = train_loop(model, run_epoch, lambda: scores(part), "roc_auc", True, device)
+    with torch.no_grad():               # select on the benchmark's own metric when it has one
+        key = next((k for k in scores(part) if k.startswith("ogb_")), "roc_auc")
+    model = train_loop(model, run_epoch, lambda: scores(part), key, True, device)
     model.eval()
     with torch.no_grad():
         metrics = scores("test" if split["test"].shape[1] else part)
@@ -474,6 +496,8 @@ def _comment(d: dict) -> str:
         return f"{d['n_graphs']} generated graphs with a planted motif"
     if block in ("data.planetoid", "data.tudataset"):
         return f"{d['name']} benchmark"
+    if block in ("data.ogb_nodes", "data.ogb_graphs", "data.ogb_links"):
+        return f"{d['name']} (Open Graph Benchmark, official split and evaluator)"
     if block == "data.graphs_csv":
         return f"graphs in {d['graphs_path']} ({d['nodes_path']} + {d['edges_path']})"
     return f"{d['nodes_path']} + {d['edges_path']}"
@@ -520,8 +544,9 @@ def context(graph: Graph, framework: str) -> dict:
     return {
         "title": graph.name, "filename": f"{name}_train_pytorch.py", "name": name,
         "kind": kind, "task_label": TASK_LABELS[kind], "notes": notes, "link": link,
-        "requirements": own_loop_requirements(model_code, ("torch_geometric", "scipy",
-                                                           *extra)),
+        "requirements": own_loop_requirements(model_code, (
+            "torch_geometric", "scipy", *extra,
+            *(("ogb",) if dataset["block"].startswith("data.ogb_") else ()))),
         "data_comment": _comment(dataset), "dataset": dataset,
         "input_shape": list(shapes[chain[0].instance_id]),
         "output_dim": int(shapes[chain[-1].instance_id][-1]), "trainer": trainer,

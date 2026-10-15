@@ -143,7 +143,7 @@ def _describe(graph_dict: dict) -> dict:
                 "input_kind": kind, "input_help": _INPUT_HELP[kind], "response": task.serving}
     # image-in tasks (detection, segmentation); generated images are described below
     if task is not None and "image" in task.modalities and task.trainer_kind not in (
-            "supervised", "vae", "adversarial", "diffusion", "text_to_image"):
+            "supervised", "vae", "adversarial", "diffusion", "text_to_image", "flow"):
         from ai_made_easy.core.vision.tasks import dataset_of
 
         data = dataset_of(graph)

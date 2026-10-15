@@ -388,6 +388,12 @@ starter("spline_flow", "flow_checkerboard_spline", "density_estimation", "medium
         "densities.", knobs=(lr("opt.lr", 3e-3), epochs("trainer.epochs", 60)),
         swaps={"table": _density},
         strengths="complex, multi-modal densities")
+starter("glow", "glow_shapes", "density_estimation", "large", "image", "Glow",
+        "A multi-scale image flow: squeeze, ActNorm, invertible 1×1 convolutions and "
+        "convolutional couplings. Exact likelihoods in bits per dimension, and new images.",
+        knobs=(lr("opt.lr", 1e-3), epochs("trainer.epochs", 15)),
+        swaps={"image_folder": _images}, fit=_fit_images,
+        strengths="exact image likelihoods and sampling in one network")
 # graphs, recommenders, RL
 GRAPH_EXTRA = dict(requires=("torch_geometric",), extra="graph")
 starter("gcn", "graph_node_classification", "node_classification", "small", "graph", "GCN",
@@ -427,6 +433,14 @@ starter("sac", "rl_pendulum_sac", "reinforcement_learning", "medium", "environme
                Knob("total_timesteps", "int", 20_000, 1_000, 10**8,
                     help="Environment steps", target="algo.total_timesteps")),
         **RL_EXTRA, strengths="sample-efficient continuous control")
+starter("atari_ppo", "rl_atari_pong_ppo", "reinforcement_learning", "large", "environment",
+        "Atari PPO (Nature CNN)", "PPO with the Nature-DQN convolutional policy on stacked "
+        "84×84 grayscale frames of an Atari game.",
+        knobs=(lr("algo.learning_rate", 2.5e-4),
+               Knob("total_timesteps", "int", 2_000_000, 10_000, 10**9,
+                    help="Environment steps", target="algo.total_timesteps")),
+        requires=("gymnasium", "stable_baselines3", "ale_py"), extra="atari",
+        strengths="the standard pixel-based benchmark; needs a GPU and millions of steps")
 # probabilistic models
 PROB = dict(extra="probabilistic")
 GROUPS = dict(swaps={"table": _grouped}, fit=_fit_groups)

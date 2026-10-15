@@ -26,6 +26,13 @@ GRAPH_DATA: dict[str, str] = {}
 # known benchmark sizes: name -> (node features, classes)
 PLANETOID = {"Cora": (1433, 7), "CiteSeer": (3703, 6), "PubMed": (500, 3)}
 TU_DATASETS = {"MUTAG": (7, 2), "PROTEINS": (3, 2), "ENZYMES": (3, 6), "NCI1": (37, 2)}
+# Open Graph Benchmark: name -> (node features, classes, official metric)
+OGB_NODES = {"ogbn-arxiv": (128, 40, "acc"), "ogbn-products": (100, 47, "acc")}
+OGB_GRAPHS = {"ogbg-molhiv": (9, 2, "rocauc"), "ogbg-molbace": (9, 2, "rocauc"),
+              "ogbg-molbbbp": (9, 2, "rocauc")}
+OGB_LINKS = {"ogbl-collab": (128, 0, "hits@50")}
+OGB_DATA = ("data.ogb_nodes", "data.ogb_graphs", "data.ogb_links")
+OGB_REQUIRES = ("torch_geometric", "ogb")
 
 E = "g['edge_index']"
 OUT = P("out_channels", "int", 64, lo=1, hi=65536, help="Features per node after the layer")
@@ -254,6 +261,24 @@ def _datasets() -> list[BlockDefinition]:
                P("root", "str", "~/.cache/aime/tudataset")),
               "Molecule and protein graph-classification benchmarks (MUTAG, PROTEINS, "
               "ENZYMES, NCI1; downloaded once).", requires=REQUIRES),
+        _data("data.ogb_nodes", "OGB Node Property", "nodes",
+              (P("name", "enum", "ogbn-arxiv", options=tuple(OGB_NODES)),
+               P("root", "str", "~/.cache/aime/ogb")),
+              "Open Graph Benchmark node classification (arXiv papers, Amazon products) with "
+              "the official split; scored by OGB's evaluator (accuracy). Downloaded once.",
+              requires=OGB_REQUIRES),
+        _data("data.ogb_graphs", "OGB Graph Property", "graphs",
+              (P("name", "enum", "ogbg-molhiv", options=tuple(OGB_GRAPHS)),
+               P("root", "str", "~/.cache/aime/ogb")),
+              "Open Graph Benchmark molecule classification (HIV, BACE, BBBP) with the "
+              "official scaffold split; scored by OGB's evaluator (ROC-AUC). Downloaded once.",
+              requires=OGB_REQUIRES),
+        _data("data.ogb_links", "OGB Link Property", "nodes",
+              (P("name", "enum", "ogbl-collab", options=tuple(OGB_LINKS)),
+               P("root", "str", "~/.cache/aime/ogb")),
+              "Open Graph Benchmark link prediction (collaborations) with the official "
+              "edges and negatives; scored by OGB's evaluator (Hits@K). Downloaded once.",
+              requires=OGB_REQUIRES),
     ]
 
 

@@ -56,6 +56,8 @@ web/                      React + TypeScript + Vite + React Flow frontend (built
 | Serving packages answer `/predict` like the checkpoint | `tests/test_deploy.py` |
 | Every sample exports (ONNX, TorchScript, ExecuTorch, int8) and matches PyTorch, or a rule says why not | `tests/test_export.py` |
 | Runs mirrored to MLflow / W&B match the local record; Hub push → pull → predict; Kaggle / Hub datasets detect like folders | `tests/test_integrations.py` |
+| Every family's AutoML ranks its trials; classic and neural share one Pareto front; parallel trials | `tests/test_automl_families.py` |
+| Glow inverts exactly and beats RealNVP; OGB official splits / evaluators; Atari and custom environments; QAT with embeddings | `tests/test_deferred.py` |
 | The split preview equals the generated split | `tests/test_data.py` |
 | Every REST endpoint and the run WebSocket | `tests/test_server.py` |
 | The browser UI loads, validates and edits | `web/e2e/smoke.spec.ts` (Playwright) |

@@ -426,13 +426,18 @@ def quantized_engine() -> str:
 
 
 def qat_prepare(model: nn.Module) -> nn.Module:
-    """Fake-quantized copy of the model for quantization-aware training (FX graph mode)."""
+    """Fake-quantized copy of the model for quantization-aware training (FX graph mode).
+    Embedding tables keep float quantization parameters (8-bit rows, each with a float
+    scale and offset, weight-only); every other layer is quantized to int8."""
     from torch.ao.quantization import get_default_qat_qconfig_mapping
+    from torch.ao.quantization.qconfig import default_embedding_qat_qconfig
     from torch.ao.quantization.quantize_fx import prepare_qat_fx
 
-    example = (torch.zeros(1, *INPUT_SHAPE),)
-    return prepare_qat_fx(model.cpu().train(),
-                          get_default_qat_qconfig_mapping(quantized_engine()), example)
+    mapping = get_default_qat_qconfig_mapping(quantized_engine())
+    if any(isinstance(m, nn.Embedding) for m in model.modules()):
+        mapping = mapping.set_object_type(nn.Embedding, default_embedding_qat_qconfig)
+    example = (torch.zeros(1, *INPUT_SHAPE, dtype=torch.float32),)
+    return prepare_qat_fx(model.cpu().train(), mapping, example)
 
 
 def qat_convert(model: nn.Module) -> nn.Module:

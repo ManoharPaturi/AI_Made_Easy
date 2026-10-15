@@ -53,6 +53,8 @@ jobs:
           pip install -e ".[kaggle]"
           AIME_ONLINE=1 pytest -q -p no:cacheprovider tests/test_backends.py -k real_kaggle
           AIME_ONLINE=1 pytest -q -p no:cacheprovider tests/test_integrations.py -k real_kaggle
+      - name: A real OGB benchmark (ogbg-molbace) with its official evaluator
+        run: AIME_ONLINE=1 pytest -q -p no:cacheprovider tests/test_deferred.py -k real_ogb
       - name: Real Hub datasets, and a Hub push when HF_TOKEN / AIME_HF_TEST_REPO are set
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}

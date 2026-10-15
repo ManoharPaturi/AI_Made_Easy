@@ -1,11 +1,12 @@
 """Design rules for normalizing flows ("set <param> to <value>" phrasing is a Quick Fix)."""
 from __future__ import annotations
 
-from ai_made_easy.core.flows.blocks import COUPLINGS, FLOW_LAYERS
+from ai_made_easy.core.flows.blocks import COUPLINGS, FLOW_LAYERS, GLOW_LAYERS, IMAGE_DATA
 from ai_made_easy.core.flows.tasks import dataset_of, is_flow
 from ai_made_easy.core.lints import LintContext, _issue, _name, register_rule
 
-TRANSFORMS = ("flow.affine_coupling", "flow.spline_coupling", "flow.maf")
+TRANSFORMS = ("flow.affine_coupling", "flow.spline_coupling", "flow.maf",
+              "flow.conv_coupling")
 
 
 def _data_dims(node) -> int | None:  # noqa: ANN001
@@ -13,6 +14,8 @@ def _data_dims(node) -> int | None:  # noqa: ANN001
         return None
     if node.type_id == "data.density_2d":
         return 2
+    if node.type_id in IMAGE_DATA:
+        return None             # images: checked against [C, H, W] below
     cols = [c for c in str(node.resolved_params().get("feature_columns") or "").split(",")
             if c.strip()]
     return len(cols) or None
@@ -47,9 +50,24 @@ def flow_rules(ctx: LintContext) -> list:
         if shape is not None and list(shape) != [dims]:
             out.append(_issue("error", f"the data has {dims} columns: Set the Input shape to "
                                        f"'{dims}'", head.instance_id))
+    if head is not None and data is not None and data.type_id == "data.density_images":
+        side = int(data.resolved_params()["size"])
+        try:
+            shape = list(ctx.graph.infer_shapes()[head.instance_id])
+        except Exception:  # noqa: BLE001
+            shape = None
+        if shape is not None and shape not in ([1, side, side], [side * side]):
+            out.append(_issue("error", f"the images are 1×{side}×{side}: Set the Input shape "
+                                       f"to '1, {side}, {side}' (Glow) or '{side * side}' "
+                                       "(vector flows)", head.instance_id))
+    if any(n.type_id in GLOW_LAYERS for n in layers) and not any(
+            n.type_id in ("flow.invconv1x1", "flow.permute") for n in layers):
+        node = next(n for n in layers if n.type_id in GLOW_LAYERS)
+        out.append(_issue("info", "add Invertible 1×1 Conv layers between couplings so every "
+                                  "channel gets transformed (Glow)", node.instance_id))
     last: dict[str, object] = {}
     for node in layers:
-        if node.type_id == "flow.permute":
+        if node.type_id in ("flow.permute", "flow.invconv1x1", "flow.squeeze", "flow.split"):
             last.clear()
             continue
         p = node.resolved_params()

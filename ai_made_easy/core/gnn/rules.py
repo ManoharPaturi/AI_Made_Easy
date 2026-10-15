@@ -11,6 +11,10 @@ from ai_made_easy.core.gnn.blocks import (
     GRAPH_BLOCKS,
     GRAPH_DATA,
     NODE_POOLS,
+    OGB_DATA,
+    OGB_GRAPHS,
+    OGB_LINKS,
+    OGB_NODES,
     PLANETOID,
     TU_DATASETS,
 )
@@ -76,6 +80,11 @@ def data_facts(node) -> dict:  # noqa: ANN001
     if t == "data.tudataset":
         f, c = TU_DATASETS[p["name"]]
         return {"features": f, "classes": c}
+    if t in OGB_DATA:
+        table = {"data.ogb_nodes": OGB_NODES, "data.ogb_graphs": OGB_GRAPHS,
+                 "data.ogb_links": OGB_LINKS}[t]
+        f, c, _metric = table[p["name"]]
+        return {"features": f, "classes": c} if c else {"features": f, "has_label": False}
     nodes, edges = _resolve(str(p["nodes_path"])), _resolve(str(p["edges_path"]))
     if not nodes.is_file() or not edges.is_file():
         return {}
@@ -169,6 +178,10 @@ def gnn_rules(ctx: LintContext) -> list:
             out.append(_issue("error", f"the data has {facts['classes']} classes: set units to "
                                        f"{facts['classes']}", last.instance_id))
     if kind == "node_classification" and data is not None and \
+            data.type_id == "data.ogb_links":
+        out.append(_issue("error", "OGB link datasets have no node labels: add a Link "
+                                   "Predictor for link prediction", data.instance_id))
+    elif kind == "node_classification" and data is not None and \
             data.type_id == "data.graph_csv" and facts.get("has_label") is False:
         out.append(_issue("error", "the node table has no label column: set label_column, or "
                                    "add a Link Predictor for link prediction",

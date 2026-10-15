@@ -12,8 +12,8 @@ from jinja2 import Environment, StrictUndefined
 from ai_made_easy.core.codegen import CodegenError, generate, sanitize_identifier
 from ai_made_easy.core.forecast.template import _strip_main
 from ai_made_easy.core.graph import Graph
-from ai_made_easy.core.rl.blocks import ALGORITHMS, BUILT_IN, IMAGE_ENVS
-from ai_made_easy.core.rl.tasks import algorithm_node, env_node
+from ai_made_easy.core.rl.blocks import ALGORITHMS, BUILT_IN
+from ai_made_easy.core.rl.tasks import algorithm_node, atari_config, env_node, observation_info
 
 _env = Environment(trim_blocks=True, lstrip_blocks=True, keep_trailing_newline=True,
                    undefined=StrictUndefined)
@@ -52,6 +52,8 @@ ACTION_NOISE = {{ action_noise }}
 DEVICE = "{{ device }}"
 INPUT_SHAPE = {{ input_shape | repr }}
 IMAGE_OBS = {{ image_obs }}                 # pixels: [H, W, C] uint8 from the environment
+ENV_MODULE = {{ env_module | repr }}         # registers a custom environment ("" if none)
+ATARI = {{ atari | repr }}                   # Atari preprocessing + frame stack (or None)
 FEATURES = {{ features }}
 CHECKPOINT = "{{ name }}_best.pt"            # a stable-baselines3 zip archive
 INFERENCE_FILE = "inference_state.pkl"
@@ -115,6 +117,38 @@ gym.register("AIME/PixelChase-v0", entry_point=PixelChase)
 {% endif %}
 
 
+# ======================================================================== environment
+def make_env():
+    """The environment: a custom module is imported first (it registers its ids); Atari
+    games get the DQN-paper preprocessing and stacked frames."""
+    import gymnasium as gym
+
+    if ENV_MODULE:
+        import importlib
+        import importlib.util
+        import sys
+
+        path = Path(ENV_MODULE).expanduser()
+        if path.suffix == ".py":
+            spec = importlib.util.spec_from_file_location(path.stem, path.resolve())
+            module = importlib.util.module_from_spec(spec)
+            sys.path.insert(0, str(path.resolve().parent))
+            spec.loader.exec_module(module)
+        else:
+            importlib.import_module(ENV_MODULE)
+    if ATARI is None:
+        return gym.make(ENV_ID)
+    import ale_py
+
+    gym.register_envs(ale_py)
+    env = gym.make(ENV_ID, frameskip=1)          # the preprocessing skips frames itself
+    env = gym.wrappers.AtariPreprocessing(
+        env, noop_max=ATARI["noop_max"], frame_skip=ATARI["frame_skip"],
+        screen_size=ATARI["screen_size"], terminal_on_life_loss=ATARI["terminal_on_life_loss"],
+        grayscale_obs=True)
+    return gym.wrappers.FrameStackObservation(env, ATARI["stack"])
+
+
 # ======================================================================== policy
 from stable_baselines3.common.torch_layers import BaseFeaturesExtractor  # noqa: E402
 
@@ -160,9 +194,7 @@ def pick_device() -> str:
 
 # ======================================================================== evaluation
 def random_reward(episodes: int) -> tuple[float, float]:
-    import gymnasium as gym
-
-    env = gym.make(ENV_ID)
+    env = make_env()
     env.action_space.seed(SEED)
     totals = []
     for k in range(episodes):
@@ -278,8 +310,8 @@ def main() -> None:
     torch.manual_seed(SEED)
     device = pick_device()
     print(f"device: {device}")
-    env = make_vec_env(ENV_ID, n_envs=N_ENVS, seed=SEED)
-    eval_env = gym.make(ENV_ID)
+    env = make_vec_env(make_env, n_envs=N_ENVS, seed=SEED)
+    eval_env = make_env()
     discrete = hasattr(env.action_space, "n")
     obs_size = int(np.prod(env.observation_space.shape))
     if obs_size != int(np.prod(INPUT_SHAPE)):
@@ -364,6 +396,8 @@ def context(graph: Graph, framework: str) -> dict:
     ep = env.resolved_params() if env is not None else {"env_id": "CartPole-v1",
                                                         "custom_id": "", "n_envs": 4, "seed": 0}
     env_id = ep["custom_id"] if ep["env_id"] == "custom" else ep["env_id"]
+    info = observation_info(graph)
+    atari = atari_config(graph)
     algo = algorithm_node(graph)
     if algo is None:
         from ai_made_easy.core.registry import get_registry
@@ -389,9 +423,12 @@ def context(graph: Graph, framework: str) -> dict:
         "loop": {k: ap[k] for k in ("total_timesteps", "evaluations", "eval_episodes")},
         "head": _ints(ap.get("head")), "action_noise": float(ap.get("action_noise", 0.0)),
         "device": device, "input_shape": list(shapes[chain[0].instance_id]),
-        "image_obs": ep["env_id"] in IMAGE_ENVS, "built_in": ep["env_id"] in BUILT_IN,
+        "image_obs": bool(info and info[0] is not None and len(info[0]) == 3),
+        "built_in": ep["env_id"] in BUILT_IN, "atari": atari,
+        "env_module": str(ep.get("module") or "") if ep["env_id"] == "custom" else "",
         "features": int(out_shape[0]),
-        "requirements": own_loop_requirements(model_code, ("gymnasium", "stable-baselines3")),
+        "requirements": own_loop_requirements(model_code, ("gymnasium", "stable-baselines3",
+                                                           *(("ale-py",) if atari else ()))),
         "model_code": _strip_main(model_code),
     }
 
