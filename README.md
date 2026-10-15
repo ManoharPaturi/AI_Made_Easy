@@ -24,7 +24,8 @@ boilerplate. It runs on the desktop or in the browser.
   trained model before it is packaged. Detectors keep their post-processing (NMS) and
   graph networks take graphs of any size. The project's budget device suggests the
   format, and a design rule names why a design can't reach one
-  ([docs/EXPORT.md](docs/EXPORT.md)).
+  ([docs/EXPORT.md](docs/EXPORT.md); what every task serves and exports:
+  [docs/DEPLOY.md](docs/DEPLOY.md)).
 - **Work with your tools:** runs mirror to MLflow and Weights & Biases as they train,
   on every backend; registered models go to MLflow's registry, W&B or the Hugging Face
   Hub (as a model repo or a Docker Space); Kaggle and Hub datasets download and are
@@ -49,7 +50,7 @@ boilerplate. It runs on the desktop or in the browser.
   state-space models, flows), optionally trading accuracy against latency or model size
   on your target device: the result is one Pareto front of networks and classic models
   to choose from. Trials can train several at a time, on any backend.
-- **544 blocks in 9 families** ([docs/FAMILIES.md](docs/FAMILIES.md) lists every
+- **554 blocks in 9 families** ([docs/FAMILIES.md](docs/FAMILIES.md) lists every
   family, task, block and design rule) across every major library: `torch.nn` layers, Keras 3
   equivalents, torchvision / `keras.applications` / timm pretrained backbones,
   Hugging Face text and image encoders, scikit-learn, XGBoost, LightGBM and CatBoost,
@@ -188,7 +189,8 @@ docker build -t ai-made-easy . && docker run -p 8765:8765 ai-made-easy
 ```
 
 The web version shares the engine, run history and model registry with the
-desktop app. Hosting, authentication and the REST API are covered in
+desktop app, and has the same tools: **Run on** and **Backends**, export formats,
+**Tools** (tracking, Kaggle / Hub datasets, run history) and each model's **Share** menu. Hosting, authentication and the REST API are covered in
 [docs/WEB.md](docs/WEB.md).
 
 ![Web designer](docs/images/web_designer.png)

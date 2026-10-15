@@ -1,5 +1,102 @@
 # Changelog
 
+## 3.2.0
+
+3.2 makes the app solid and gets designs out of it. Runs train on SSH hosts, Kaggle,
+Colab, Modal or a container as well as this computer. Trained models export to ONNX,
+TorchScript, Core ML, ExecuTorch and LiteRT, each format checked against the model. Runs
+and models reach the tools teams already use: MLflow, Weights & Biases, the Hugging Face
+Hub and Kaggle. AutoML covers every family, and the models put off in 3.0 and 3.1 land:
+Glow, the Open Graph Benchmark, Atari, your own Gymnasium environments, and QAT for text
+models. It has 554 blocks, 62 recipes and 35 tasks.
+
+AI Made Easy still never asks for, stores or logs a password, token or key. Every
+integration uses the tool's own sign-in and is off until you choose it.
+
+### Added
+- **Train anywhere** ([REMOTE.md](docs/REMOTE.md)):
+  - **Run on** (desktop and web): this computer, any SSH host in `~/.ssh/config`
+    (including rented GPU machines), a Kaggle notebook, a Colab hand-off, a Modal sandbox,
+    or a Docker container.
+  - Remote runs stream the same events as local ones, so live curves, Stop, sweeps,
+    pipelines and AutoML all work unchanged.
+  - A dropped SSH connection resumes with no epoch lost, and `aime runs attach` follows a
+    run again after a restart.
+  - Each backend reports its accelerator, which picks the device the budget is checked
+    against.
+- **Export everywhere** ([EXPORT.md](docs/EXPORT.md), [DEPLOY.md](docs/DEPLOY.md)):
+  - Formats: ONNX for detectors (post-processing included) and graph networks,
+    ExecuTorch (`.pte`) and LiteRT (`.tflite`), with int8 calibrated on the run's own
+    samples.
+  - Every format is run against the trained model before it is packaged.
+  - The budget device suggests a format, and a design rule names why a design can't
+    reach one.
+  - `docs/DEPLOY.md` lists, for every task, what `/predict` takes and which formats it
+    exports. It is generated from the code.
+- **Work with your tools** ([TOOLS.md](docs/TOOLS.md)):
+  - Runs mirror to MLflow and W&B as they train, on every backend.
+  - Registered models go to MLflow's registry, W&B, a Hugging Face model repository or a
+    Docker Space. Publishing is confirmed every time and private by default.
+  - `kaggle:`, `kaggle-competition:` and `hf:` datasets download once and are detected
+    like a local folder. Kaggle submissions are confirmed every time.
+  - MLflow PyTorch / ONNX models open as designs (`aime import mlflow`).
+  - The run history exports to CSV or Parquet.
+  - New extras: `tracking` and `hub`.
+- **AutoML for every family:**
+  - held-out metrics for each family: log-likelihood (Bayesian networks, HMMs), PSIS-LOO
+    ELPD (PyMC), NLPD (GPs), MASE (state-space), bits per dimension (flows), ROC AUC
+    (labelled anomaly detection)
+  - cost estimates for classic and probabilistic designs; classic runs measure their
+    predict latency and size, so one Pareto front mixes networks and classic models
+  - tuning knobs for the probabilistic recipes
+  - trials can train several at a time and on any backend (`--concurrency`, `--on`);
+    the tuned trials start after the baseline round is scored
+- **More models:**
+  - **Glow:** 1×1 invertible convolutions, convolutional couplings, squeeze and
+    multi-scale split blocks, image density data, and a Glow recipe scored in bits per
+    dimension.
+  - **Open Graph Benchmark:** node, graph and link datasets with their official splits
+    and evaluators (`ogb` in the `graph` extra).
+  - **Atari** games through ale-py, with the DQN-paper preprocessing and frame stacking
+    blocks and an Atari PPO recipe (the `atari` extra). A design rule reports a missing
+    ROM ([RL.md](docs/RL.md)).
+  - **Your own Gymnasium environments:** the spaces are read in a separate process while
+    you design and checked against the network.
+  - **QAT for text models:** embedding tables get weight-only quantization, so
+    quantization-aware training works for designs with embeddings.
+- **Web parity:**
+  - a **Backends** button in the header
+  - **Tools** (tracking for the project, Kaggle / Hub datasets that open the wizard with
+    the data detected, run-history downloads)
+  - a model's **Share** dialog (export formats, MLflow, W&B, Hub, Space)
+  - **Pull from the Hub**
+  - MLflow models in **Import model**
+
+### Fixed
+- **CI:** every job has a timeout, and pytest-timeout fails a hung test with every
+  thread's stack. A recovery prompt that hung headless test runs is skipped in tests.
+- **Packages:**
+  - DLRM and class-conditional diffusion packages failed verification.
+  - VAE, GAN, diffusion and Stable Diffusion LoRA packages were described as image
+    classifiers and had no `/generate`.
+  - Stable Diffusion LoRA runs could not be packaged at all.
+  - Flow packages were described as image models once flows accepted images.
+- **Downloads:** Torchvision downloads had no socket timeout, so a dead network hung the
+  run.
+- **Remote runs:**
+  - Starting an SSH run blocked until training ended.
+  - Bundle files had a 1970 timestamp, which Colab's results zip refused.
+  - The web Training panel missed a run's first log lines.
+- **Web:** download links (serving packages, run exports) carry the access token, so
+  they work when the server requires one.
+- **Large designs:** 1000 blocks validate in 20 ms (was 292 ms). The desktop canvas
+  opens 500 blocks in about 0.3 s (was 22 s).
+
+### Known limitations
+- A Modal run can't be followed again after the app restarts; its outputs stay in the
+  `aime-runs` volume.
+- Kaggle has no live log API, so a Kaggle run's curves arrive when the kernel finishes.
+
 ## 3.1.0
 
 3.1 finishes what 3.0 put off rather than opening new model areas. Every design now has a

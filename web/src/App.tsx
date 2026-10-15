@@ -1,8 +1,10 @@
 import { useEffect, useState } from "react";
 
-import type { SavedProject } from "./types";
+import type { DataFacts, SavedProject } from "./types";
 import { api } from "./api";
+import { BackendsModal } from "./components/Backends";
 import { Modal } from "./components/Modal";
+import { ToolsModal } from "./components/Tools";
 import { NewProjectWizard } from "./components/Wizard";
 import { Designer } from "./designer/Designer";
 import { DataPage } from "./pages/DataPage";
@@ -64,7 +66,27 @@ function ImportDialog({ onClose }: { onClose: () => void }) {
   const [report, setReport] = useState("");
   const [busy, setBusy] = useState(false);
   const [graph, setGraph] = useState<Parameters<typeof load>[0] | null>(null);
+  const [uri, setUri] = useState("");
+  const mlflow = kind === "mlflow";
+  const show = (r: { graph: Parameters<typeof load>[0]; summary: string; ok: boolean;
+                     warnings: string[] }) => {
+    setReport(r.summary + (r.warnings.length ? `\n\nNotes:\n  - ${r.warnings.join("\n  - ")}` : ""));
+    setGraph(r.ok ? r.graph : null);
+  };
   const run = async () => {
+    if (mlflow) {
+      setBusy(true);
+      setReport("Loading the MLflow model…");
+      try {
+        show(await api.importMlflow(uri.trim(), shape));
+      } catch (e) {
+        setReport(`Import failed:\n${(e as Error).message}`);
+        setGraph(null);
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
     if (!file) return;
     const form = new FormData();
     form.append("kind", kind);
@@ -74,9 +96,7 @@ function ImportDialog({ onClose }: { onClose: () => void }) {
     setBusy(true);
     setReport("Importing…");
     try {
-      const r = await api.importModel(form);
-      setReport(r.summary + (r.warnings.length ? `\n\nNotes:\n  - ${r.warnings.join("\n  - ")}` : ""));
-      setGraph(r.ok ? r.graph : null);
+      show(await api.importModel(form));
     } catch (e) {
       setReport(`Import failed:\n${(e as Error).message}`);
       setGraph(null);
@@ -87,7 +107,7 @@ function ImportDialog({ onClose }: { onClose: () => void }) {
   return (
     <Modal title="Import model" onClose={onClose} actions={
       <>
-        <button onClick={run} disabled={!file || busy}>Import</button>
+        <button onClick={run} disabled={(mlflow ? !uri.trim() : !file) || busy}>Import</button>
         <button className="primary" disabled={!graph} onClick={() => {
           load(graph!);
           notify("Imported model opened as a project");
@@ -101,10 +121,14 @@ function ImportDialog({ onClose }: { onClose: () => void }) {
           <select id="imp-kind" value={kind} onChange={(e) => setKind(e.target.value)}>
             <option value="onnx">ONNX (.onnx)</option>
             <option value="keras">Keras (.keras / .h5)</option>
-            <option value="pytorch">PyTorch module (.py)</option>
+            <option value="pytorch">PyTorch module (.py, .pt)</option>
+            <option value="mlflow">MLflow model (URI)</option>
           </select></div>
-        <div className="field"><label htmlFor="imp-file">File</label>
-          <input id="imp-file" type="file" onChange={(e) => setFile(e.target.files?.[0] ?? null)} /></div>
+        {mlflow ? <div className="field"><label htmlFor="imp-uri">Model URI</label>
+          <input id="imp-uri" value={uri} placeholder="models:/name/1 or runs:/id/model"
+                 onChange={(e) => setUri(e.target.value)} /></div>
+          : <div className="field"><label htmlFor="imp-file">File</label>
+          <input id="imp-file" type="file" onChange={(e) => setFile(e.target.files?.[0] ?? null)} /></div>}
         {kind === "pytorch" && <div className="field"><label htmlFor="imp-attr">Model class</label>
           <input id="imp-attr" value={attr} onChange={(e) => setAttr(e.target.value)} /></div>}
         <div className="field"><label htmlFor="imp-shape">Input shape (per sample)</label>
@@ -129,7 +153,8 @@ export function App() {
       .catch(() => setDesign(""));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [validation]);
-  const [dialog, setDialog] = useState<"" | "open" | "import" | "new">("");
+  const [dialog, setDialog] = useState<"" | "open" | "import" | "new" | "tools" | "backends">("");
+  const [startFacts, setStartFacts] = useState<DataFacts | null>(null);
 
   const save = async () => {
     try {
@@ -179,6 +204,10 @@ export function App() {
         <button onClick={save} title="Save on the server (Ctrl+S)">Save</button>
         <button onClick={download} title="Download the project JSON">Download</button>
         <button onClick={() => setDialog("import")}>Import model</button>
+        <button onClick={() => setDialog("tools")} data-testid="open-tools"
+                title="Experiment tracking, Kaggle and Hub datasets, run history">Tools</button>
+        <button onClick={() => setDialog("backends")} data-testid="open-backends"
+                title="Where runs train: this machine, SSH, Kaggle, Colab, Modal">Backends</button>
         <button className="ghost" onClick={toggleTheme} title="Toggle theme">
           {theme === "dark" ? "☀" : "☾"}</button>
       </header>
@@ -197,8 +226,12 @@ export function App() {
       </footer>
       {dialog === "open" && <OpenDialog onClose={() => setDialog("")} />}
       {dialog === "import" && <ImportDialog onClose={() => setDialog("")} />}
-      {dialog === "new" && <NewProjectWizard onClose={() => setDialog("")}
-        onCreated={() => { setDialog(""); setPage("design"); }}
+      {dialog === "tools" && <ToolsModal onClose={() => setDialog("")}
+        onUseData={(d) => { setStartFacts(d.facts); setDialog("new"); }} />}
+      {dialog === "backends" && <BackendsModal onClose={() => setDialog("")} />}
+      {dialog === "new" && <NewProjectWizard initialFacts={startFacts}
+        onClose={() => { setDialog(""); setStartFacts(null); }}
+        onCreated={() => { setDialog(""); setStartFacts(null); setPage("design"); }}
         onAutoml={() => { setDialog(""); setExperimentsTab("sweeps"); setPage("experiments"); }} />}
       {toast && <div className={`toast ${toast.error ? "error" : ""}`} role="status">{toast.text}</div>}
     </div>

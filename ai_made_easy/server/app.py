@@ -596,6 +596,13 @@ def create_app(*, token: str | None = None, projects_dir: str | Path | None = No
         finally:
             shutil.rmtree(work, ignore_errors=True)
 
+    @app.post("/api/import/mlflow", dependencies=guard)
+    async def import_mlflow(payload: dict = Body(...)) -> dict:  # noqa: B008
+        raw = str(payload.get("input_shape") or "")
+        shape = [int(d) for d in re.split(r"[,x\s]+", raw.strip("()[] ")) if d] or None
+        return await asyncio.to_thread(api.open_mlflow_model, str(payload.get("uri") or ""),
+                                       shape)
+
     # ---------------------------------------------------------------- data
     @app.post("/api/data/profile", dependencies=guard)
     def data_profile(payload: dict = Body(...)) -> dict:  # noqa: B008

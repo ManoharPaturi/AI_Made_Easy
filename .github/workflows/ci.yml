@@ -349,6 +349,14 @@ jobs:
                   if missing_requirements(b) and not b.type_id.startswith('llm.')}
           assert not gaps, gaps
           print('all block requirements installed')"
+      - name: The image works with your tools (MLflow, W&B, the Hub)
+        run: |
+          docker run --rm ai-made-easy python -c "
+          from ai_made_easy.core import api
+          status = api.tracking_status()
+          assert all(t['installed'] for t in status['trackers']), status
+          import ai_made_easy, datasets, huggingface_hub
+          print(ai_made_easy.__version__, [t['id'] for t in status['trackers']])"
 
 
   package:
@@ -373,6 +381,12 @@ jobs:
           test -f "dist/AI Made Easy/_internal/ai_made_easy/worker/train_worker.py"
           test -f "dist/AI Made Easy/_internal/ai_made_easy/core/pipelines/stages.py"
           test -f "dist/AI Made Easy/_internal/ai_made_easy/samples/pipeline_distill_quantize.json"
+          # 3.2: remote launcher, tracking, Hub / Kaggle integrations, environment probe
+          test -f "dist/AI Made Easy/_internal/ai_made_easy/worker/aime_launch.py"
+          test -f "dist/AI Made Easy/_internal/ai_made_easy/core/tracking.py"
+          test -f "dist/AI Made Easy/_internal/ai_made_easy/core/integrations/hub.py"
+          test -f "dist/AI Made Easy/_internal/ai_made_easy/core/rl/spaces.py"
+          test -f "dist/AI Made Easy/_internal/ai_made_easy/samples/rl_atari_pong_ppo.json"
       - name: The bundled app starts
         run: |
           export AIME_HOME="$(mktemp -d)"

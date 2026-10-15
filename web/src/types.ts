@@ -286,6 +286,13 @@ export interface SplitPreview {
   notes: string[];
 }
 
+export interface ModelMirror {
+  target: "mlflow" | "wandb";
+  name: string;
+  version: string;
+  uri: string;
+}
+
 export interface ModelVersion {
   name: string;
   version: number;
@@ -296,6 +303,20 @@ export interface ModelVersion {
   metrics: Record<string, number>;
   description: string;
   created_at: number;
+  mirrors?: ModelMirror[];   // where else it is registered (MLflow, W&B)
+}
+
+export interface TrackingStatus {
+  selected: string[];
+  env: string;
+  mlflow_uri: string;
+  trackers: { id: string; label: string; installed: boolean }[];
+}
+
+export interface FetchedDataset {
+  source: string;
+  path: string;
+  facts: DataFacts;
 }
 
 export interface RunSamples {

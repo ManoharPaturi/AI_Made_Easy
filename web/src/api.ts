@@ -4,10 +4,16 @@ import type {
   BackendList, BackendTest, PipelineRecord, SavedProject,
   AutoMLStarted, DataFacts, Explanation, RecipeInfo, RecipeSuggestion, WizardTask,
   BlockDef, BudgetReport, TableLayout, RunSamples, DataProfile, DeviceProfile, FamilyInfo, TaskInfo, ModelVersion, Project, RunEvent, RunRecord, SplitPreview, Summary,
-  SweepParam, SweepRecord, Validation, ExportFormat,
+  SweepParam, SweepRecord, Validation, ExportFormat, FetchedDataset, TrackingStatus,
 } from "./types";
 
 export class ApiError extends Error {}
+
+/** Links the browser downloads itself (no fetch headers) carry the access token. */
+function withToken(url: string): string {
+  const token = localStorage.getItem(TOKEN_KEY);
+  return token ? `${url}${url.includes("?") ? "&" : "?"}token=${encodeURIComponent(token)}` : url;
+}
 
 const TOKEN_KEY = "aime.token";
 
@@ -132,7 +138,7 @@ export const api = {
 
   formats: (runId: string) => get<{ formats: ExportFormat[] }>(`/runs/${runId}/formats`),
   deployUrl: (runId: string, formats: string[]) =>
-    `/api/runs/${runId}/deploy?formats=${encodeURIComponent(formats.join(","))}`,
+    withToken(`/api/runs/${runId}/deploy?formats=${encodeURIComponent(formats.join(","))}`),
   models: () => get<{ models: ModelVersion[] }>("/models"),
   registerModel: (runId: string, name: string, description = "") =>
     post<ModelVersion>("/models", { run_id: runId, name, description }),
@@ -140,6 +146,32 @@ export const api = {
     request<ModelVersion>("PATCH", `/models/${encodeURIComponent(name)}/${version}`, { stage }),
   deleteModel: (name: string, version: number) =>
     request<Record<string, unknown>>("DELETE", `/models/${encodeURIComponent(name)}/${version}`),
+  modelFormats: (name: string, version: number) =>
+    get<{ formats: ExportFormat[] }>(`/models/${encodeURIComponent(name)}/${version}/formats`),
+  modelDeployUrl: (name: string, version: number, formats: string[]) =>
+    withToken(`/api/models/${encodeURIComponent(name)}/${version}/deploy?formats=` +
+              encodeURIComponent(formats.join(","))),
+  mirrorModel: (name: string, version: number, to: string[]) =>
+    post<ModelVersion>(`/models/${encodeURIComponent(name)}/${version}/mirror`, { to }),
+  pushToHub: (repoId: string, model: string, version: number, isPrivate = true) =>
+    post<{ repo_id: string; url: string }>("/hub/push", { repo_id: repoId, model, version,
+                                                          private: isPrivate }),
+  deploySpace: (spaceId: string, model: string, version: number, isPrivate = true,
+                formats: string[] = []) =>
+    post<{ space_id: string; url: string }>("/hub/space", { space_id: spaceId, model, version,
+                                                            private: isPrivate, formats }),
+  pullFromHub: (repoId: string, name = "") =>
+    post<ModelVersion>("/hub/pull", { repo_id: repoId, name }),
+
+  tracking: (graph?: Project) => graph ? post<TrackingStatus>("/tracking", { graph })
+    : get<TrackingStatus>("/tracking"),
+  fetchDataset: (source: string, force = false) =>
+    post<FetchedDataset>("/data/fetch", { source, force }),
+  exportRunsUrl: (format: "csv" | "parquet", epochs = false) =>
+    withToken(`/api/export/runs?format=${format}${epochs ? "&epochs=true" : ""}`),
+  importMlflow: (uri: string, inputShape: string) =>
+    post<{ graph: Project; summary: string; ok: boolean; warnings: string[];
+           unsupported: string[] }>("/import/mlflow", { uri, input_shape: inputShape }),
 
   importModel: (form: FormData) =>
     post<{ graph: Project; summary: string; ok: boolean; warnings: string[];

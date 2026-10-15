@@ -10,7 +10,6 @@ from __future__ import annotations
 import json
 import os
 import subprocess
-import sys
 from functools import lru_cache
 from pathlib import Path
 
@@ -55,10 +54,12 @@ def _stamp(module: str) -> float:
 
 @lru_cache(maxsize=64)
 def _probe(env_id: str, module: str, stamp: float, cwd: str) -> dict:
+    from ai_made_easy.core.runner.manager import python_executable  # not the app bundle
+
     env = {**os.environ, "PYTHONWARNINGS": "ignore",
            "PYTHONPATH": os.pathsep.join(filter(None, [cwd, os.environ.get("PYTHONPATH", "")]))}
     try:
-        proc = subprocess.run([sys.executable, "-c", PROBE, env_id, module], cwd=cwd,
+        proc = subprocess.run([python_executable(), "-c", PROBE, env_id, module], cwd=cwd,
                               capture_output=True, text=True, timeout=120, env=env)
     except subprocess.TimeoutExpired:
         return {"error": "creating the environment took longer than 2 minutes"}
