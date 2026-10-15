@@ -396,6 +396,19 @@ class Transformer:
     extra: str = ""                  # the ai-made-easy extra that installs it
 
 
+def _smooth(value) -> str:
+    text = str(value).strip()
+    return '"auto"' if text in ("", "auto") else str(float(text))
+
+
+def _smooth_check(p) -> list:
+    try:
+        _smooth(p.get("smooth", "auto"))
+    except ValueError:
+        return [("error", "smooth must be auto or a number")]
+    return []
+
+
 def _ctor(cls: str, **kwargs) -> str:
     return f"{cls}({', '.join(f'{k}={v}' for k, v in kwargs.items())})"
 
@@ -464,6 +477,24 @@ TRANSFORMERS: list[Transformer] = [
                 desc="Uniform manifold approximation: a fast non-linear embedding that keeps "
                      "local and much of the global structure. Good before clustering.",
                 seeded=True, package="umap-learn", extra="umap"),
+    Transformer("ml.target_encode", "Target Encoding", "TargetEncoder", "sklearn.preprocessing",
+                (P("smooth", "str", "auto", help="Shrinkage toward the overall mean: auto or "
+                                                 "a number"),
+                 P("cv", "int", 5, lo=2, hi=20, help="Folds used to encode the training rows")),
+                desc="Replaces each category with the average target of its rows, learned "
+                     "with cross-fitting so a row never sees its own label. Good for columns "
+                     "with many categories, where one-hot would explode.",
+                render=lambda p: (f"TargetEncoder(smooth={_smooth(p['smooth'])}, "
+                                  f"cv={int(p['cv'])})"),
+                stage="categorical", seeded=True, checks=lambda p: _smooth_check(p)),
+    Transformer("ml.smote", "SMOTE Oversampling", "SMOTE", "imblearn.over_sampling",
+                (P("k_neighbors", "int", 5, lo=1, help="Neighbours used to make new rows"),
+                 P("sampling_strategy", "enum", "auto",
+                   options=("auto", "minority", "not majority", "all"))),
+                desc="Synthesizes new rows of the rarer classes between existing ones "
+                     "(Chawla et al., 2002). Applied to the training rows only, while fitting "
+                     "(also inside cross-validation), never to the test set.",
+                stage="sampler", seeded=True, package="imbalanced-learn", extra="imbalance"),
     Transformer("ml.tfidf", "TF-IDF Vectorizer", "TfidfVectorizer",
                 "sklearn.feature_extraction.text",
                 (P("max_features", "int", 20000, lo=1), P("ngram_max", "int", 2, lo=1, hi=5),
@@ -560,7 +591,8 @@ def register_all() -> None:
             type_id=tr.type_id, display_name=tr.name,
             category="Text Features" if tr.stage == "text" else "Feature Engineering",
             color=color, params=tuple(tr.params), checks_fn=tr.checks, description=tr.desc,
-            library="umap-learn" if tr.package == "umap-learn" else "scikit-learn",
+            library={"umap-learn": "umap-learn", "imbalanced-learn": "imbalanced-learn"}.get(
+                tr.package, "scikit-learn"),
             meta={"kind": "transformer", "stage": tr.stage},
             requires=(tr.module.split(".")[0],) if tr.package else (), extra=tr.extra))
     reg.register(SEARCH)

@@ -168,6 +168,40 @@ def _convnext(ctx: Context) -> Draft:
     return d
 
 
+def _arcface(ctx: Context) -> Draft:
+    _classes(ctx, IMAGE_DEMO[3])
+    d = Draft("image_arcface", "Images — ArcFace embeddings",
+              "A CNN that maps each image to an embedding; ArcFace pulls each class around "
+              "its own direction with a margin between classes.")
+    size = int(ctx["image_size"]) if not ctx.facts.demo else IMAGE_DEMO[2]
+    channels, size = _image_data(d, ctx, size, augment=True)
+    width = int(ctx["width"])
+    steps: list[tuple] = [("core.input", {"shape": f"{channels}, {size}, {size}"},
+                           f"an image: {channels} channel(s) of {size}×{size} pixels")]
+    for stage in range(int(ctx["stages"])):
+        steps += [("core.conv2d", {"out_channels": width * 2 ** stage, "kernel_size": 3,
+                                   "padding": 1},
+                   "3×3 filters find local patterns" if stage == 0 else ""),
+                  ("core.batch_norm2d", {}, ""),
+                  ("core.relu", {}, ""),
+                  ("core.maxpool2d", {"kernel_size": 2, "stride": 2}, "")]
+    n = max(len(ctx.facts.classes or []), 2)
+    steps += [("core.global_avgpool2d", {}, "one value per filter"),
+              ("core.dense", {"units": int(ctx["embedding"])},
+               f"the embedding: {int(ctx['embedding'])} numbers per image, compared by angle")]
+    d.chain(*steps, ("core.output", {}, ""))
+    d.add("train.loss_arcface", f"ArcFace: {n} class centres on the sphere, with an angular "
+                                "margin, so same-class images cluster tightly", nid="loss",
+          classes=n)
+    d.add("train.adamw", "AdamW: Adam with decoupled weight decay", nid="optimizer",
+          lr=ctx["lr"])
+    d.add("train.trainer", "early stopping ends training when the validation loss stops "
+                           "improving", nid="trainer", epochs=ctx["epochs"] or 30,
+          batch_size=128, early_stopping_patience=5)
+    d.add("eval.accuracy", "accuracy of the nearest class centre", nid="accuracy")
+    return d
+
+
 IMAGE_KINDS = ("demo", "image_folder")
 register_recipe(Recipe(
     "image_cnn", "Small CNN", CLASSIFY, "small", "image",
@@ -219,6 +253,17 @@ register_recipe(Recipe(
            Knob("stages", "int", 3, 1, 4, help="Stages (each halves the resolution)"),
            Knob("image_size", "choice", 64, values=(32, 64, 96, 128)), EPOCHS(30)),
     strengths="CNN speed with transformer-era accuracy"))
+register_recipe(Recipe(
+    "image_arcface", "ArcFace embeddings", CLASSIFY, "medium", "image",
+    "Learns an embedding per image (face / product / item recognition): new images are "
+    "matched by angle, and new classes can be added without retraining.",
+    _arcface, data_kinds=IMAGE_KINDS, demo_tasks=("multiclass",), rows=(2_000, 10**7),
+    priority=-0.2, downloads="Fashion-MNIST (30 MB) for the demo",
+    knobs=(_lr(1e-3), Knob("width", "int", 32, 8, 256, help="Filters in the first stage"),
+           Knob("stages", "int", 3, 1, 5, help="Convolution stages"),
+           Knob("embedding", "int", 128, 16, 1024, help="Embedding size"),
+           Knob("image_size", "choice", 64, values=(32, 64, 96, 128)), EPOCHS(30)),
+    strengths="embeddings for retrieval and verification, not only a class"))
 
 
 # ------------------------------------------------------------------ text

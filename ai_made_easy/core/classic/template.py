@@ -26,7 +26,11 @@ import numpy as np
 import pandas as pd
 {% endif %}
 from sklearn import metrics
+{% if sampler %}
+from imblearn.pipeline import Pipeline   # runs the sampler while fitting only
+{% else %}
 from sklearn.pipeline import Pipeline
+{% endif %}
 {% for line in imports %}
 {{ line }}
 {% endfor %}
@@ -320,7 +324,12 @@ def feature_importances(model: Pipeline, top: int = 15) -> list[tuple[str, float
     if values is None:
         return []
     try:
+{% if sampler %}
+        names = list(Pipeline([s for s in model.steps[:-1]   # samplers don't name features
+                               if not hasattr(s[1], "fit_resample")]).get_feature_names_out())
+{% else %}
         names = list(model[:-1].get_feature_names_out())
+{% endif %}
     except Exception:  # noqa: BLE001 — not every transformer names its outputs
         names = [f"feature_{i}" for i in range(len(values))]
     if len(names) != len(values):

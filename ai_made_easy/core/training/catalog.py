@@ -160,6 +160,55 @@ LOSSES: list[Component] = [
 ]
 
 
+# Metric learning (3.3): the model outputs an embedding (its last layer's width is the
+# embedding size) and the loss learns how classes sit in that space. Each one also scores
+# embeddings against its class centres, so accuracy and the other metrics still work.
+_CLASSES = P("classes", "int", 10, lo=2, help="Number of classes in the data")
+_METRIC_META = {"task": "multiclass", "target": "int", "input": "embedding", "metric": True}
+
+
+def _margin(kind: str) -> Render:
+    return lambda p: (f"MarginSoftmaxLoss(EMBED_DIM, NUM_CLASSES, scale={p['scale']}, "
+                      f"margin={p['margin']}, kind=\"{kind}\")")
+
+
+LOSSES += [
+    Component(
+        "train.loss_arcface", "ArcFace",
+        (_CLASSES, P("scale", "float", 30.0, lo=1.0, help="Logit scale s"),
+         P("margin", "float", 0.5, lo=0.0, hi=1.5, help="Additive angular margin (radians)")),
+        torch=_margin("arcface"),
+        desc="Additive angular margin loss (Deng et al., 2019): embeddings of a class "
+             "gather around a learned centre with a margin between classes. Face and "
+             "product recognition, verification. The trained network outputs embeddings.",
+        meta={**_METRIC_META, "torch_helper": "MarginSoftmaxLoss"}),
+    Component(
+        "train.loss_cosface", "CosFace",
+        (_CLASSES, P("scale", "float", 30.0, lo=1.0, help="Logit scale s"),
+         P("margin", "float", 0.35, lo=0.0, hi=1.0, help="Additive cosine margin")),
+        torch=_margin("cosface"),
+        desc="Large margin cosine loss (Wang et al., 2018): like ArcFace with the margin "
+             "on the cosine; a little easier to train. The network outputs embeddings.",
+        meta={**_METRIC_META, "torch_helper": "MarginSoftmaxLoss"}),
+    Component(
+        "train.loss_triplet", "Triplet (batch-hard)",
+        (_CLASSES, P("margin", "float", 0.3, lo=0.0, help="Distance margin")),
+        torch=lambda p: f"TripletLoss(EMBED_DIM, NUM_CLASSES, margin={p['margin']})",
+        desc="For each example, the farthest same-class and the nearest other-class "
+             "example in the batch (Hermans et al., 2017): same-class embeddings end up "
+             "closer by a margin. Use batches with several examples per class.",
+        meta={**_METRIC_META, "torch_helper": "TripletLoss"}),
+    Component(
+        "train.loss_supcon", "Supervised Contrastive",
+        (_CLASSES, P("temperature", "float", 0.1, lo=1e-3, hi=1.0)),
+        torch=lambda p: f"SupConLoss(EMBED_DIM, NUM_CLASSES, temperature={p['temperature']})",
+        desc="InfoNCE / NT-Xent with labels (Khosla et al., 2020): every same-class pair "
+             "in the batch is a positive, everything else a negative.",
+        meta={**_METRIC_META, "torch_helper": "SupConLoss"}),
+]
+METRIC_LOSS_IDS = tuple(c.type_id for c in LOSSES if c.meta.get("metric"))
+
+
 # ================================================================= optimizers
 
 def _wd(p) -> str:
@@ -320,10 +369,247 @@ OPTIMIZERS: list[Component] = [
         desc="AdamW whose weights are pulled toward a slow moving copy every k steps "
              "(Zhang et al., 2019): less sensitive to the learning rate.",
         meta={"torch_helper": "LookaheadAdamW"}),
+    Component(
+        "train.sam", "SAM (Sharpness-Aware)",
+        (P("base", "enum", "sgd", options=("sgd", "adamw"), help="The optimizer SAM wraps"),
+         _LR(0.05), P("rho", "float", 0.05, lo=0.0, help="Neighbourhood size"),
+         P("momentum", "float", 0.9, lo=0.0, hi=1.0, help="SGD momentum"), _WD(5e-4),
+         P("adaptive", "bool", False, help="ASAM: scale the step by each weight's size")),
+        torch=lambda p: (f"SAM(model.parameters(), base=\"{p['base']}\", rho={p['rho']}, "
+                         f"adaptive={bool(p['adaptive'])}, lr={p['lr']}, "
+                         f"momentum={p['momentum']}, weight_decay={p['weight_decay']})"),
+        desc="Sharpness-Aware Minimization (Foret et al., 2021): each step first moves to "
+             "the worst weights nearby, then descends from there, which finds flatter minima "
+             "that generalize better. Two forward/backward passes per step; runs in full "
+             "precision.",
+        meta={"torch_helper": "SAM", "sam": True}),
+    Component(
+        "train.schedule_free_adamw", "Schedule-Free AdamW",
+        (_LR(2.5e-3), _B1, _B2, _EPS(1e-8), _WD(0.0),
+         P("warmup_steps", "int", 0, lo=0, help="Linear warm-up steps")),
+        torch=lambda p: (f"ScheduleFreeAdamW(model.parameters(), lr={p['lr']}, "
+                         f"betas=({p['beta1']}, {p['beta2']}), eps={p['eps']}, "
+                         f"weight_decay={p['weight_decay']}, "
+                         f"warmup_steps={int(p['warmup_steps'])})"),
+        desc="AdamW without a learning-rate schedule (Defazio et al., 2024): it averages "
+             "its iterates instead, and evaluates the average. Leave out the scheduler.",
+        meta={"torch_helper": "ScheduleFreeAdamW", "schedule_free": True}),
 ]
 
-# PyTorch optimizers that are not in torch.optim: emitted into the training script
+_PROTOTYPES = '''\
+class ClassPrototypes(nn.Module):
+    """Running mean embedding of each class; scores embeddings by cosine similarity."""
+
+    def __init__(self, embed_dim: int, num_classes: int, momentum: float = 0.9) -> None:
+        super().__init__()
+        self.momentum = momentum
+        self.register_buffer("prototypes", torch.zeros(num_classes, embed_dim))
+        self.register_buffer("seen", torch.zeros(num_classes))
+
+    @torch.no_grad()
+    def update(self, emb: torch.Tensor, target: torch.Tensor) -> None:
+        emb = nn.functional.normalize(emb.detach().float(), dim=1)
+        for c in target.unique():
+            mean = emb[target == c].mean(0)
+            old = self.prototypes[c]
+            self.prototypes[c] = mean if self.seen[c] == 0 else (
+                self.momentum * old + (1 - self.momentum) * mean)
+            self.seen[c] = 1
+
+    def scores(self, emb: torch.Tensor) -> torch.Tensor:
+        protos = nn.functional.normalize(self.prototypes, dim=1)
+        emb = nn.functional.normalize(emb.to(protos.device).float(), dim=1)
+        return 10.0 * emb @ protos.t()
+'''
+
+# PyTorch optimizers and losses that are not in torch: emitted into the training script
 TRAIN_HELPERS = {
+    "MarginSoftmaxLoss": '''\
+class MarginSoftmaxLoss(nn.Module):
+    """ArcFace (Deng et al., 2019) / CosFace (Wang et al., 2018): softmax over the scaled
+    cosine to learned class centres, with a margin on the true class."""
+
+    def __init__(self, embed_dim: int, num_classes: int, scale: float = 30.0,
+                 margin: float = 0.5, kind: str = "arcface") -> None:
+        super().__init__()
+        self.centres = nn.Parameter(torch.randn(num_classes, embed_dim) * 0.01)
+        self.scale, self.margin, self.kind = scale, margin, kind
+
+    def cosine(self, emb: torch.Tensor) -> torch.Tensor:
+        centres = nn.functional.normalize(self.centres, dim=1)
+        return nn.functional.normalize(emb.to(centres.device).float(), dim=1) @ centres.t()
+
+    def scores(self, emb: torch.Tensor) -> torch.Tensor:
+        return self.scale * self.cosine(emb)
+
+    def forward(self, emb: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        cos = self.cosine(emb)
+        target = target.long().reshape(-1)
+        true = nn.functional.one_hot(target, cos.shape[1]).bool()
+        if self.kind == "arcface":
+            angle = torch.acos(cos.clamp(-1 + 1e-6, 1 - 1e-6))
+            shifted = torch.cos(angle + self.margin)
+        else:
+            shifted = cos - self.margin
+        logits = torch.where(true, shifted, cos) * self.scale
+        return nn.functional.cross_entropy(logits, target)
+''',
+    "TripletLoss": _PROTOTYPES + '''
+
+class TripletLoss(ClassPrototypes):
+    """Batch-hard triplet loss (Hermans et al., 2017) on L2-normalised embeddings."""
+
+    def __init__(self, embed_dim: int, num_classes: int, margin: float = 0.3) -> None:
+        super().__init__(embed_dim, num_classes)
+        self.margin = margin
+
+    def forward(self, emb: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        target = target.long().reshape(-1)
+        e = nn.functional.normalize(emb.float(), dim=1)
+        dist = torch.cdist(e, e)
+        same = target[:, None] == target[None, :]
+        hardest_pos = (dist * same).max(dim=1).values
+        hardest_neg = dist.masked_fill(same, float("inf")).min(dim=1).values
+        has_neg = torch.isfinite(hardest_neg)
+        if self.training:
+            self.update(e, target)
+        if not has_neg.any():
+            return (dist * 0).sum()
+        return torch.relu(hardest_pos - hardest_neg + self.margin)[has_neg].mean()
+''',
+    "SupConLoss": _PROTOTYPES + '''
+
+class SupConLoss(ClassPrototypes):
+    """Supervised contrastive loss (Khosla et al., 2020): InfoNCE where every same-class
+    example in the batch is a positive."""
+
+    def __init__(self, embed_dim: int, num_classes: int, temperature: float = 0.1) -> None:
+        super().__init__(embed_dim, num_classes)
+        self.temperature = temperature
+
+    def forward(self, emb: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        target = target.long().reshape(-1)
+        e = nn.functional.normalize(emb.float(), dim=1)
+        sim = e @ e.t() / self.temperature
+        eye = torch.eye(len(e), dtype=torch.bool, device=e.device)
+        sim = sim.masked_fill(eye, float("-inf"))
+        log_prob = sim - torch.logsumexp(sim, dim=1, keepdim=True)
+        positive = (target[:, None] == target[None, :]) & ~eye
+        count = positive.sum(1)
+        if self.training:
+            self.update(e, target)
+        anchors = count > 0
+        if not anchors.any():
+            return (sim.masked_fill(eye, 0) * 0).sum()
+        mean_pos = log_prob.masked_fill(~positive, 0).sum(1)[anchors] / count[anchors]
+        return -mean_pos.mean()
+''',
+    "ScheduleFreeAdamW": '''\
+class ScheduleFreeAdamW(torch.optim.Optimizer):
+    """Schedule-free AdamW (Defazio et al., 2024). Training runs at y, an interpolation of
+    the fast iterate z and the running average x; eval() switches the weights to x and
+    train() back to y."""
+
+    def __init__(self, params, lr: float = 2.5e-3, betas=(0.9, 0.999), eps: float = 1e-8,
+                 weight_decay: float = 0.0, warmup_steps: int = 0) -> None:
+        super().__init__(params, dict(lr=lr, betas=betas, eps=eps, weight_decay=weight_decay,
+                                      warmup_steps=warmup_steps, k=0, weight_sum=0.0,
+                                      training=True))
+
+    @torch.no_grad()
+    def eval(self) -> None:
+        for group in self.param_groups:
+            if group["training"]:
+                beta1 = group["betas"][0]
+                for p in group["params"]:
+                    if "z" in self.state[p]:
+                        p.lerp_(self.state[p]["z"], 1 - 1 / beta1)    # y -> x
+                group["training"] = False
+
+    @torch.no_grad()
+    def train(self) -> None:
+        for group in self.param_groups:
+            if not group["training"]:
+                beta1 = group["betas"][0]
+                for p in group["params"]:
+                    if "z" in self.state[p]:
+                        p.lerp_(self.state[p]["z"], 1 - beta1)        # x -> y
+                group["training"] = True
+
+    @torch.no_grad()
+    def step(self, closure=None):
+        loss = closure() if closure is not None else None
+        for group in self.param_groups:
+            beta1, beta2 = group["betas"]
+            k = group["k"]
+            warm = min(1.0, (k + 1) / group["warmup_steps"]) if group["warmup_steps"] else 1.0
+            lr = group["lr"] * warm * (1 - beta2 ** (k + 1)) ** 0.5
+            group["weight_sum"] += lr ** 2
+            c = lr ** 2 / group["weight_sum"] if group["weight_sum"] else 0.0
+            for p in group["params"]:
+                if p.grad is None:
+                    continue
+                state = self.state[p]
+                if "z" not in state:
+                    state["z"], state["v"] = p.detach().clone(), torch.zeros_like(p)
+                z, v = state["z"], state["v"]
+                v.mul_(beta2).addcmul_(p.grad, p.grad, value=1 - beta2)
+                update = p.grad / v.sqrt().add_(group["eps"])
+                if group["weight_decay"]:
+                    update.add_(p, alpha=group["weight_decay"])
+                p.lerp_(z, 1 - 1 / beta1)        # y -> x
+                z.sub_(update, alpha=lr)
+                p.lerp_(z, c)                    # the average moves toward z
+                p.lerp_(z, 1 - beta1)            # x -> y
+            group["k"] = k + 1
+        return loss
+''',
+    "SAM": '''\
+class SAM(torch.optim.Optimizer):
+    """Sharpness-Aware Minimization (Foret et al., 2021) around SGD or AdamW: first_step()
+    climbs to the worst weights within rho, second_step() restores them and steps with
+    the gradient taken there."""
+
+    def __init__(self, params, base: str = "sgd", rho: float = 0.05, adaptive: bool = False,
+                 lr: float = 0.05, momentum: float = 0.9, weight_decay: float = 0.0) -> None:
+        super().__init__(params, dict(rho=rho, adaptive=adaptive, lr=lr))
+        if base == "adamw":
+            self.base_optimizer = torch.optim.AdamW(self.param_groups, lr=lr,
+                                                    weight_decay=weight_decay)
+        else:
+            self.base_optimizer = torch.optim.SGD(self.param_groups, lr=lr, momentum=momentum,
+                                                  weight_decay=weight_decay)
+        self.param_groups = self.base_optimizer.param_groups
+        self.defaults.update(self.base_optimizer.defaults)
+
+    def _grad_norm(self) -> torch.Tensor:
+        norms = [((torch.abs(p) if group["adaptive"] else 1.0) * p.grad).norm(p=2)
+                 for group in self.param_groups for p in group["params"] if p.grad is not None]
+        return torch.norm(torch.stack(norms), p=2) if norms else torch.tensor(0.0)
+
+    @torch.no_grad()
+    def first_step(self) -> None:
+        norm = self._grad_norm()
+        for group in self.param_groups:
+            scale = group["rho"] / (norm + 1e-12)
+            for p in group["params"]:
+                if p.grad is None:
+                    continue
+                e = (torch.pow(p, 2) if group["adaptive"] else 1.0) * p.grad * scale.to(p)
+                p.add_(e)
+                self.state[p]["e_w"] = e
+
+    @torch.no_grad()
+    def second_step(self) -> None:
+        for group in self.param_groups:
+            for p in group["params"]:
+                if "e_w" in self.state[p]:
+                    p.sub_(self.state[p].pop("e_w"))
+        self.base_optimizer.step()
+
+    def step(self, closure=None):
+        raise RuntimeError("SAM steps with first_step() and second_step()")
+''',
     "Lion": '''\
 class Lion(torch.optim.Optimizer):
     """Lion (Chen et al., 2023): steps by the sign of an interpolated momentum."""
@@ -618,9 +904,18 @@ TRAINER = Component(
        help="Deterministic kernels for bit-reproducible runs (slower)"),
      P("ema_decay", "float", 0.0, lo=0.0, hi=0.99999,
        help="Evaluate and keep an exponential moving average of the weights "
-            "(e.g. 0.999); 0 = off")),
+            "(e.g. 0.999); 0 = off"),
+     P("swa_start", "int", 0, lo=0,
+       help="Stochastic weight averaging: average the weights of every epoch from this "
+            "one on (PyTorch); 0 = off")),
     desc="Training loop: epochs, batching, device, early stopping, clipping, AMP, "
-         "weight averaging.")
+         "weight averaging (EMA or SWA).",
+    checks=lambda p: ([("error", "use one kind of weight averaging: EMA or SWA")]
+                      if float(p.get("ema_decay") or 0) and int(p.get("swa_start") or 0)
+                      else []) + ([("warning", "SWA starts after the last epoch, so it never "
+                                               "averages anything")]
+                                  if int(p.get("swa_start") or 0) > int(p.get("epochs") or 1)
+                                  else []))
 
 KFOLD = Component(
     "train.kfold", "K-Fold Cross-Validation",
@@ -647,6 +942,17 @@ EXPLAIN = Component(
          "Tables and feature vectors, PyTorch.")
 
 
+EXPLAIN_IG = Component(
+    "eval.integrated_gradients", "Integrated Gradients",
+    (P("steps", "int", 32, lo=4, hi=256, help="Points on the path from the baseline"),
+     P("baseline", "enum", "mean", options=("mean", "zeros"),
+       help="Where the path starts: the average row, or all zeros"),
+     P("max_samples", "int", 500, lo=10, help="Test rows explained")),
+    desc="After training, integrates the gradient of the predicted class (or the output) "
+         "along a path from a baseline to each test row (Sundararajan et al., 2017): how "
+         "much each feature moved the prediction. Tables and feature vectors, PyTorch.")
+
+
 def _losses_by_id() -> dict[str, Component]:
     return {c.type_id: c for c in LOSSES}
 
@@ -657,7 +963,7 @@ SCHEDULER_IDS = tuple(c.type_id for c in SCHEDULERS)
 METRIC_IDS = tuple(c.type_id for c in METRICS)
 COMPONENTS: dict[str, Component] = {
     c.type_id: c for c in (*LOSSES, *OPTIMIZERS, *SCHEDULERS, *METRICS, TRAINER, KFOLD, PREDICT,
-                           EXPLAIN)
+                           EXPLAIN, EXPLAIN_IG)
 }
 
 _CATEGORY = {
@@ -669,11 +975,13 @@ _CATEGORY = {
     "train.kfold": ("Training", "training"),
     "eval.predict": ("Metrics", "evaluation"),
     "eval.permutation_importance": ("Metrics", "evaluation"),
+    "eval.integrated_gradients": ("Metrics", "evaluation"),
 }
+EXPLAIN_IDS = ("eval.permutation_importance", "eval.integrated_gradients")
 
 
 def _libraries(c: Component) -> str:
-    if c.type_id == "eval.permutation_importance":
+    if c.type_id in EXPLAIN_IDS:
         return "PyTorch"
     if c.type_id in METRIC_IDS or c.type_id in ("train.trainer", "train.kfold", "eval.predict"):
         return "PyTorch · Keras"

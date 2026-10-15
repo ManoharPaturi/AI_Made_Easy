@@ -217,14 +217,17 @@ class ExperimentsPage(QtWidgets.QWidget):
         self.delete_btn.setEnabled(n >= 1)
 
     def _show_explanation(self, run_id: str | None) -> None:
-        rows = []
+        rows, method = [], ""
         if run_id is not None:
             from ai_made_easy.core import api
 
             try:
-                rows = api.run_explanation(run_id).get("features", [])[:20]
+                data = api.run_explanation(run_id)
+                rows, method = data.get("features", [])[:20], data.get("method", "")
             except Exception:  # noqa: BLE001 — a missing run folder: nothing to show
                 rows = []
+        self.explain_label.setText("Feature attribution (integrated gradients)"
+                                   if method == "integrated_gradients" else "Feature importance")
         self.explain_table.setRowCount(len(rows))
         for i, f in enumerate(rows):
             self.explain_table.setItem(i, 0, _Item(str(f["name"])))

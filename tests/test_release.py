@@ -35,7 +35,7 @@ def _norm(name: str) -> str:
 
 
 # import names that differ from the pip package name
-PIP_NAMES = {"umap": "umap-learn"}
+PIP_NAMES = {"umap": "umap-learn", "imblearn": "imbalanced-learn"}
 
 
 def test_extras_provide_what_blocks_and_recipes_require():

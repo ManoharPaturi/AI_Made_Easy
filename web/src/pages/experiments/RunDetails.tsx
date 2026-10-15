@@ -78,9 +78,15 @@ export function RunExplainView({ runId }: { runId: string }) {
   const max = Math.max(...top.map((f) => Math.abs(f.importance)), 1e-12);
   return (
     <div data-testid="run-explain">
-      <h3>Feature importance</h3>
-      <p className="muted">How much the {data.metric ?? "test loss"} rises when each feature is
-        shuffled ({data.rows ?? "?"} test rows): the features the model relies on most.</p>
+      {data.method === "integrated_gradients" ? <>
+        <h3>Feature attribution</h3>
+        <p className="muted">Integrated gradients: how much each feature moved the prediction,
+          on average over {data.rows ?? "?"} test rows (from the {String(data.baseline ?? "mean")} row).</p>
+      </> : <>
+        <h3>Feature importance</h3>
+        <p className="muted">How much the {data.metric ?? "test loss"} rises when each feature is
+          shuffled ({data.rows ?? "?"} test rows): the features the model relies on most.</p>
+      </>}
       <table style={{ maxWidth: 560 }}>
         <tbody>{top.map((f) => (
           <tr key={f.name}>

@@ -71,6 +71,7 @@ export interface FeatureImportance {
   method?: string;
   metric?: string;
   baseline_loss?: number;
+  baseline?: string;
   rows?: number;
   features: { name: string; importance: number; std: number }[];
 }

@@ -50,6 +50,9 @@ MIXED_PRECISION = {{ spec.trainer.mixed_precision }}
 {% if ema %}
 EMA_DECAY = {{ spec.trainer.ema_decay }}   # evaluate and keep the averaged weights
 {% endif %}
+{% if swa %}
+SWA_START = {{ swa }}   # average the weights of every epoch from this one on (SWA)
+{% endif %}
 VAL_FRACTION = {{ spec.split.val_fraction }}
 TEST_FRACTION = {{ spec.split.test_fraction }}
 SPLIT_SEED = {{ spec.split.seed }}
@@ -59,6 +62,10 @@ DROP_LAST = {{ spec.loader.drop_last }}
 INPUT_SHAPE = {{ input_shape_literal }}
 {% if spec.is_classification %}
 NUM_CLASSES = {{ spec.num_outputs if spec.task != "binary" else 2 }}
+{% endif %}
+{% if metric_loss %}
+EMBED_DIM = {{ spec.embed_dim }}   # the model outputs embeddings (metric learning)
+SCORER = None   # fit() sets it: class scores of embeddings, for metrics and predictions
 {% endif %}
 {% if norm_fixed %}
 NORM_MEAN = {{ norm_mean }}
@@ -396,13 +403,35 @@ def predict(model: nn.Module, loader: DataLoader, device: torch.device):
     model.eval()
     outs, ys = [], []
     for xb, yb in loader:
+{% if metric_loss %}
+        outs.append(SCORER(model(xb.to(device))).float().cpu())
+{% else %}
         outs.append({{ "mc_forward(model, xb.to(device))" if prob else "model(xb.to(device))" }}.float().cpu())
+{% endif %}
         ys.append(yb)
     if not outs:
         return np.zeros((0,)), np.zeros((0,))
     return torch.cat(outs).numpy(), torch.cat(ys).numpy()
 
 
+{% if metric_loss %}
+@torch.no_grad()
+def evaluate(model: nn.Module, loss_fn, loader: DataLoader, device: torch.device):
+    """The metric-learning loss on embeddings; metrics on the class scores."""
+    model.eval()
+    loss_fn.eval()
+    total, seen, scores, ys = 0.0, 0, [], []
+    for xb, yb in loader:
+        emb = model(xb.to(device))
+        total += float(loss_fn(emb, yb.to(device))) * len(xb)
+        seen += len(xb)
+        scores.append(loss_fn.scores(emb).float().cpu())
+        ys.append(yb)
+    loss_fn.train()
+    if not seen:
+        return float("nan"), {}
+    return total / seen, compute_metrics(torch.cat(scores).numpy(), torch.cat(ys).numpy())
+{% else %}
 def evaluate(model: nn.Module, loss_fn, loader: DataLoader, device: torch.device):
     outputs, targets = predict(model, loader, device)
     if len(outputs) == 0:
@@ -411,6 +440,7 @@ def evaluate(model: nn.Module, loss_fn, loader: DataLoader, device: torch.device
         out_t, y_t = adapt(torch.from_numpy(outputs), torch.from_numpy(targets))
         loss = float(loss_fn(out_t, y_t))
     return loss, compute_metrics({{ "mdn_point(outputs)" if prob and prob.mdn else ("quantile_point(outputs)" if prob and prob.quantile else "outputs") }}, targets)
+{% endif %}
 
 
 def reset_peak_memory(device: torch.device) -> None:
@@ -444,6 +474,13 @@ def fit(model: nn.Module, train_loader, val_loader, device, log: bool = True):
 {% endif %}
     params = PARAM_GROUPS(model) if PARAM_GROUPS is not None else model.parameters()
     optimizer = {{ optimizer_expr | replace("model.parameters()", "params") }}
+{% if metric_loss %}
+    global SCORER
+    SCORER = loss_fn.scores
+    centres = [p for p in loss_fn.parameters() if p.requires_grad]
+    if centres:   # ArcFace / CosFace class centres train with the model
+        optimizer.add_param_group({"params": centres})
+{% endif %}
     for group in optimizer.param_groups:
         group["lr"] *= LR_SCALE * group.get("lr_mult", 1.0)
 {% if ema %}
@@ -451,13 +488,21 @@ def fit(model: nn.Module, train_loader, val_loader, device, log: bool = True):
         model, multi_avg_fn=torch.optim.swa_utils.get_ema_multi_avg_fn(EMA_DECAY),
         use_buffers=True)
 {% endif %}
+{% if swa %}
+    swa = torch.optim.swa_utils.AveragedModel(model)
+    scored = model
+{% endif %}
 {% if scheduler_expr %}
     scheduler = {{ scheduler_expr }}
 {% endif %}
 {% if mixup %}
     mix = {{ mixup }}
 {% endif %}
+{% if sam %}
+    use_amp = False   # SAM's two passes per step run in full precision
+{% else %}
     use_amp = MIXED_PRECISION and device.type in ("cuda", "mps")
+{% endif %}
     amp_dtype = torch.float16 if device.type == "cuda" else torch.bfloat16
     scaler = torch.amp.GradScaler("cuda", enabled=use_amp and device.type == "cuda")
     best_loss, best_state, bad_epochs = float("inf"), None, 0
@@ -466,6 +511,9 @@ def fit(model: nn.Module, train_loader, val_loader, device, log: bool = True):
         if EPOCH_HOOK is not None:
             EPOCH_HOOK(epoch, model)
         model.train()
+{% if schedule_free %}
+        optimizer.train()   # schedule-free: train at the interpolated weights
+{% endif %}
         started, running, seen = time.time(), 0.0, 0
         optimizer.zero_grad(set_to_none=True)
         step = 0
@@ -486,6 +534,20 @@ def fit(model: nn.Module, train_loader, val_loader, device, log: bool = True):
                 loss = loss + sum(m.aux_loss() for m in model.modules()   # e.g. TabNet sparsity
                                   if hasattr(m, "aux_loss"))
 {% endif %}
+{% if sam %}
+            loss.backward()
+            optimizer.first_step()           # to the worst weights nearby
+            out2, target2 = adapt(model(xb), yb)
+            loss_fn(out2, target2).backward()
+            optimizer.second_step()          # back, and step with the gradient found there
+            optimizer.zero_grad(set_to_none=True)
+{% if ema %}
+            ema.update_parameters(model)
+{% endif %}
+{% if scheduler_step == "batch" %}
+            scheduler.step()
+{% endif %}
+{% else %}
             scaler.scale(loss / ACCUM_STEPS).backward()
             if step % ACCUM_STEPS == 0 or step == len(train_loader):
                 if GRAD_CLIP > 0:
@@ -500,12 +562,22 @@ def fit(model: nn.Module, train_loader, val_loader, device, log: bool = True):
 {% if scheduler_step == "batch" %}
                 scheduler.step()
 {% endif %}
+{% endif %}
             running += loss.item() * len(xb)
             seen += len(xb)
         if epoch == 1 and log:
             report_resources(device, (time.time() - started) / max(step, 1))
         train_loss = running / max(seen, 1)
-        val_loss, val_metrics = evaluate({{ "ema.module" if ema else "model" }}, loss_fn, val_loader, device)
+{% if swa %}
+        if epoch >= SWA_START:
+            swa.update_parameters(model)
+            torch.optim.swa_utils.update_bn(train_loader, swa, device)
+            scored = swa.module
+{% endif %}
+{% if schedule_free %}
+        optimizer.eval()    # evaluate (and keep) the averaged weights
+{% endif %}
+        val_loss, val_metrics = evaluate({{ "ema.module" if ema else ("scored" if swa else "model") }}, loss_fn, val_loader, device)
         monitored = val_loss if not math.isnan(val_loss) else train_loss
 {% if scheduler_step == "epoch" %}
         scheduler.step()
@@ -520,7 +592,7 @@ def fit(model: nn.Module, train_loader, val_loader, device, log: bool = True):
                   f"{extra} lr={lr:.3g} ({time.time() - started:.1f}s)", flush=True)
         if monitored < best_loss:
             best_loss, bad_epochs = monitored, 0
-            best_state = {k: v.detach().cpu().clone() for k, v in {{ "ema.module" if ema else "model" }}.state_dict().items()}
+            best_state = {k: v.detach().cpu().clone() for k, v in {{ "ema.module" if ema else ("scored" if swa else "model") }}.state_dict().items()}
         else:
             bad_epochs += 1
             if EARLY_STOP and bad_epochs >= EARLY_STOP:
@@ -751,6 +823,45 @@ def feature_names(n: int) -> list[str]:
     return [f"feature {i}" for i in range(n)]
 
 
+{% if spec.explain.method == "integrated_gradients" %}
+def explain_features(model: nn.Module, loss_fn, loader: DataLoader, device: torch.device):
+    """Integrated gradients (Sundararajan et al., 2017): the gradient of the explained
+    output, averaged along the straight path from a baseline row to each test row."""
+    model.eval()
+    xs = [xb for xb, _ in loader]
+    if not xs:
+        return
+    x = torch.cat(xs)[:{{ spec.explain.max_samples }}].float().to(device)
+    baseline = {{ "x.mean(0, keepdim=True)" if spec.explain.baseline == "mean" else "torch.zeros_like(x[:1])" }}
+    with torch.no_grad():
+        out = {{ "SCORER(model(x))" if metric_loss else "model(x)" }}
+{% if spec.is_classification %}
+    picked = out.argmax(1) if out.shape[1] > 1 else None   # explain the predicted class
+{% endif %}
+    total = torch.zeros_like(x)
+    for alpha in torch.linspace(0, 1, {{ spec.explain.steps }}, device=device):
+        point = (baseline + alpha * (x - baseline)).requires_grad_(True)
+        y = {{ "SCORER(model(point))" if metric_loss else "model(point)" }}
+{% if spec.is_classification %}
+        y = y.gather(1, picked[:, None]).sum() if picked is not None else y.sum()
+{% else %}
+        y = y.sum()
+{% endif %}
+        total += torch.autograd.grad(y, point)[0]
+    attributions = ((x - baseline) * total / {{ spec.explain.steps }}).abs().detach().cpu()
+    rows = []
+    names = feature_names(x.shape[1])
+    for j in range(x.shape[1]):
+        column = attributions[:, j]
+        rows.append({"name": names[j], "importance": float(column.mean()),
+                     "std": float(column.std()) if len(column) > 1 else 0.0})
+    rows.sort(key=lambda r: r["importance"], reverse=True)
+    Path("explain.json").write_text(json.dumps(
+        {"method": "integrated_gradients", "metric": "mean |attribution|",
+         "baseline": "{{ spec.explain.baseline }}", "rows": len(x), "features": rows}, indent=1))
+    print("feature attribution: " + ", ".join(f"{r['name']}={r['importance']:.4f}"
+                                              for r in rows[:5]))
+{% else %}
 @torch.no_grad()
 def explain_features(model: nn.Module, loss_fn, loader: DataLoader, device: torch.device):
     """Permutation importance: how much the loss rises when one feature is shuffled."""
@@ -786,6 +897,7 @@ def explain_features(model: nn.Module, loss_fn, loader: DataLoader, device: torc
          "rows": len(x), "features": rows}, indent=1))
     print("feature importance: " + ", ".join(f"{r['name']}={r['importance']:.4f}"
                                              for r in rows[:5]))
+{% endif %}
 {% endif %}
 
 

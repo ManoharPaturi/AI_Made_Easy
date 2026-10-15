@@ -42,6 +42,8 @@ class ClassicSpec:
     steps: dict = field(default_factory=dict)
     features: list = field(default_factory=list)       # (Transformer, params)
     vectorizer: tuple | None = None
+    encoder: tuple | None = None        # (Transformer, params): replaces one-hot for categories
+    sampler: tuple | None = None        # (Transformer, params): e.g. SMOTE, while fitting only
     search: dict | None = None
     kfold: dict | None = None
     metrics: list = field(default_factory=list)        # (id, params, key)
@@ -97,6 +99,10 @@ def collect_classic(graph: Graph) -> ClassicSpec:
                 if spec.vectorizer:
                     raise CodegenError("use one text vectorizer (TF-IDF or Count)")
                 spec.vectorizer = (tr, params)
+            elif tr.stage == "categorical":
+                spec.encoder = (tr, params)
+            elif tr.stage == "sampler":
+                spec.sampler = (tr, params)
             else:
                 spec.features.append((tr, params))
         elif tid == "ml.hyperparameter_search":
@@ -137,6 +143,18 @@ def collect_classic(graph: Graph) -> ClassicSpec:
                                  meta["key"]))
     if "prep.class_balance" in spec.steps and est.task != ml.CLASSIFICATION:
         raise CodegenError("Class Balancing applies to classification estimators only")
+    if spec.sampler and est.task != ml.CLASSIFICATION:
+        raise CodegenError(f"{spec.sampler[0].name} balances classes: it needs a "
+                           "classification estimator")
+    if spec.sampler and (spec.steps.get("prep.class_balance") or {}).get(
+            "strategy") == "oversample":
+        raise CodegenError(f"use one way to oversample: {spec.sampler[0].name} or Class "
+                           "Balancing's oversample")
+    if spec.encoder and (spec.modality != "tabular" or est.task not in (
+            ml.CLASSIFICATION, ml.REGRESSION)):
+        spec.warnings.append(f"{spec.encoder[0].name} encodes table categories with the "
+                             "target; it is ignored here")
+        spec.encoder = None
     if spec.search and spec.task in (ml.CLUSTERING, ml.ANOMALY):
         raise CodegenError("hyperparameter search needs a supervised estimator")
     return spec
@@ -218,7 +236,8 @@ def _imports(spec: ClassicSpec) -> list[str]:
 
     est = spec.estimator
     need(est.module, est.cls)
-    for tr, _ in spec.features:
+    for tr, _ in [*spec.features, *([spec.encoder] if spec.encoder else []),
+                  *([spec.sampler] if spec.sampler else [])]:
         need(tr.module, tr.cls)
         if tr.type_id == "ml.select_k_best":
             need("sklearn.feature_selection", _score_func(tr, _))
@@ -305,6 +324,8 @@ def _numeric_steps(spec: ClassicSpec) -> list[str]:
 
 
 def _categorical_step(spec: ClassicSpec) -> str:
+    if spec.encoder:
+        return f'("encode", {_transformer_ctor(*spec.encoder)})'
     if "prep.ordinal_encode" in spec.steps:
         return ('("encode", OrdinalEncoder(handle_unknown="use_encoded_value", '
                 'unknown_value=-1))')
@@ -358,7 +379,9 @@ def classic_context(spec: ClassicSpec) -> dict:
         reqs.append("datasets")
     if est.package != "scikit-learn":
         reqs.append(est.package)
-    reqs += sorted({tr.package for tr, _ in spec.features if tr.package})
+    reqs += sorted({tr.package for tr, _ in [*spec.features,
+                                             *([spec.sampler] if spec.sampler else [])]
+                    if tr.package})
     return {
         "spec": spec, "d": d, "est": est,
         "est_ctor": est.constructor(spec.est_params,
@@ -366,7 +389,10 @@ def classic_context(spec: ClassicSpec) -> dict:
         "imports": _imports(spec),
         "numeric_steps": _numeric_steps(spec),
         "categorical_step": _categorical_step(spec),
-        "feature_steps": feature_steps,
+        "feature_steps": feature_steps + ([
+            f'("{spec.sampler[0].type_id.split(".")[-1]}", '
+            f'{_transformer_ctor(*spec.sampler)})'] if spec.sampler else []),
+        "sampler": bool(spec.sampler),
         "vectorizer": (spec.vectorizer[0].render(spec.vectorizer[1])
                        if spec.vectorizer else None),
         "grid": grid, "scoring": scoring,

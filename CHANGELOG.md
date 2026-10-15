@@ -31,7 +31,16 @@
 - **Feature Importance** block: after training, permutation importance on the test set,
   shown with the run on the Experiments page (PyTorch, tables and feature vectors).
 - **Compare with the canvas:** what changed since a run (blocks, parameters, wires).
-- `aime new --data table.csv` picks the task from the data. 574 blocks, 65 recipes.
+- **Metric learning:** ArcFace, CosFace, batch-hard Triplet and Supervised Contrastive
+  losses. The network learns an embedding; accuracy is measured against the class
+  centres, and an **ArcFace embeddings** recipe trains one on images.
+- **Optimizers:** SAM (sharpness-aware, around SGD or AdamW) and Schedule-Free AdamW.
+  The Trainer's `swa_start` averages the weights of every epoch from then on (SWA).
+- **Integrated Gradients:** a second way to explain a run's features, beside permutation
+  importance.
+- **Classic ML:** Target Encoding for categories, and SMOTE oversampling (`pip install
+  'ai-made-easy[imbalance]'`), applied while fitting only, inside cross-validation too.
+- `aime new --data table.csv` picks the task from the data. 583 blocks, 66 recipes.
 - **Web app, matching the desktop:**
   - A command palette (Ctrl/⌘ K) for every command, and find a block on the canvas
     (Ctrl/⌘ F, or `@` in the palette).
