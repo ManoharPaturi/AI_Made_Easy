@@ -6,8 +6,9 @@ is served at ``/``. Projects are stored as JSON under ``$AIME_HOME/projects``;
 runs, sweeps and the model registry use the same stores as the desktop app.
 
 Access control: when ``AIME_WEB_TOKEN`` (or ``create_app(token=...)``) is set,
-every request needs ``Authorization: Bearer <token>`` (WebSockets:
-``?token=<token>``). Without it the server is meant for localhost only.
+every request needs ``Authorization: Bearer <token>``. WebSockets and GET requests
+(download links the browser opens directly) may pass ``?token=<token>`` instead.
+Without it the server is meant for localhost only.
 """
 from __future__ import annotations
 
@@ -77,6 +78,8 @@ def create_app(*, token: str | None = None, projects_dir: str | Path | None = No
         if token is None:
             return
         supplied = request.headers.get("authorization", "").removeprefix("Bearer ").strip()
+        if not supplied and request.method == "GET":  # links: package and export downloads
+            supplied = request.query_params.get("token", "")
         if not secrets.compare_digest(supplied, token):
             raise HTTPException(401, "missing or invalid access token")
 
@@ -595,6 +598,13 @@ def create_app(*, token: str | None = None, projects_dir: str | Path | None = No
                 json.loads(kwargs or "{}"))
         finally:
             shutil.rmtree(work, ignore_errors=True)
+
+    @app.post("/api/import/mlflow", dependencies=guard)
+    async def import_mlflow(payload: dict = Body(...)) -> dict:  # noqa: B008
+        raw = str(payload.get("input_shape") or "")
+        shape = [int(d) for d in re.split(r"[,x\s]+", raw.strip("()[] ")) if d] or None
+        return await asyncio.to_thread(api.open_mlflow_model, str(payload.get("uri") or ""),
+                                       shape)
 
     # ---------------------------------------------------------------- data
     @app.post("/api/data/profile", dependencies=guard)

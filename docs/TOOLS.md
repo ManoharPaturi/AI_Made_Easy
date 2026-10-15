@@ -11,6 +11,15 @@ pip install 'ai-made-easy[hub]'        # the Hugging Face Hub and Hub datasets
 pip install 'ai-made-easy[kaggle]'     # Kaggle datasets, competitions and kernels
 ```
 
+In the browser, **Tools** in the header holds tracking, datasets and the run history,
+and each registered model has a **Share** menu on the Models page. On the desktop the
+same actions are **Run ▸ Experiment Tracking…**, **Data ▸ Download a Dataset (Kaggle /
+Hub)…**, **Export ▸ Run History…** and the **Share** menu in Experiments ▸ Models.
+
+| Tools | Share a model |
+|---|---|
+| ![Tools](images/web_tools.png) | ![Share](images/web_share.png) |
+
 ## Experiment tracking: MLflow and Weights & Biases
 
 Turn tracking on per project with **Run ▸ Experiment Tracking…** (the design's

@@ -63,6 +63,12 @@ def test_families_doc_is_current():
     assert proc.returncode == 0, proc.stdout + proc.stderr
 
 
+def test_deploy_doc_is_current():
+    proc = subprocess.run([sys.executable, str(ROOT / "scripts/gen_deploy.py"), "--check"],
+                          capture_output=True, text=True, cwd=ROOT, timeout=300)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+
+
 def test_families_doc_quotes_the_rules():
     sys.path.insert(0, str(ROOT / "scripts"))
     from gen_families import rule_messages

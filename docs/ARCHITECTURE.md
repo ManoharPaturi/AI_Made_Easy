@@ -344,6 +344,36 @@ downloaded, so the record finalises with `metrics.json`. `RunRecord.backend` and
 `RunManager.import_results` completes a Colab hand-off run from its results zip.
 See [REMOTE.md](REMOTE.md).
 
+**The export layer** (`core/deploy/`) has three parts:
+- `exportability.py` decides, from the design alone, which formats it can reach and why
+  not (`blockers`), and which the budget device suggests. The Deploy and Share dialogs,
+  the Problems panel and `aime deploy --list-formats` all read it.
+- `package.py` writes the serving package. `_describe` picks what `/predict` takes for
+  the design's task (records, images, series, graphs, observations, …).
+- `exporters.py` runs inside the package (`export_formats.py`): each format is exported,
+  then run against the source model on `calibration.npz`, and only formats that match
+  are kept (`export_report.json`).
+
+[DEPLOY.md](DEPLOY.md) is generated from these modules (`scripts/gen_deploy.py`).
+
+**Your tools** sit beside the run, not inside it:
+- `core/tracking.py`: a `RunMirror` per run, on its own thread, fed from
+  `TrainingRun.record`. It replays parameters, per-epoch metrics, the design and the
+  run's files to MLflow (`MlflowClient`) and W&B. Because it listens to the same events
+  as the panels, it works for every backend. Where each run went is kept on
+  `RunRecord.tracking`; a tracker that fails writes to the run's log and never stops
+  training.
+- `ModelRegistry.mirror()` registers a version in MLflow's registry or as a W&B
+  artifact (`ModelVersion.mirrors`).
+- `core/integrations/hub.py` pushes and pulls Hub model repositories (with an
+  `aime.json`) and deploys a package as a Docker Space.
+- `core/integrations/datasets.py` turns `kaggle:` and `hf:` sources into cached local
+  folders, which data detection then reads.
+- `core/runs/export.py` writes the run history as CSV or Parquet.
+
+No module reads or stores a credential: each library uses its own sign-in. See
+[TOOLS.md](TOOLS.md).
+
 Generated training scripts save `inference_state.pkl` (the preprocessing fitted
 on the training split) and define `load_predictor()` / `infer()`, which the
 serving package imports, so served predictions use exactly the training

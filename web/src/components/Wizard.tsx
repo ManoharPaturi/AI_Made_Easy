@@ -205,14 +205,15 @@ function RecipeStep({ rows, chosen, choose, knobs, setKnobs }: {
   );
 }
 
-export function NewProjectWizard({ onClose, onCreated, onAutoml }: {
+export function NewProjectWizard({ onClose, onCreated, onAutoml, initialFacts = null }: {
   onClose: () => void; onCreated: () => void; onAutoml: () => void;
+  initialFacts?: DataFacts | null;   // data fetched from Kaggle / the Hub (Tools)
 }) {
   const { load, setName, notify, name } = useStore();
   const [step, setStep] = useState(0);
   const [tasks, setTasks] = useState<WizardTask[]>([]);
   const [task, setTask] = useState<WizardTask | null>(null);
-  const [facts, setFacts] = useState<DataFacts | null>(null);
+  const [facts, setFacts] = useState<DataFacts | null>(initialFacts);
   const [modality, setModality] = useState("");
   const [budget, setBudget] = useState<Record<string, string>>({});
   const [rows, setRows] = useState<RecipeSuggestion[] | null>(null);

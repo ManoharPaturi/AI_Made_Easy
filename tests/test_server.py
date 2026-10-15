@@ -237,6 +237,11 @@ def test_token_auth(isolated_home, tmp_path):
         assert c.get("/api/blocks", headers={"Authorization": "Bearer wrong"}).status_code == 401
         ok = c.get("/api/blocks", headers={"Authorization": "Bearer s3cret"})
         assert ok.status_code == 200
+        # download links the browser opens directly carry the token in the query
+        assert c.get("/api/export/runs?format=csv&token=s3cret").status_code == 200
+        assert c.get("/api/export/runs?format=csv&token=wrong").status_code == 401
+        assert c.get("/api/export/runs?format=csv").status_code == 401
+        assert c.post("/api/validate?token=s3cret", json={}).status_code == 401  # GET only
         from starlette.websockets import WebSocketDisconnect
 
         with pytest.raises(WebSocketDisconnect):

@@ -270,3 +270,9 @@ fieldset.budget label { display: flex; justify-content: space-between; align-ite
 .export-format { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; color: var(--text); }
 .export-format.blocked { color: var(--text-dim, #888); }
 .export-format .export-reason { flex-basis: 100%; margin-left: 24px; font-size: 12px; }
+
+/* 3.2 tools: Tools and Share dialogs */
+.modal section + section { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--border); }
+.modal section h3 { margin: 0 0 6px; }
+.modal section .toolbar { margin-top: 8px; }
+.check { display: inline-flex; align-items: center; gap: 6px; margin-right: 18px; }
