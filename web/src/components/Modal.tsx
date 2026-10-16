@@ -39,3 +39,21 @@ export function duration(seconds: number | null | undefined): string {
 export function metric(value: unknown): string {
   return typeof value === "number" ? Number(value.toPrecision(4)).toString() : "—";
 }
+
+/** Loading, error and empty states for a list; renders nothing once there are items. */
+export function ListState({ items, error, empty, onRetry, what = "items" }: {
+  items: unknown[] | null; error?: string; empty: ReactNode; onRetry?: () => void; what?: string;
+}) {
+  if (error) {
+    return (
+      <div className="empty state-error" role="alert">
+        Could not load the {what}: {error}
+        {onRetry && <div><button onClick={onRetry} style={{ marginTop: 8 }}>Try again</button></div>}
+      </div>);
+  }
+  if (items === null) {
+    return <div className="empty" aria-busy="true"><span className="spinner" /> Loading {what}…</div>;
+  }
+  if (!items.length) return <div className="empty">{empty}</div>;
+  return null;
+}

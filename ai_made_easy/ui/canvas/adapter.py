@@ -47,7 +47,18 @@ def block_mime_data(type_id: str) -> QtCore.QMimeData:
 
 
 class _NodeGraph(NodeGraph):
-    """OdenGraphQt's graph with linear-time unique names."""
+    """OdenGraphQt's graph with linear-time unique names, and dropped files handed to
+    ``on_files`` (upstream would try to open them as its own session files)."""
+
+    on_files = None  # callable(list[str]); set by the app
+
+    def _on_node_data_dropped(self, mimedata, pos):  # noqa: ANN001, ANN202
+        if mimedata.hasUrls() and not mimedata.hasFormat(MIME_TYPE):
+            paths = [u.toLocalFile() for u in mimedata.urls() if u.isLocalFile()]
+            if paths and self.on_files is not None:
+                self.on_files(paths)
+            return
+        super()._on_node_data_dropped(mimedata, pos)
 
     def get_unique_name(self, name: str) -> str:
         # same names as upstream ("ReLU", "ReLU 1", ...), but upstream re-scans a list of
@@ -79,6 +90,9 @@ class CanvasController:
         self.apply_theme(THEMES[DEFAULT_THEME])
         for block in get_registry().all():
             self._graph.register_node(make_node_class(block))
+        from ai_made_easy.ui.canvas.annotations import GroupNode, NoteNode
+
+        self._graph.register_nodes([NoteNode, GroupNode])
         template_store.register_user_templates(
             get_registry().register, make_node_class)
         # smart-mix wire guard: dtype-impossible wires are undone instantly
@@ -214,7 +228,7 @@ class CanvasController:
 
     def to_ir(self, name: str = "untitled") -> Graph:
         reg = get_registry()
-        g = Graph(name=name, meta=copy.deepcopy(self.meta))
+        g = Graph(name=name, meta=self._annotated_meta())
         for node in self._graph.all_nodes():
             type_id = NODE_TYPE_TO_BLOCK.get(node.type_)
             if type_id is None:
@@ -232,6 +246,140 @@ class CanvasController:
                     g.add_edge(Edge(node.id, out_port.name(),
                                     connected.node().id, connected.name()))
         return g
+
+    # ------------------------------------------------ notes and groups (3.3)
+
+    def _annotations(self, kind: str) -> list:
+        from ai_made_easy.ui.canvas import annotations as ann
+
+        wanted = ann.NOTE_TYPE if kind == "note" else ann.GROUP_TYPE
+        return [n for n in self._graph.all_nodes() if n.type_ == wanted]
+
+    def _annotated_meta(self) -> dict:
+        from ai_made_easy.ui.canvas import annotations as ann
+
+        meta = copy.deepcopy(self.meta)
+        meta.pop("notes", None)
+        meta.pop("groups", None)
+        notes = []
+        for i, node in enumerate(self._annotations("note"), start=1):
+            w, h = node.size()
+            notes.append({"id": f"note{i}", "text": node.text(),
+                          "position": [round(node.x_pos()), round(node.y_pos())],
+                          "size": [round(w), round(h)]})
+        groups = []
+        for i, node in enumerate(self._annotations("group"), start=1):
+            members = [n.id for n in node.nodes()
+                       if n is not None and n.type_ in NODE_TYPE_TO_BLOCK]
+            if members:
+                groups.append({"id": f"group{i}", "title": node.name(), "nodes": members,
+                               "color": ann.rgba_to_hex(node.color())})
+        if notes:
+            meta["notes"] = notes
+        if groups:
+            meta["groups"] = groups
+        return meta
+
+    def add_note(self, text: str = "", pos: tuple[float, float] | None = None,
+                 size: tuple[float, float] = (220.0, 120.0), push_undo: bool = True):
+        from ai_made_easy.ui.canvas import annotations as ann
+
+        x, y = pos if pos is not None else self.scene_center()
+        node = self._graph.create_node(ann.NOTE_TYPE, name="Note", pos=(x, y),
+                                       selected=False, push_undo=push_undo)
+        node.set_text(text)
+        node.set_size(*size)
+        return node
+
+    def group_selected(self, title: str = "Group", color: str | None = None,
+                       nodes: list | None = None):
+        """Frame the selected blocks; returns the group or None without a selection."""
+        from ai_made_easy.core.canvas import GROUP_COLORS
+        from ai_made_easy.ui.canvas import annotations as ann
+
+        members = nodes if nodes is not None else [
+            n for n in self._graph.selected_nodes() if n.type_ in NODE_TYPE_TO_BLOCK]
+        if not members:
+            return None
+        color = color or GROUP_COLORS[len(self._annotations("group")) % len(GROUP_COLORS)]
+        node = self._graph.create_node(ann.GROUP_TYPE, name=title or "Group",
+                                       color=ann.hex_to_rgba(color), selected=False)
+        node.wrap_nodes(members)
+        return node
+
+    def ungroup_selected(self) -> int:
+        """Remove the frames of selected groups and of groups around selected blocks."""
+        sel = self._graph.selected_nodes()
+        chosen = {n.id for n in sel}
+        doomed = [g for g in self._annotations("group")
+                  if g.id in chosen or any(n is not None and n.id in chosen for n in g.nodes())]
+        if doomed:
+            self._graph.delete_nodes(doomed)
+        return len(doomed)
+
+    # ------------------------------------------------ clipboard (3.3)
+
+    def on_files_dropped(self, callback) -> None:  # noqa: ANN001
+        """``callback(paths)`` when files are dropped on the canvas."""
+        self._graph.on_files = callback
+
+    def copy_selection(self) -> str | None:
+        """Clipboard text (design JSON) for the selected blocks."""
+        from ai_made_easy.core import canvas as cv
+
+        ids = [n.id for n in self._graph.selected_nodes() if n.type_ in NODE_TYPE_TO_BLOCK]
+        if not ids:
+            return None
+        return cv.to_text(cv.copy_fragment(self.to_ir("clipboard").to_dict(), ids))
+
+    def paste_text(self, text: str, at: tuple[float, float] | None = None) -> int:
+        """Paste copied blocks (or a whole design); returns how many were added."""
+        from ai_made_easy.core import canvas as cv
+
+        fragment = cv.parse(text)
+        if fragment is None or not fragment["nodes"]:
+            return 0
+        reg = get_registry()
+        unknown = sorted({n["type"] for n in fragment["nodes"] if not reg.has(n["type"])})
+        if unknown:
+            raise ValueError("unknown block type " + ", ".join(unknown))
+        placed, _ids = cv.paste_fragment({"nodes": [], "edges": []}, fragment, at=at)
+        for node in self._graph.selected_nodes():
+            node.view.setSelected(False)   # selection is not an edit: no undo step
+        made: dict[str, object] = {}
+        self._graph.begin_undo("paste blocks")
+        try:
+            for src, dst in zip(fragment["nodes"], placed["nodes"], strict=True):
+                defn = reg.get(src["type"])
+                node = self._graph.create_node(node_type_for(src["type"]),
+                                               name=defn.display_name,
+                                               pos=tuple(dst["position"]), selected=False)
+                for key, value in (src.get("params") or {}).items():
+                    if any(p.name == key for p in defn.params):
+                        node.set_property(prop_name(key), value)
+                made[src["id"]] = node
+            for edge in fragment["edges"]:
+                s_id, s_port = edge["from"].rsplit("/", 1)
+                t_id, t_port = edge["to"].rsplit("/", 1)
+                if s_id in made and t_id in made:
+                    out_p = made[s_id].outputs().get(s_port)
+                    in_p = made[t_id].inputs().get(t_port)
+                    if out_p is not None and in_p is not None:
+                        out_p.connect_to(in_p)
+            for group in fragment.get("groups", []):
+                members = [made[n] for n in group.get("nodes", []) if n in made]
+                if members:
+                    self.group_selected(group.get("title", "Group"), group.get("color"),
+                                        nodes=members)
+        finally:
+            self._graph.end_undo()
+        for node in made.values():
+            node.view.setSelected(True)
+        return len(made)
+
+    def duplicate_selected(self) -> int:
+        text = self.copy_selection()
+        return self.paste_text(text) if text else 0
 
     def clear(self) -> None:
         self.meta = {}
@@ -266,7 +414,21 @@ class CanvasController:
             port_in = dst.inputs().get(edge.target_port)
             if port_out is not None and port_in is not None:
                 port_out.connect_to(port_in, push_undo=False)
+        self._load_annotations(canvas_nodes)
         self.center_view()
+
+    def _load_annotations(self, canvas_nodes: dict) -> None:
+        from ai_made_easy.core import canvas as cv
+
+        meta = cv.clean(self.meta, set(canvas_nodes))
+        for note in meta.get("notes", []):
+            size = note.get("size") or (220, 120)
+            self.add_note(str(note.get("text", "")), tuple(note["position"]),
+                          (float(size[0]), float(size[1])), push_undo=False)
+        for group in meta.get("groups", []):
+            members = [canvas_nodes[n] for n in group["nodes"]]
+            self.group_selected(group.get("title", "Group"), group.get("color"), nodes=members)
+        self._graph.clear_undo_stack()
 
     def load_demo(self, demo_path: Path | None = None) -> None:
         import json

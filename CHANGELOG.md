@@ -1,8 +1,72 @@
 # Changelog
 
-## Unreleased (3.3)
+## 3.3.0
+
+More blocks, a canvas that keeps up, and a more polished web app. 583 blocks, 66 recipes.
+See [docs/ROADMAP_3.3.md](docs/ROADMAP_3.3.md) for what is in this release and what moves
+to the next one.
+
+### Added
+- **Modern network parts** (Transformer Parts, Vision Blocks):
+  - Rotary embedding (RoPE), grouped-query attention, a SwiGLU / GeGLU feed-forward and
+    a Llama decoder block (RMSNorm, GQA with rotary positions, SwiGLU).
+  - Mixture of Experts: top-k routed SwiGLU experts with a load-balancing loss.
+  - LayerScale, DropPath (stochastic depth), FiLM conditioning, LoRA Dense.
+  - Patch Embedding (ViT), ConvNeXt block, Swin Transformer block (shifted windows with a
+    relative position bias), Conformer block.
+  - Every one is checked against the designer's shapes and parameter counts. Rotary
+    embedding, the gated feed-forward, LayerScale and DropPath also generate Keras.
+- **Optimizers:** Lion, LAMB and Lookahead (AdamW).
+- **Weight averaging:** the Trainer's `ema_decay` evaluates and keeps an exponential
+  moving average of the weights (PyTorch and Keras).
+- **Classic ML:** Isomap, Nystroem kernel features and UMAP (`pip install
+  'ai-made-easy[umap]'`).
+- **Recipes:** Tiny Llama (language modelling), Vision Transformer and ConvNeXt (image
+  classification, from scratch).
+- **Canvas conveniences (desktop and web):**
+  - Copy, paste and duplicate blocks (Ctrl/⌘ C, V, D) with their settings and the wires
+    between them. The clipboard holds design JSON, so blocks copied in one app paste in
+    the other, and a saved design pastes too.
+  - Groups (Ctrl/⌘ G): a titled frame around blocks. On the desktop it moves them
+    together; Ctrl/⌘ Shift U ungroups.
+  - Sticky notes. Groups and notes are saved with the design and never reach the code.
+  - Drop a data file (CSV, Parquet, Excel, JSON, text, or a zip of class folders) on the
+    window to start a project from it: the wizard opens with the data detected.
+- **Feature Importance** block: after training, permutation importance on the test set,
+  shown with the run on the Experiments page (PyTorch, tables and feature vectors).
+- **Compare with the canvas:** what changed since a run (blocks, parameters, wires).
+- **Metric learning:** ArcFace, CosFace, batch-hard Triplet and Supervised Contrastive
+  losses. The network learns an embedding; accuracy is measured against the class
+  centres, and an **ArcFace embeddings** recipe trains one on images.
+- **Optimizers:** SAM (sharpness-aware, around SGD or AdamW) and Schedule-Free AdamW.
+  The Trainer's `swa_start` averages the weights of every epoch from then on (SWA).
+- **Integrated Gradients:** a second way to explain a run's features, beside permutation
+  importance.
+- **Classic ML:** Target Encoding for categories, and SMOTE oversampling (`pip install
+  'ai-made-easy[imbalance]'`), applied while fitting only, inside cross-validation too.
+- `aime new --data table.csv` picks the task from the data. 583 blocks, 66 recipes.
+- **Web app, matching the desktop:**
+  - A command palette (Ctrl/⌘ K) for every command, and find a block on the canvas
+    (Ctrl/⌘ F, or `@` in the palette).
+  - A keyboard shortcuts sheet (`?`), select all (Ctrl/⌘ A) and zoom (Ctrl/⌘ =, −, 0).
+  - A File menu with recent projects, and Export canvas as PNG.
+  - Questions such as "Delete 3 runs?" and the access-token prompt now appear in the app
+    instead of as browser pop-ups.
+  - Messages stack (up to four), repeats are counted, and each has a × to close it.
+  - Lists show loading, error (with Try again) and empty states.
+  - A restored autosave can be discarded ("Start fresh").
+  - Add a block from the library with the keyboard (Enter), and every icon button has a
+    label for screen readers.
+- **Desktop:** a minimap (View ▸ Minimap, Ctrl+Shift+M) that you can click or drag to move
+  around, and screen-reader names for the panels.
+- **Both apps:** a three-step first-run tour (Help ▸ Show the Tour) and one chart palette,
+  so a run's curve has the same colour in both.
 
 ### Fixed
+- The web app's Ctrl/⌘ S shortcut was registered again on every render.
+- The New Project wizard kept data from Tools ▸ Download a Dataset only until a task
+  was picked; it now starts on that data and keeps it.
+- Dropping a file on the desktop canvas tried to open it as a canvas session file.
 - On Windows, checking whether a run was still alive terminated its process. The check
   no longer sends a signal, and a reused process id no longer counts as the run.
 - The web server marks runs a crash left "running" as failed when it starts, and a run's

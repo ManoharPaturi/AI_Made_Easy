@@ -50,6 +50,17 @@ CATALOG: list[ActionSpec] = [
     ActionSpec("edit.undo", "&Undo", "&Edit", "act_undo", "Ctrl+Z", icon="undo"),
     ActionSpec("edit.redo", "&Redo", "&Edit", "act_redo", "Ctrl+Shift+Z", icon="redo",
                separator_after=True),
+    ActionSpec("edit.copy", "&Copy Blocks", "&Edit", "act_copy", "Ctrl+C",
+               "Copy the selected blocks, their settings and the wires between them"),
+    ActionSpec("edit.paste", "&Paste Blocks", "&Edit", "act_paste", "Ctrl+V",
+               "Paste copied blocks, or a design JSON, into this design"),
+    ActionSpec("edit.duplicate", "D&uplicate", "&Edit", "act_duplicate", "Ctrl+D",
+               "Copy and paste the selection in one step", separator_after=True),
+    ActionSpec("edit.group", "&Group Selection", "&Edit", "act_group", "Ctrl+G",
+               "Frame the selected blocks with a title; the frame moves them together"),
+    ActionSpec("edit.ungroup", "U&ngroup", "&Edit", "act_ungroup", "Ctrl+Shift+U"),
+    ActionSpec("edit.note", "Add &Note", "&Edit", "act_add_note", "",
+               "A sticky note on the canvas, saved with the design", separator_after=True),
     ActionSpec("edit.delete", "&Delete Selection", "&Edit", "act_delete", "Delete",
                icon="trash"),
     ActionSpec("edit.select_all", "Select &All", "&Edit", "act_select_all", "Ctrl+A",
@@ -66,7 +77,10 @@ CATALOG: list[ActionSpec] = [
                icon="zoom_out"),
     ActionSpec("view.zoom_fit", "&Fit to View", "&View", "act_zoom_fit", "Ctrl+0", icon="fit"),
     ActionSpec("view.auto_layout", "Auto-&Arrange Blocks", "&View", "act_auto_layout",
-               "Ctrl+L", "Lay blocks out left to right by data flow", separator_after=True),
+               "Ctrl+L", "Lay blocks out left to right by data flow"),
+    ActionSpec("view.minimap", "&Minimap", "&View", "act_minimap", "Ctrl+Shift+M",
+               "An overview of the whole design in the canvas corner", checkable=True,
+               separator_after=True),
 
     # ---- Model ----
     ActionSpec("model.validate", "&Validate", "&Model", "act_validate", "Ctrl+Shift+V",
@@ -153,6 +167,8 @@ CATALOG: list[ActionSpec] = [
     # ---- Help ----
     ActionSpec("help.shortcuts", "&Keyboard Shortcuts", "&Help", "act_shortcuts",
                icon="keyboard"),
+    ActionSpec("help.tour", "Show the &Tour", "&Help", "act_tour", "",
+               "Three steps: the library, the canvas, training"),
     ActionSpec("help.about", "&About AI Made Easy", "&Help", "act_about", icon="help"),
 ]
 

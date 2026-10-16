@@ -31,6 +31,9 @@ THEMES: dict[str, dict] = {
     },
 }
 
+# chart series colours, in order; web/src/theme.ts has the same list (tests/test_ui_polish.py)
+SERIES = ("#4c8dff", "#f0883e", "#3fb950", "#d2a8ff", "#e3a008", "#56d4dd", "#ff7b72", "#9aa0a9")
+
 DEFAULT_THEME = "dark"
 MONO = "'JetBrains Mono', 'SF Mono', Menlo, Consolas, monospace"
 

@@ -31,7 +31,42 @@ class Workbench(QtWidgets.QMainWindow):
         self.setup_ui()
         self.setup_menus()
         self._restore()
+        self.setAcceptDrops(True)   # data files dropped on the window start a project
         ctx.attach_window(self)
+
+    # ------------------------------------------------------------- data drops
+
+    DATA_SUFFIXES = (".csv", ".tsv", ".txt", ".parquet", ".pq", ".xlsx", ".xls", ".json",
+                     ".jsonl", ".zip")
+
+    @classmethod
+    def dropped_data(cls, mime) -> str | None:  # noqa: ANN001
+        """The first local data file or folder in a drop, else None."""
+        from pathlib import Path
+
+        if not mime.hasUrls():
+            return None
+        for url in mime.urls():
+            if not url.isLocalFile():
+                continue
+            path = Path(url.toLocalFile())
+            if path.is_dir() or path.suffix.lower() in cls.DATA_SUFFIXES:
+                return str(path)
+        return None
+
+    def dragEnterEvent(self, event) -> None:  # noqa: N802 (Qt name)
+        if self.dropped_data(event.mimeData()):
+            event.acceptProposedAction()
+        else:
+            super().dragEnterEvent(event)
+
+    def dropEvent(self, event) -> None:  # noqa: N802 (Qt name)
+        path = self.dropped_data(event.mimeData())
+        if path is None:
+            super().dropEvent(event)
+            return
+        event.acceptProposedAction()
+        self.ctx.open_data_file(path)
 
     # ------------------------------------------------------------- phases
 
@@ -88,6 +123,10 @@ class Workbench(QtWidgets.QMainWindow):
         bar.addWidget(palette_button)
 
         self.setCentralWidget(self.ctx.canvas_area)
+        bar.setAccessibleName("Main toolbar")
+        export.setAccessibleName("Export")
+        palette_button.setAccessibleName("Command palette")
+        self.ctx.project_field.setAccessibleName("Project name")
         self.docks = {}
         for key, title, widget, area in (
                 ("library", "Block Library", self.ctx.library,
@@ -112,6 +151,7 @@ class Workbench(QtWidgets.QMainWindow):
                              | QtWidgets.QDockWidget.DockWidgetFeature.DockWidgetFloatable)
             self.addDockWidget(area, dock)
             self.docks[key] = dock
+            widget.setAccessibleName(title)   # screen readers name each panel
         self.tabifyDockWidget(self.docks["problems"], self.docks["output"])
         self.tabifyDockWidget(self.docks["output"], self.docks["training"])
         self.tabifyDockWidget(self.docks["training"], self.docks["experiments"])

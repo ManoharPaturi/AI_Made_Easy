@@ -47,3 +47,30 @@ test("docs screenshots: Tools and Share", async ({ page, request }) => {
   await share.getByRole("button", { name: "Close" }).click();
   await request.delete(`/api/models/churn-model/${model.version}`);
 });
+
+test("docs screenshots: 3.3 command palette and canvas notes / groups", async ({ page }) => {
+  await page.goto("/");
+  await page.evaluate(() => localStorage.removeItem("aime.autosave"));
+  await page.reload();
+  const blocks = page.locator(".block-node");
+  await expect(blocks.first()).toBeVisible();
+  await blocks.nth(1).click();
+  await blocks.nth(2).click({ modifiers: ["ControlOrMeta"] });
+  await blocks.nth(3).click({ modifiers: ["ControlOrMeta"] });
+  await page.getByTestId("group").click();
+  await page.getByTestId("group-group1").getByRole("button", { name: "Rename Group" }).click();
+  await page.getByLabel("Group name").fill("Feature extractor");
+  await page.getByLabel("Group name").press("Enter");
+  await page.getByTestId("add-note").click();
+  await page.getByTestId("note-text-note1").fill("Try 32 filters in the first conv");
+  await page.locator(".react-flow__pane").click({ position: { x: 5, y: 5 } });
+  await page.keyboard.press("ControlOrMeta+f");      // centre on the group at 100 %
+  await page.getByTestId("palette").getByRole("combobox").fill("@relu");
+  await page.keyboard.press("Enter");
+  await page.waitForTimeout(400);
+  await page.locator(".react-flow__pane").click({ position: { x: 5, y: 5 } });
+  await page.locator(".canvas").screenshot({ path: `${OUT}/web_canvas_groups.png` });
+  await page.keyboard.press("ControlOrMeta+k");
+  await page.getByTestId("palette").getByRole("combobox").fill("export");
+  await page.screenshot({ path: `${OUT}/web_palette.png` });
+});

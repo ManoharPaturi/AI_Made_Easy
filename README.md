@@ -50,12 +50,23 @@ boilerplate. It runs on the desktop or in the browser.
   state-space models, flows), optionally trading accuracy against latency or model size
   on your target device: the result is one Pareto front of networks and classic models
   to choose from. Trials can train several at a time, on any backend.
-- **554 blocks in 9 families** ([docs/FAMILIES.md](docs/FAMILIES.md) lists every
+- **583 blocks in 9 families** ([docs/FAMILIES.md](docs/FAMILIES.md) lists every
   family, task, block and design rule) across every major library: `torch.nn` layers, Keras 3
   equivalents, torchvision / `keras.applications` / timm pretrained backbones,
   Hugging Face text and image encoders, scikit-learn, XGBoost, LightGBM and CatBoost,
   plus datasets, preprocessing, augmentation, losses, optimizers, schedulers
   and metrics.
+- **Modern network parts (3.3).** Rotary embeddings, grouped-query attention, SwiGLU,
+  Llama decoder blocks, Mixture of Experts, LoRA, DropPath, LayerScale, FiLM, ViT patch
+  embedding, ConvNeXt, Swin and Conformer blocks; Lion, LAMB and Lookahead optimizers;
+  ArcFace, CosFace, triplet and supervised contrastive losses for embeddings; SAM and
+  Schedule-Free AdamW; weight averaging (EMA, SWA); Integrated Gradients; target encoding
+  and SMOTE for classic models; Tiny Llama, Vision Transformer, ConvNeXt and ArcFace recipes.
+- **A canvas that keeps up (3.3).** Copy, paste and duplicate blocks between designs and
+  between the two apps, frame them in named groups, pin sticky notes, drop a CSV on the
+  window to start a project from it, see which features a model relies on, and compare
+  a run's design with the canvas. Both apps have a command palette (Ctrl/⌘ K), find
+  (Ctrl/⌘ F), a shortcuts sheet, a minimap and a short first-run tour.
 - **Design-time validation.** Shapes, ranks and dtypes are inferred live across
   branches and merges; every card shows its output shape. Incompatible wiring,
   parameter constraints and common architecture mistakes (double softmax with
@@ -198,6 +209,10 @@ desktop app, and has the same tools: **Run on** and **Backends**, export formats
 | New from a task | Graphical model with its CPD table | A train → distill → quantize pipeline |
 |---|---|---|
 | ![Wizard](docs/images/web_wizard.png) | ![CPD editor](docs/images/web_probabilistic.png) | ![Pipeline](docs/images/web_pipeline.png) |
+
+| Command palette (Ctrl/⌘ K) | Groups and sticky notes on the canvas |
+|---|---|
+| ![Command palette](docs/images/web_palette.png) | ![Groups and notes](docs/images/web_canvas_groups.png) |
 
 ## Block library
 

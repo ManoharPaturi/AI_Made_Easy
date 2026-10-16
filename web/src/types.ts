@@ -66,6 +66,27 @@ export interface ProjectEdge {
   to: string;
 }
 
+export interface FeatureImportance {
+  run_id: string;
+  method?: string;
+  metric?: string;
+  baseline_loss?: number;
+  baseline?: string;
+  rows?: number;
+  features: { name: string; importance: number; std: number }[];
+}
+
+export interface DesignDiff {
+  same: boolean;
+  summary: string;
+  added: { id: string; type: string }[];
+  removed: { id: string; type: string }[];
+  retyped: { id: string; from: string; to: string }[];
+  changed: { id: string; type: string; param: string; from: unknown; to: unknown }[];
+  wired: { from: string; to: string }[];
+  unwired: { from: string; to: string }[];
+}
+
 export interface Project {
   name: string;
   nodes: ProjectNode[];

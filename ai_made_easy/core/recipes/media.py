@@ -109,6 +109,99 @@ def _transfer(ctx: Context) -> Draft:
     return d
 
 
+def _vit(ctx: Context) -> Draft:
+    _classes(ctx, IMAGE_DEMO[3])
+    d = Draft("image_vit", "Images — Vision Transformer",
+              "Patches of the image become tokens; attention compares every patch with "
+              "every other.")
+    size = int(ctx["image_size"]) if not ctx.facts.demo else IMAGE_DEMO[2]
+    channels, size = _image_data(d, ctx, size, augment=True)
+    patch = int(ctx["patch"])
+    if size % patch:
+        patch = next(p for p in (4, 7, 2, 1) if size % p == 0)
+    dim, tokens = int(ctx["width"]), (size // patch) ** 2
+    steps: list[tuple] = [
+        ("core.input", {"shape": f"{channels}, {size}, {size}"},
+         f"an image: {channels} channel(s) of {size}×{size} pixels"),
+        ("vision.patch_embedding", {"patch": patch, "dim": dim, "cls_token": False},
+         f"cuts the image into {tokens} patches of {patch}×{patch} pixels and embeds each "
+         f"as a {dim}-number token, with a learned position")]
+    for i in range(int(ctx["depth"])):
+        steps.append(("core.transformer_encoder",
+                      {"nhead": 4, "dim_feedforward": 2 * dim, "dropout": 0.1,
+                       "activation": "gelu", "norm_first": True},
+                      "self-attention lets every patch look at every other" if i == 0 else ""))
+    steps += [("core.layer_norm", {}, "a final normalization, as in ViT"),
+              ("core.reduce", {"op": "mean", "dim": 0},
+               "averages the patch tokens into one image summary")]
+    d.chain(*steps, *head(ctx), ("core.output", {}, ""))
+    training(d, ctx, epochs=40, batch_size=64)
+    d.add("train.warmup_cosine_lr", "warms the learning rate up, then decays it: transformers "
+                                 "train poorly without warmup", nid="scheduler")
+    return d
+
+
+def _convnext(ctx: Context) -> Draft:
+    _classes(ctx, IMAGE_DEMO[3])
+    d = Draft("image_convnext", "Images — ConvNeXt",
+              "A modern CNN: large depthwise filters, LayerNorm and an inverted MLP per "
+              "block.")
+    size = int(ctx["image_size"]) if not ctx.facts.demo else IMAGE_DEMO[2]
+    channels, size = _image_data(d, ctx, size, augment=True)
+    width = int(ctx["width"])
+    steps: list[tuple] = [
+        ("core.input", {"shape": f"{channels}, {size}, {size}"},
+         f"an image: {channels} channel(s) of {size}×{size} pixels"),
+        ("core.conv2d", {"out_channels": width, "kernel_size": 2, "stride": 2},
+         "a 2×2 patchify stem halves the resolution")]
+    for stage in range(int(ctx["stages"])):
+        if stage:
+            steps.append(("core.conv2d", {"out_channels": width * 2 ** stage, "kernel_size": 2,
+                                          "stride": 2},
+                          "downsamples between stages and widens the features"))
+        steps.append(("vision.convnext_block", {"drop_path": 0.1},
+                      "7×7 depthwise conv, LayerNorm and an inverted MLP, with a residual"
+                      if stage == 0 else ""))
+    steps += [("core.global_avgpool2d", {}, "one value per feature over the image")]
+    d.chain(*steps, *head(ctx), ("core.output", {}, ""))
+    training(d, ctx, epochs=30, batch_size=64)
+    return d
+
+
+def _arcface(ctx: Context) -> Draft:
+    _classes(ctx, IMAGE_DEMO[3])
+    d = Draft("image_arcface", "Images — ArcFace embeddings",
+              "A CNN that maps each image to an embedding; ArcFace pulls each class around "
+              "its own direction with a margin between classes.")
+    size = int(ctx["image_size"]) if not ctx.facts.demo else IMAGE_DEMO[2]
+    channels, size = _image_data(d, ctx, size, augment=True)
+    width = int(ctx["width"])
+    steps: list[tuple] = [("core.input", {"shape": f"{channels}, {size}, {size}"},
+                           f"an image: {channels} channel(s) of {size}×{size} pixels")]
+    for stage in range(int(ctx["stages"])):
+        steps += [("core.conv2d", {"out_channels": width * 2 ** stage, "kernel_size": 3,
+                                   "padding": 1},
+                   "3×3 filters find local patterns" if stage == 0 else ""),
+                  ("core.batch_norm2d", {}, ""),
+                  ("core.relu", {}, ""),
+                  ("core.maxpool2d", {"kernel_size": 2, "stride": 2}, "")]
+    n = max(len(ctx.facts.classes or []), 2)
+    steps += [("core.global_avgpool2d", {}, "one value per filter"),
+              ("core.dense", {"units": int(ctx["embedding"])},
+               f"the embedding: {int(ctx['embedding'])} numbers per image, compared by angle")]
+    d.chain(*steps, ("core.output", {}, ""))
+    d.add("train.loss_arcface", f"ArcFace: {n} class centres on the sphere, with an angular "
+                                "margin, so same-class images cluster tightly", nid="loss",
+          classes=n)
+    d.add("train.adamw", "AdamW: Adam with decoupled weight decay", nid="optimizer",
+          lr=ctx["lr"])
+    d.add("train.trainer", "early stopping ends training when the validation loss stops "
+                           "improving", nid="trainer", epochs=ctx["epochs"] or 30,
+          batch_size=128, early_stopping_patience=5)
+    d.add("eval.accuracy", "accuracy of the nearest class centre", nid="accuracy")
+    return d
+
+
 IMAGE_KINDS = ("demo", "image_folder")
 register_recipe(Recipe(
     "image_cnn", "Small CNN", CLASSIFY, "small", "image",
@@ -141,6 +234,36 @@ register_recipe(Recipe(
                            values=("resnet18", "resnet34", "resnet50")),
            Knob("image_size", "choice", 128, values=(64, 96, 128, 160, 224)), EPOCHS(8)),
     strengths="the best accuracy from few images: it starts from learned features"))
+register_recipe(Recipe(
+    "image_vit", "Vision Transformer (from scratch)", CLASSIFY, "medium", "image",
+    "Patch embeddings and transformer encoder layers, trained from scratch.", _vit,
+    data_kinds=IMAGE_KINDS, demo_tasks=("multiclass",), rows=(5_000, 10**7), priority=-0.2,
+    downloads="Fashion-MNIST (30 MB) for the demo",
+    knobs=(_lr(5e-4), Knob("width", "int", 64, 16, 512, help="Token width"),
+           Knob("depth", "int", 4, 1, 12, help="Transformer layers"),
+           Knob("patch", "choice", 4, values=(2, 4, 8, 16)),
+           Knob("image_size", "choice", 32, values=(32, 64, 96, 128)), EPOCHS(40)),
+    strengths="scales with data; attention sees the whole image from the first layer"))
+register_recipe(Recipe(
+    "image_convnext", "ConvNeXt (from scratch)", CLASSIFY, "medium", "image",
+    "A modern convolutional network: depthwise 7×7 filters, LayerNorm, GELU MLPs.",
+    _convnext, data_kinds=IMAGE_KINDS, demo_tasks=("multiclass",), rows=(2_000, 10**7),
+    priority=-0.1, downloads="Fashion-MNIST (30 MB) for the demo",
+    knobs=(_lr(1e-3), Knob("width", "int", 32, 8, 256, help="Features in the first stage"),
+           Knob("stages", "int", 3, 1, 4, help="Stages (each halves the resolution)"),
+           Knob("image_size", "choice", 64, values=(32, 64, 96, 128)), EPOCHS(30)),
+    strengths="CNN speed with transformer-era accuracy"))
+register_recipe(Recipe(
+    "image_arcface", "ArcFace embeddings", CLASSIFY, "medium", "image",
+    "Learns an embedding per image (face / product / item recognition): new images are "
+    "matched by angle, and new classes can be added without retraining.",
+    _arcface, data_kinds=IMAGE_KINDS, demo_tasks=("multiclass",), rows=(2_000, 10**7),
+    priority=-0.2, downloads="Fashion-MNIST (30 MB) for the demo",
+    knobs=(_lr(1e-3), Knob("width", "int", 32, 8, 256, help="Filters in the first stage"),
+           Knob("stages", "int", 3, 1, 5, help="Convolution stages"),
+           Knob("embedding", "int", 128, 16, 1024, help="Embedding size"),
+           Knob("image_size", "choice", 64, values=(32, 64, 96, 128)), EPOCHS(30)),
+    strengths="embeddings for retrieval and verification, not only a class"))
 
 
 # ------------------------------------------------------------------ text

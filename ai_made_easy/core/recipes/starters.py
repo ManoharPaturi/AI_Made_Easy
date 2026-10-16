@@ -375,6 +375,11 @@ starter("tiny_gpt", "tiny_gpt", "language_modeling", "small", "text", "Tiny GPT"
         "A small causal transformer that writes text byte by byte.",
         swaps={"corpus": _corpus}, knobs=TRAIN_KNOBS(1e-3, 30),
         strengths="any language, no tokenizer files")
+starter("tiny_llama", "tiny_llama", "language_modeling", "small", "text", "Tiny Llama",
+        "A small Llama-style decoder: RMSNorm, grouped-query attention with rotary "
+        "positions and SwiGLU feed-forward blocks.",
+        swaps={"corpus": _corpus}, knobs=TRAIN_KNOBS(1e-3, 30), priority=-0.1,
+        strengths="the architecture of today's open LLMs, small enough to read")
 starter("seq2seq_transformer", "reverse_seq2seq", "sequence_to_sequence", "medium", "text",
         "Encoder-decoder transformer", "Reads the source sequence and writes the target "
         "(translation, summarisation, rewriting).", swaps={"pairs": _pairs},

@@ -19,6 +19,10 @@ from ai_made_easy.core.registry import get_registry  # noqa: E402
 from ai_made_easy.core.spec import missing_requirements  # noqa: E402
 
 VARIANTS: dict[str, list[dict]] = {
+    "vision.swin_block": [{"shift": True}],
+    "core.gqa_attention": [{"heads": 4, "kv_heads": 1}, {"causal": False, "rope": False}],
+    "core.mixture_of_experts": [{"experts": 2, "top_k": 1}],
+    "core.gated_ffn": [{"activation": "gelu", "hidden": 24}],
     "core.conv2d": [{"padding": 2, "stride": 2}, {"dilation": 2, "padding": 2},
                     {"groups": 2, "out_channels": 8, "bias": False},
                     {"kernel_size": 5, "padding": 0, "stride": 3}],

@@ -332,6 +332,14 @@ def create_app(*, token: str | None = None, projects_dir: str | Path | None = No
     def run_samples(run_id: str) -> dict:
         return api.run_samples(run_id)
 
+    @app.post("/api/runs/{run_id}/diff", dependencies=guard)
+    def run_diff(run_id: str, payload: dict = Body(...)) -> dict:  # noqa: B008
+        return api.diff_run(run_id, _graph_body(payload))
+
+    @app.get("/api/runs/{run_id}/explain", dependencies=guard)
+    def run_explain(run_id: str) -> dict:
+        return api.run_explanation(run_id)
+
     @app.get("/api/runs/{run_id}/metrics", dependencies=guard)
     def metrics(run_id: str) -> dict:
         return {"run_id": run_id, "epochs": api.manager().history.epochs(run_id)}
@@ -587,6 +595,18 @@ def create_app(*, token: str | None = None, projects_dir: str | Path | None = No
             raise
         return FileResponse(out, filename=f"{'epochs' if epochs else 'runs'}.{format}",
                             background=BackgroundTask(shutil.rmtree, work, True))
+
+    @app.post("/api/data/upload", dependencies=guard)
+    async def data_upload(file: UploadFile = File(...)) -> dict:  # noqa: B008
+        """A data file dropped on the canvas: stored and detected for the wizard."""
+        work = Path(tempfile.mkdtemp(prefix="aime_data_"))
+        try:
+            target = work / "upload"
+            await _save_upload(file, target)
+            return await asyncio.to_thread(api.store_upload, str(target),
+                                           file.filename or "data")
+        finally:
+            shutil.rmtree(work, ignore_errors=True)
 
     @app.post("/api/data/fetch", dependencies=guard)
     async def data_fetch(payload: dict = Body(...)) -> dict:  # noqa: B008

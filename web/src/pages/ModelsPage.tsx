@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { api } from "../api";
-import { Modal, metric } from "../components/Modal";
+import { useDialogs } from "../components/Dialogs";
+import { ListState, Modal, metric } from "../components/Modal";
 import { useStore } from "../state";
 import type { ExportFormat, ModelVersion } from "../types";
 
@@ -13,6 +14,7 @@ function ShareModal({ model, onClose, onChanged }: {
   model: ModelVersion; onClose: () => void; onChanged: () => void;
 }) {
   const { notify } = useStore();
+  const { confirm } = useDialogs();
   const [formats, setFormats] = useState<ExportFormat[]>([]);
   const [chosen, setChosen] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState("");
@@ -44,12 +46,14 @@ function ShareModal({ model, onClose, onChanged }: {
     return m ? `Registered in ${to === "mlflow" ? "MLflow" : "W&B"}: ${m.name} v${m.version}`
       : "Mirrored";
   });
-  const publish = (kind: "hub" | "space") => {
+  const publish = async (kind: "hub" | "space") => {
     const id = repo.trim();
     if (!id) return;
     const what = kind === "hub" ? "model repository" : "Space (a Docker app serving /predict)";
-    if (!confirm(`Publish ${model.name} v${model.version} to the Hugging Face ${what} ` +
-                 `“${id}” (${isPrivate ? "private" : "PUBLIC"})?`)) return;
+    const ok = await confirm(`Publish ${model.name} v${model.version} to the Hugging Face ${what} ` +
+                 `“${id}” (${isPrivate ? "private" : "PUBLIC"})?`,
+                             { title: "Publish to Hugging Face", ok: "Publish", danger: !isPrivate });
+    if (!ok) return;
     act(kind, async () => {
       const r = kind === "hub"
         ? await api.pushToHub(id, model.name, model.version, isPrivate)
@@ -149,11 +153,15 @@ function PullModal({ onClose, onChanged }: { onClose: () => void; onChanged: () 
 
 export function ModelsPage() {
   const { notify } = useStore();
-  const [models, setModels] = useState<ModelVersion[]>([]);
+  const { confirm } = useDialogs();
+  const [loaded, setModels] = useState<ModelVersion[] | null>(null);
+  const models = loaded ?? [];
+  const [error, setError] = useState("");
   const [sharing, setSharing] = useState<ModelVersion | null>(null);
   const [pulling, setPulling] = useState(false);
   const refresh = useCallback(() => {
-    api.models().then((r) => setModels(r.models)).catch((e) => notify(String(e.message), true));
+    api.models().then((r) => { setModels(r.models); setError(""); })
+      .catch((e) => setError(String(e.message)));
   }, [notify]);
   useEffect(refresh, [refresh]);
   const stage = async (m: ModelVersion, value: string) => {
@@ -165,7 +173,8 @@ export function ModelsPage() {
     }
   };
   const remove = async (m: ModelVersion) => {
-    if (!confirm(`Delete ${m.name} v${m.version}?`)) return;
+    if (!(await confirm(`Delete ${m.name} v${m.version}?`, { title: "Delete model", ok: "Delete",
+                                                             danger: true }))) return;
     await api.deleteModel(m.name, m.version).catch((e) => notify(String(e.message), true));
     refresh();
   };
@@ -208,7 +217,8 @@ export function ModelsPage() {
           ))}
         </tbody>
       </table>
-      {!models.length && <div className="empty">No registered models yet.</div>}
+      <ListState items={loaded} error={error} onRetry={refresh} what="models"
+                 empty="No registered models yet: register a finished run from Experiments." />
       {sharing && <ShareModal model={sharing} onClose={() => setSharing(null)} onChanged={refresh} />}
       {pulling && <PullModal onClose={() => setPulling(false)} onChanged={refresh} />}
     </div>

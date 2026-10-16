@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { fileMenu } from "./helpers";
 
 // Work with your tools (3.2): tracking for the project, run history as a table, a model's
 // Share dialog (formats, MLflow, the Hub with a confirmation) and the MLflow import option.
@@ -56,20 +57,23 @@ test("tools: tracking choices, run history export, share and MLflow import", asy
   await expect(share.locator("[data-format]").first()).toBeVisible();
   const download = share.getByTestId("share-download").locator("xpath=..");
   expect(await download.getAttribute("href")).toContain(`/api/models/e2e-tools/${model.version}/deploy`);
-  let asked = "";
-  page.once("dialog", (d) => { asked = d.message(); d.dismiss(); });
   const hubCalls: string[] = [];
   page.on("request", (r) => r.url().includes("/api/hub/") && hubCalls.push(r.url()));
   await share.getByTestId("share-repo").fill("someone/e2e-tools");
   await share.getByTestId("share-hub").click();
-  await expect.poll(() => asked).toContain("someone/e2e-tools");
-  expect(asked).toContain("private");
+  const ask = page.getByTestId("ask-confirm");   // the in-app confirm dialog
+  await expect(ask).toContainText("someone/e2e-tools");
+  await expect(ask).toContainText("private");
+  await ask.getByRole("button", { name: "Cancel" }).click();
+  await expect(ask).toHaveCount(0);
+  await expect(share).toBeVisible();   // Escape / Cancel closes only the question
   expect(hubCalls).toEqual([]);
 
   const status = await (await request.get("/api/tracking")).json();
   if (status.trackers.find((t: { id: string; installed: boolean }) => t.id === "mlflow")?.installed) {
     await share.getByTestId("share-mlflow").click();
-    await expect(share.getByTestId("share-result")).toContainText("Registered in MLflow");
+    await expect(share.getByTestId("share-result")).toContainText("Registered in MLflow",
+      { timeout: 30_000 });   // MLflow creates its database on first use
     await share.getByRole("button", { name: "Close" }).click();
     await expect(page.getByTestId("mirror-mlflow")).toBeVisible();
   } else {
@@ -77,7 +81,7 @@ test("tools: tracking choices, run history export, share and MLflow import", asy
   }
 
   // Import model: MLflow takes a URI instead of a file
-  await page.getByRole("button", { name: "Import model" }).click();
+  await fileMenu(page, "Import model…");
   const imp = page.getByRole("dialog", { name: "Import model" });
   await imp.getByLabel("Format").selectOption("mlflow");
   await expect(imp.getByLabel("Model URI")).toBeVisible();

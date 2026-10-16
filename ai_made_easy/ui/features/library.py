@@ -95,7 +95,9 @@ class BlockLibrary(QtWidgets.QWidget):
         self.search.addAction(icons.icon("search", size=16),
                               QtWidgets.QLineEdit.ActionPosition.LeadingPosition)
         layout.addWidget(self.search)
+        self.search.setAccessibleName("Search blocks")
         self.tree = _Tree(mime_factory)
+        self.tree.setAccessibleName("Blocks by category")
         layout.addWidget(self.tree, 1)
         self.count = QtWidgets.QLabel()
         self.count.setObjectName("blockMeta")

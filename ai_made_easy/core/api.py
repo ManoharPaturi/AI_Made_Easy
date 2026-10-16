@@ -324,6 +324,30 @@ def get_run(run_id: str) -> dict:
     return data
 
 
+def diff_designs(before: dict, after: dict) -> dict:
+    """What changed from ``before`` to ``after`` (blocks, parameters, wires)."""
+    from ai_made_easy.core import diff
+
+    return diff.diff(before, after)
+
+
+def diff_run(run_id: str, design: dict) -> dict:
+    """The current ``design`` compared with the design a run trained."""
+    record = manager().history.get(run_id)
+    return {"run_id": run_id, **diff_designs(record.graph or {}, design)}
+
+
+def run_explanation(run_id: str) -> dict:
+    """The feature importance a run saved (``eval.permutation_importance``), else empty."""
+    import json as _json
+
+    try:
+        data = _json.loads((manager().history.path(run_id) / "explain.json").read_text())
+    except (OSError, ValueError):
+        return {"run_id": run_id, "features": []}
+    return {"run_id": run_id, **data}
+
+
 def run_samples(run_id: str, limit: int = 12) -> dict:
     """Sample images (PNG data URLs) and texts a run saved, with per-class scores."""
     import base64
@@ -870,6 +894,18 @@ def fetch_dataset(source: str, *, force: bool = False) -> dict:
     except datasets.SourceError as exc:
         raise ApiError(str(exc)) from exc
     return {"source": source, "path": str(path), "facts": detect_data(str(path))}
+
+
+def store_upload(path: str, filename: str) -> dict:
+    """A data file uploaded through the web UI: stored, then detected like a local path."""
+    from ai_made_easy.core.data import uploads
+    from ai_made_easy.core.runner.manager import max_unpacked_bytes
+
+    try:
+        stored = uploads.store(Path(path), filename, max_unpacked=max_unpacked_bytes())
+    except uploads.UploadError as exc:
+        raise ApiError(str(exc)) from exc
+    return {"source": filename, "path": str(stored), "facts": detect_data(str(stored))}
 
 
 def submit_to_kaggle(competition: str, file: str, message: str, *,
