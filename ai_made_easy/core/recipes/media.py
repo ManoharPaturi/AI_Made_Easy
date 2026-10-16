@@ -202,6 +202,44 @@ def _arcface(ctx: Context) -> Draft:
     return d
 
 
+def _simclr(ctx: Context) -> Draft:
+    _classes(ctx, IMAGE_DEMO[3])
+    d = Draft("image_simclr", "Images — SimCLR (self-supervised)",
+              "Learns image features without labels: two random augmentations of the same "
+              "image should land close together, and far from every other image.")
+    size = int(ctx["image_size"]) if not ctx.facts.demo else IMAGE_DEMO[2]
+    channels, size = _image_data(d, ctx, size, augment=True)
+    width = int(ctx["width"])
+    steps: list[tuple] = [("core.input", {"shape": f"{channels}, {size}, {size}"},
+                           f"an image: {channels} channel(s) of {size}×{size} pixels")]
+    for stage in range(int(ctx["stages"])):
+        steps += [("core.conv2d", {"out_channels": width * 2 ** stage, "kernel_size": 3,
+                                   "padding": 1},
+                   "the encoder: its features are what you keep" if stage == 0 else ""),
+                  ("core.batch_norm2d", {}, ""),
+                  ("core.relu", {}, ""),
+                  ("core.maxpool2d", {"kernel_size": 2, "stride": 2}, "")]
+    n = max(len(ctx.facts.classes or []), 2)
+    projection = int(ctx["projection"])
+    steps += [("core.global_avgpool2d", {}, "one value per filter: the image's features"),
+              ("core.dense", {"units": projection * 2},
+               "a projection head: the contrastive loss works on its output"),
+              ("core.relu", {}, ""),
+              ("core.dense", {"units": projection}, f"a {projection}-number projection")]
+    d.chain(*steps, ("core.output", {}, ""))
+    d.add("train.loss_nt_xent", "NT-Xent: each image is augmented twice and must pick out "
+                                "its twin among the batch. Labels only measure the result",
+          nid="loss", classes=n, temperature=0.5)
+    d.add("train.adamw", "AdamW: Adam with decoupled weight decay", nid="optimizer",
+          lr=ctx["lr"])
+    d.add("train.trainer", "large batches give the loss more images to tell apart",
+          nid="trainer", epochs=ctx["epochs"] or 30, batch_size=256,
+          early_stopping_patience=8)
+    d.add("eval.accuracy", "accuracy of the nearest class average: how well the features "
+                           "separate classes they never saw labels for", nid="accuracy")
+    return d
+
+
 IMAGE_KINDS = ("demo", "image_folder")
 register_recipe(Recipe(
     "image_cnn", "Small CNN", CLASSIFY, "small", "image",
@@ -264,6 +302,17 @@ register_recipe(Recipe(
            Knob("embedding", "int", 128, 16, 1024, help="Embedding size"),
            Knob("image_size", "choice", 64, values=(32, 64, 96, 128)), EPOCHS(30)),
     strengths="embeddings for retrieval and verification, not only a class"))
+register_recipe(Recipe(
+    "image_simclr", "SimCLR (self-supervised)", CLASSIFY, "large", "image",
+    "Pretrains an encoder without using the labels, by contrasting two augmentations of "
+    "each image; fine-tune it afterwards with a small labelled set.",
+    _simclr, data_kinds=IMAGE_KINDS, demo_tasks=("multiclass",), rows=(5_000, 10**8),
+    priority=-0.3, downloads="Fashion-MNIST (30 MB) for the demo",
+    knobs=(_lr(1e-3), Knob("width", "int", 32, 8, 256, help="Filters in the first stage"),
+           Knob("stages", "int", 3, 1, 5, help="Convolution stages"),
+           Knob("projection", "int", 64, 16, 512, help="Projection size"),
+           Knob("image_size", "choice", 64, values=(32, 64, 96, 128)), EPOCHS(30)),
+    strengths="uses unlabelled images; features that transfer"))
 
 
 # ------------------------------------------------------------------ text

@@ -73,6 +73,8 @@ def _requirements(spec: TrainingSpec, framework: str, torchvision: bool) -> str:
     tok = spec.steps.get("prep.tokenize")
     if tok and tok.get("method") == "huggingface":
         reqs.append("transformers")
+    if spec.explain and spec.explain["method"] == "shap" and framework == "pytorch":
+        reqs.append("shap")
     return ", ".join(dict.fromkeys(reqs))
 
 
@@ -219,11 +221,15 @@ def _torch_ctx(graph: Graph, spec: TrainingSpec) -> dict:
         ema=bool(float(spec.trainer.get("ema_decay") or 0)),
         swa=int(spec.trainer.get("swa_start") or 0),
         metric_loss=spec.metric_loss,
+        two_views=cat.COMPONENTS[spec.loss["kind"]].meta.get("views") == 2,
         sam=bool(cat.COMPONENTS[spec.optimizer["kind"]].meta.get("sam")),
         schedule_free=bool(cat.COMPONENTS[spec.optimizer["kind"]].meta.get("schedule_free")),
         scheduler_expr=sched_expr, scheduler_step=sched_step,
         uses_functional=ctx["uses_functional"] or ctx["loss_helper"] == "FocalLoss",
     )
+    if ctx["two_views"] and not ctx["torchvision_pipeline"]:
+        raise CodegenError(f"{cat.COMPONENTS[spec.loss['kind']].name} learns from two "
+                           "augmented views of each image: use an image dataset")
     if ctx["ema"] and ctx["swa"]:
         raise CodegenError("use one kind of weight averaging on the Trainer: EMA or SWA")
     for kind in (spec.optimizer["kind"], spec.loss["kind"]):

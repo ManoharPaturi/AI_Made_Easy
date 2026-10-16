@@ -78,7 +78,11 @@ export function RunExplainView({ runId }: { runId: string }) {
   const max = Math.max(...top.map((f) => Math.abs(f.importance)), 1e-12);
   return (
     <div data-testid="run-explain">
-      {data.method === "integrated_gradients" ? <>
+      {data.method === "shap" ? <>
+        <h3>SHAP values</h3>
+        <p className="muted">Each feature's share of the gap between a prediction and the average
+          prediction, on average over {data.rows ?? "?"} test rows.</p>
+      </> : data.method === "integrated_gradients" ? <>
         <h3>Feature attribution</h3>
         <p className="muted">Integrated gradients: how much each feature moved the prediction,
           on average over {data.rows ?? "?"} test rows (from the {String(data.baseline ?? "mean")} row).</p>

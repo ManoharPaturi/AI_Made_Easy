@@ -12,6 +12,7 @@ import { api } from "./api";
 import { useDialogs } from "./components/Dialogs";
 import {
   addGroup, addNote, cleanMeta, copyFragment, type Note, notesOf, parseClipboard, pasteFragment,
+  groupsOf, setCollapsed,
 } from "./canvas";
 import {
   autoLayout, defaultParams, type FlowNode, fromProject, hasOverlaps, newNodeId, structureKey,
@@ -32,6 +33,8 @@ export interface CanvasApi {
   selectAll: () => void;
   deleteSelection: () => void;
   ungroupSelection: () => void;
+  /** Fold / open the groups around the selection (all groups when nothing is selected). */
+  toggleGroups: () => number;
   addNote: () => void;
   /** The design drawn as an image. */
   image: () => HTMLCanvasElement;
@@ -65,6 +68,8 @@ interface Store {
   groupSelection: (title?: string) => string | null;
   ungroup: (id: string) => void;
   renameGroup: (id: string, title: string) => void;
+  /** Fold a group into one card, or open it. */
+  collapseGroup: (id: string, collapsed: boolean) => void;
   addNoteAt: (position: [number, number], text?: string) => string;
   updateNote: (id: string, patch: Partial<Note>) => void;
   removeNote: (id: string) => void;
@@ -273,6 +278,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setMeta((m) => ({ ...m, groups: ((m.groups as { id: string }[]) ?? [])
       .map((g) => (g.id === id ? { ...g, title } : g)) }));
   }, []);
+  const collapseGroup = useCallback((id: string, collapsed: boolean) => {
+    commit();
+    if (collapsed) {   // the hidden blocks can't stay selected
+      const members = new Set(groupsOf(latest.current().meta ?? {}).find((g) => g.id === id)?.nodes);
+      setNodes((ns) => ns.map((n) => (members.has(n.id) && n.selected ? { ...n, selected: false } : n)));
+    }
+    setMeta((m) => setCollapsed(m, id, collapsed));
+  }, [commit]);
   const addNoteAt = useCallback((position: [number, number], text = "") => {
     commit();
     let made = "";
@@ -412,7 +425,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     blocks, blockMap, name, setName, nodes, edges, onNodesChange, onEdgesChange, setEdges,
     project, meta, setMeta, load, loads, arrange, addBlock, setParam, commit, undo, redo, validation, dataIssues, selected,
     copySelection, pasteText, duplicateSelection, selectedIds, selectIds, groupSelection, ungroup,
-    renameGroup, addNoteAt, updateNote, removeNote,
+    renameGroup, collapseGroup, addNoteAt, updateNote, removeNote,
     setSelected, selectNode, toasts, notify, dismissToast, theme, toggleTheme, version, canvas,
     restored, discardRestored,
   };

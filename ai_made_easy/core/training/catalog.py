@@ -206,6 +206,17 @@ LOSSES += [
              "in the batch is a positive, everything else a negative.",
         meta={**_METRIC_META, "torch_helper": "SupConLoss"}),
 ]
+LOSSES += [
+    Component(
+        "train.loss_nt_xent", "NT-Xent (SimCLR)",
+        (_CLASSES, P("temperature", "float", 0.5, lo=1e-3, hi=2.0)),
+        torch=lambda p: f"NTXentLoss(EMBED_DIM, NUM_CLASSES, temperature={p['temperature']})",
+        desc="Self-supervised contrastive learning (Chen et al., 2020): every training image "
+             "is augmented twice and the network learns to match the two views among all "
+             "the others in the batch. Labels are never used to learn, only to measure the "
+             "embedding (accuracy of the nearest class average). Images, with augmentation.",
+        meta={**_METRIC_META, "torch_helper": "NTXentLoss", "views": 2}),
+]
 METRIC_LOSS_IDS = tuple(c.type_id for c in LOSSES if c.meta.get("metric"))
 
 
@@ -476,6 +487,37 @@ class TripletLoss(ClassPrototypes):
         if not has_neg.any():
             return (dist * 0).sum()
         return torch.relu(hardest_pos - hardest_neg + self.margin)[has_neg].mean()
+''',
+    "NTXentLoss": _PROTOTYPES + '''
+
+class NTXentLoss(ClassPrototypes):
+    """NT-Xent (SimCLR, Chen et al., 2020). A paired batch holds two views of each image,
+    the first views then the second; each view's positive is its twin. Unpaired batches
+    (the test set) score same-class examples as positives instead."""
+
+    def __init__(self, embed_dim: int, num_classes: int, temperature: float = 0.5) -> None:
+        super().__init__(embed_dim, num_classes)
+        self.temperature = temperature
+        self.paired = True
+
+    def forward(self, emb: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        target = target.long().reshape(-1)
+        e = nn.functional.normalize(emb.float(), dim=1)
+        if self.training:
+            self.update(e, target)      # class averages: only to measure the embedding
+        n = len(e)
+        eye = torch.eye(n, dtype=torch.bool, device=e.device)
+        sim = (e @ e.t() / self.temperature).masked_fill(eye, float("-inf"))
+        if self.paired and n % 2 == 0 and n > 1:
+            twin = (torch.arange(n, device=e.device) + n // 2) % n
+            return nn.functional.cross_entropy(sim, twin)
+        log_prob = sim - torch.logsumexp(sim, dim=1, keepdim=True)
+        positive = (target[:, None] == target[None, :]) & ~eye
+        count = positive.sum(1)
+        anchors = count > 0
+        if not anchors.any():
+            return (sim.masked_fill(eye, 0) * 0).sum()
+        return -(log_prob.masked_fill(~positive, 0).sum(1)[anchors] / count[anchors]).mean()
 ''',
     "SupConLoss": _PROTOTYPES + '''
 
@@ -953,6 +995,17 @@ EXPLAIN_IG = Component(
          "much each feature moved the prediction. Tables and feature vectors, PyTorch.")
 
 
+EXPLAIN_SHAP = Component(
+    "eval.shap_values", "SHAP Values",
+    (P("background", "int", 100, lo=10, help="Training rows the explanation compares with"),
+     P("max_samples", "int", 300, lo=10, help="Test rows explained")),
+    desc="After training, SHAP values (expected gradients, Lundberg & Lee, 2017): each "
+         "feature's share of the gap between a prediction and the average prediction over "
+         "background rows. Tables and feature vectors, PyTorch. "
+         "pip install 'ai-made-easy[explain]'.",
+    meta={"requires": ("shap",), "extra": "explain"})
+
+
 def _losses_by_id() -> dict[str, Component]:
     return {c.type_id: c for c in LOSSES}
 
@@ -963,7 +1016,7 @@ SCHEDULER_IDS = tuple(c.type_id for c in SCHEDULERS)
 METRIC_IDS = tuple(c.type_id for c in METRICS)
 COMPONENTS: dict[str, Component] = {
     c.type_id: c for c in (*LOSSES, *OPTIMIZERS, *SCHEDULERS, *METRICS, TRAINER, KFOLD, PREDICT,
-                           EXPLAIN, EXPLAIN_IG)
+                           EXPLAIN, EXPLAIN_IG, EXPLAIN_SHAP)
 }
 
 _CATEGORY = {
@@ -976,8 +1029,12 @@ _CATEGORY = {
     "eval.predict": ("Metrics", "evaluation"),
     "eval.permutation_importance": ("Metrics", "evaluation"),
     "eval.integrated_gradients": ("Metrics", "evaluation"),
+    "eval.shap_values": ("Metrics", "evaluation"),
 }
-EXPLAIN_IDS = ("eval.permutation_importance", "eval.integrated_gradients")
+EXPLAIN_IDS = ("eval.permutation_importance", "eval.integrated_gradients", "eval.shap_values")
+EXPLAIN_METHODS = {"eval.permutation_importance": "permutation",
+                   "eval.integrated_gradients": "integrated_gradients",
+                   "eval.shap_values": "shap"}
 
 
 def _libraries(c: Component) -> str:
@@ -998,6 +1055,7 @@ def register_all() -> None:
             checks_fn=comp.checks, description=comp.desc, library=_libraries(comp),
             meta={"kind": category.lower(), **{k: v for k, v in comp.meta.items()
                                                if not callable(v)}},
+            requires=tuple(comp.meta.get("requires", ())), extra=comp.meta.get("extra", ""),
         ))
 
 

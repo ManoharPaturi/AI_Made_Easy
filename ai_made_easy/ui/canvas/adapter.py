@@ -173,6 +173,9 @@ class CanvasController:
 
     def delete_selected(self) -> int:
         nodes = self._graph.selected_nodes()
+        for group in nodes:   # a deleted folded group gives its blocks back
+            if getattr(group, "folded", None):
+                self.set_group_collapsed(group, False)
         if nodes:
             self._graph.delete_nodes(nodes)
         return len(nodes)
@@ -269,11 +272,13 @@ class CanvasController:
                           "size": [round(w), round(h)]})
         groups = []
         for i, node in enumerate(self._annotations("group"), start=1):
-            members = [n.id for n in node.nodes()
-                       if n is not None and n.type_ in NODE_TYPE_TO_BLOCK]
+            members = self.group_members(node)
             if members:
-                groups.append({"id": f"group{i}", "title": node.name(), "nodes": members,
-                               "color": ann.rgba_to_hex(node.color())})
+                group = {"id": f"group{i}", "title": node.name(), "nodes": [n.id for n in members],
+                         "color": ann.rgba_to_hex(node.color())}
+                if node.folded:
+                    group["collapsed"] = True
+                groups.append(group)
         if notes:
             meta["notes"] = notes
         if groups:
@@ -307,12 +312,71 @@ class CanvasController:
         node.wrap_nodes(members)
         return node
 
+    def group_members(self, group) -> list:  # noqa: ANN001
+        """The blocks in a group: the remembered ones while it is folded."""
+        if getattr(group, "folded", None):
+            found = (self._graph.get_node_by_id(i) for i in group.folded["members"])
+            return [n for n in found if n is not None]
+        return [n for n in group.nodes() if n is not None and n.type_ in NODE_TYPE_TO_BLOCK]
+
+    @staticmethod
+    def _show_block(node, shown: bool) -> None:  # noqa: ANN001
+        node.view.setVisible(shown)
+        if not shown:
+            node.view.setSelected(False)
+        for port in [*node.input_ports(), *node.output_ports()]:
+            for pipe in port.view.connected_pipes:
+                ends = (pipe.input_port, pipe.output_port)
+                pipe.setVisible(all(e is not None and e.node.isVisible() for e in ends))
+
+    def set_group_collapsed(self, group, collapsed: bool) -> bool:  # noqa: ANN001
+        """Fold a group into one card (its blocks and their wires hide) or open it again;
+        the blocks keep their places relative to the card, wherever it was moved."""
+        if collapsed == bool(group.folded):
+            return False
+        if collapsed:
+            members = self.group_members(group)
+            if not members:
+                return False
+            group.folded = {"members": [n.id for n in members],
+                            "positions": {n.id: tuple(n.pos()) for n in members},
+                            "size": tuple(group.size()), "at": tuple(group.pos())}
+            for n in members:
+                self._show_block(n, False)
+            group.set_size(*group.FOLDED_SIZE)
+        else:
+            folded, group.folded = group.folded, None
+            dx = group.x_pos() - folded["at"][0]
+            dy = group.y_pos() - folded["at"][1]
+            members = [n for n in (self._graph.get_node_by_id(i) for i in folded["members"])
+                       if n is not None]
+            for n in members:
+                x, y = folded["positions"][n.id]
+                n.set_pos(x + dx, y + dy)
+                self._show_block(n, True)
+            for n in members:   # wires once both ends are back
+                self._show_block(n, True)
+            group.set_size(*folded["size"])
+        self._graph.viewer().scene().update()
+        return True
+
+    def toggle_selected_groups(self) -> int:
+        """Fold / open the selected groups and the groups around selected blocks."""
+        sel = {n.id for n in self._graph.selected_nodes()}
+        groups = [g for g in self._annotations("group")
+                  if g.id in sel or any(n.id in sel for n in self.group_members(g))]
+        for g in groups:
+            self.set_group_collapsed(g, not g.folded)
+        return len(groups)
+
     def ungroup_selected(self) -> int:
         """Remove the frames of selected groups and of groups around selected blocks."""
         sel = self._graph.selected_nodes()
         chosen = {n.id for n in sel}
         doomed = [g for g in self._annotations("group")
-                  if g.id in chosen or any(n is not None and n.id in chosen for n in g.nodes())]
+                  if g.id in chosen or any(n.id in chosen for n in self.group_members(g))]
+        for g in doomed:
+            self.set_group_collapsed(g, False)
         if doomed:
             self._graph.delete_nodes(doomed)
         return len(doomed)
@@ -427,7 +491,10 @@ class CanvasController:
                           (float(size[0]), float(size[1])), push_undo=False)
         for group in meta.get("groups", []):
             members = [canvas_nodes[n] for n in group["nodes"]]
-            self.group_selected(group.get("title", "Group"), group.get("color"), nodes=members)
+            node = self.group_selected(group.get("title", "Group"), group.get("color"),
+                                       nodes=members)
+            if node is not None and group.get("collapsed"):
+                self.set_group_collapsed(node, True)
         self._graph.clear_undo_stack()
 
     def load_demo(self, demo_path: Path | None = None) -> None:

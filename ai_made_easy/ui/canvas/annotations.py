@@ -21,6 +21,14 @@ class NoteNode(BackdropNode):
 class GroupNode(BackdropNode):
     __identifier__ = "aime.canvas"
     NODE_NAME = "Group"
+    FOLDED_SIZE = (230.0, 106.0)   # the smallest a backdrop can be
+
+    def __init__(self) -> None:
+        super().__init__()
+        # while collapsed (3.4): {"members": [ids], "positions": {id: (x, y)},
+        # "size": (w, h), "at": (x, y)}. A backdrop finds its blocks by what it covers,
+        # so a folded card has to remember them.
+        self.folded: dict | None = None
 
 
 NOTE_TYPE = f"{NoteNode.__identifier__}.{NoteNode.__name__}"
