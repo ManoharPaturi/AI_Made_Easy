@@ -285,6 +285,8 @@ fieldset.budget label { display: flex; justify-content: space-between; align-ite
 .error-text { color: var(--error); margin: 2px 0; }
 .sample-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px; margin-top: 8px; }
 .sample-grid img { width: 100%; image-rendering: pixelated; border: 1px solid var(--border); border-radius: 4px; }
+.sample-grid figure.cam { margin: 0; }
+.sample-grid figure.cam figcaption { font-size: 12px; text-align: center; margin-top: 2px; }
 
 /* deploy: export formats */
 .export-format { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; color: var(--text); }

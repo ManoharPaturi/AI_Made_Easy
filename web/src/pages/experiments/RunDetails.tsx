@@ -147,13 +147,17 @@ export function RunSamplesView({ runId }: { runId: string }) {
   const texts = data?.texts ?? [];
   if (!data || (!data.samples.length && !texts.length)) return null;
   const offset = data.per_class.length === data.classes.length + 1 ? 1 : 0;
-  const caption = data.per_class_metric === "AP"
+  const cams = data.samples.length > 0 && data.samples.every((s) => s.name.startsWith("gradcam_"));
+  const caption = cams
+    ? "Grad-CAM: each test image, then where the model looked for its prediction (red = most). "
+      + "Captions read true class → predicted class."
+    : data.per_class_metric === "AP"
     ? "Green: ground truth · red: prediction with its score."
     : data.per_class_metric === "IoU" ? "Each sample: true mask (left) and prediction (right)."
       : "What the trained model produced on held-out data or from noise.";
   return (
     <div data-testid="run-samples">
-      <h3>{data.per_class_metric ? "Test predictions" : "Samples"}</h3>
+      <h3>{cams ? "Grad-CAM heatmaps" : data.per_class_metric ? "Test predictions" : "Samples"}</h3>
       <p className="muted">{caption}</p>
       {data.per_class.length > 0 && (
         <table style={{ maxWidth: 420 }}>
@@ -163,7 +167,13 @@ export function RunSamplesView({ runId }: { runId: string }) {
               <td className="num">{v == null ? "—" : v.toFixed(3)}</td></tr>))}</tbody>
         </table>)}
       <div className="sample-grid">
-        {data.samples.map((s) => <img key={s.name} src={s.data_url} alt={s.name} title={s.name} />)}
+        {data.samples.map((s) => {
+          const label = cams ? s.name.split("_").slice(2).join("_").replace("_as_", " → ") : s.name;
+          return cams
+            ? <figure key={s.name} className="cam"><img src={s.data_url} alt={`Grad-CAM ${label}`} />
+                <figcaption className="muted">{label}</figcaption></figure>
+            : <img key={s.name} src={s.data_url} alt={s.name} title={s.name} />;
+        })}
       </div>
       {texts.map((t) => (
         <pre key={t.name} className="code" style={{ whiteSpace: "pre-wrap", maxHeight: 320,

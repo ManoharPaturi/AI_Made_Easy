@@ -8,7 +8,7 @@ from __future__ import annotations
 import time
 
 import pyqtgraph as pg
-from PySide6 import QtCore, QtWidgets
+from PySide6 import QtCore, QtGui, QtWidgets
 
 from ai_made_easy.core.runs.history import RunRecord, compare
 from ai_made_easy.ui import icons
@@ -162,7 +162,17 @@ class ExperimentsPage(QtWidgets.QWidget):
         self.explain_table = _readonly_table(["Feature", "Importance", "± std"])
         self.explain_table.setMaximumHeight(180)
         self.explain_table.setAccessibleName("Feature importance of the selected run")
-        for w in (self.explain_label, self.explain_table):
+        # the Grad-CAM block's heatmaps for the selected run (3.4)
+        self.cam_label = QtWidgets.QLabel("Grad-CAM: where the model looked (red = most)")
+        self.cam_label.setObjectName("sectionTitle")
+        self.cam_gallery = QtWidgets.QListWidget()
+        self.cam_gallery.setViewMode(QtWidgets.QListView.ViewMode.IconMode)
+        self.cam_gallery.setIconSize(QtCore.QSize(256, 128))
+        self.cam_gallery.setResizeMode(QtWidgets.QListView.ResizeMode.Adjust)
+        self.cam_gallery.setMovement(QtWidgets.QListView.Movement.Static)
+        self.cam_gallery.setMaximumHeight(190)
+        self.cam_gallery.setAccessibleName("Grad-CAM heatmaps of the selected run")
+        for w in (self.explain_label, self.explain_table, self.cam_label, self.cam_gallery):
             w.hide()
             box.addWidget(w)
 
@@ -236,6 +246,28 @@ class ExperimentsPage(QtWidgets.QWidget):
             self.explain_table.setItem(i, 2, _Item(f"{f['std']:.4f}", f["std"]))
         self.explain_label.setVisible(bool(rows))
         self.explain_table.setVisible(bool(rows))
+        self._show_grad_cams(run_id)
+
+    def _show_grad_cams(self, run_id: str | None) -> None:
+        self.cam_gallery.clear()
+        if run_id is not None:
+            from ai_made_easy.core import api
+
+            try:
+                folder = api.manager().history.path(run_id) / "eval_samples"
+                pictures = sorted(folder.glob("gradcam_*.png"))
+            except Exception:  # noqa: BLE001 — a missing run folder: nothing to show
+                pictures = []
+            for path in pictures:
+                true, _, guess = path.stem.split("_", 2)[2].partition("_as_")
+                item = QtWidgets.QListWidgetItem(QtGui.QIcon(QtGui.QPixmap(str(path))),
+                                                 f"{true} → {guess}")
+                item.setToolTip(f"true class {true}, predicted {guess}: the image, then "
+                                "the heatmap over it")
+                self.cam_gallery.addItem(item)
+        shown = self.cam_gallery.count() > 0
+        self.cam_label.setVisible(shown)
+        self.cam_gallery.setVisible(shown)
 
     def _status_of(self, run_id: str) -> str:
         rec = next((r for r in self._records if r.run_id == run_id), None)
