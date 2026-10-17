@@ -453,3 +453,106 @@ def test_pairs_recipe_trains_on_its_demo_pairs(tmp_path, monkeypatch, capsys):
     assert "demo pairs" in code
     out = capsys.readouterr().out.split("test:")[-1]
     assert float(out.split("accuracy=")[1].split()[0]) > 0.8, out
+
+
+def test_desktop_undoing_a_folded_group_gives_its_blocks_back(desk):
+    ctx, _win, app = desk
+    canvas = ctx.canvas
+    canvas.node_graph.clear_undo_stack()
+    inside = _core_nodes(ctx)[1:3]
+    for n in canvas.node_graph.all_nodes():
+        n.set_selected(n in inside)
+    group = canvas.group_selected("Middle")
+    assert canvas.set_group_collapsed(group, True)
+    app.processEvents()
+    stack = canvas.node_graph.undo_stack()
+    while stack.canUndo():
+        stack.undo()
+    app.processEvents()
+    assert not canvas._annotations("group")
+    assert all(n.view.isVisible() for n in inside) and canvas.stand_ins.items == []
+    while stack.canRedo():
+        stack.redo()
+    app.processEvents()
+    groups = canvas._annotations("group")       # the card comes back folded ...
+    assert len(groups) == 1 and groups[0].folded
+    assert all(not n.view.isVisible() for n in inside)          # ... and hides them again
+    assert len(canvas.stand_ins.items) == 2
+
+
+# ------------------------------------------------------------------ serving metric models
+
+def _train_ns(graph, tmp_path, monkeypatch) -> dict:
+    monkeypatch.chdir(tmp_path)
+    ns: dict = {"__name__": "aime_training"}
+    exec(compile(generate_training(graph, "pytorch"), f"<{graph.name}>", "exec"), ns)
+    ns["main"]()
+    return ns
+
+
+def test_serving_a_metric_model_scores_against_its_classes(tmp_path, monkeypatch):
+    pytest.importorskip("torch")
+    import numpy as np
+
+    graph = chain("serve_arcface", "6", EMBED,
+                  [PAIR_DATA, ("train.loss_arcface", {"classes": 3}),
+                   ("train.adamw", {"lr": 0.01}), TRAINER])
+    ns = _train_ns(graph, tmp_path, monkeypatch)
+    ns["load_predictor"](str(tmp_path))
+    x, y = (ns["make_arrays"]()["test"])
+    out = ns["infer"](x[:40].tolist())
+    assert len(out[0]["embedding"]) == 8 and len(out[0]["probabilities"]) == 3
+    accuracy = np.mean([r["class_index"] == int(t) for r, t in zip(out, y[:40], strict=True)])
+    assert accuracy > 0.6                     # before the fix: argmax over embedding dims
+
+
+def test_serving_a_pairs_model_embeds_or_scores_single_items(tmp_path, monkeypatch):
+    pytest.importorskip("torch")
+    pytest.importorskip("pandas")
+    for loss, units, key in (("train.loss_cosine_embedding", 8, "embedding"),
+                             ("train.loss_margin_ranking", 1, "score")):
+        folder = tmp_path / key
+        folder.mkdir()
+        csv = _pairs_csv(folder / "pairs.csv", "ranking" if units == 1 else "same")
+        graph = chain(f"serve_{key}", "4", [("core.dense", {"units": 16}), ("core.relu", {}),
+                                            ("core.dense", {"units": units})],
+                      [("data.pairs", {"path": str(csv)}), (loss, {"classes": 2}),
+                       ("train.adam", {"lr": 0.01}), TRAINER])
+        ns = _train_ns(graph, folder, monkeypatch)
+        ns["load_predictor"](str(folder))
+        out = ns["infer"]([[0.1, 0.2, 0.3, 0.4], [1.0, 0.0, -1.0, 2.0]])
+        assert len(out) == 2 and key in out[0]
+        if key == "embedding":
+            assert len(out[0]["embedding"]) == 8
+
+
+def test_feature_explanations_skip_labelled_pairs(tmp_path):
+    from ai_made_easy.core.codegen.training_gen import collect_spec
+
+    graph = chain("pairs_explain", "4", [("core.dense", {"units": 8})],
+                  [("data.pairs", {}), ("train.loss_cosine_embedding", {"classes": 2}),
+                   ("train.adam", {}), TRAINER, ("eval.permutation_importance", {})])
+    spec = collect_spec(graph)
+    assert spec.explain is None and any("labelled pairs" in w for w in spec.warnings)
+
+
+def test_desktop_a_moved_folded_card_reopens_where_it_was_moved(desk):
+    ctx, _win, app = desk
+    canvas = ctx.canvas
+    inside = _core_nodes(ctx)[1:3]
+    for n in canvas.node_graph.all_nodes():
+        n.set_selected(n in inside)
+    group = canvas.group_selected("Middle")
+    before = {n.id: tuple(n.pos()) for n in inside}
+    canvas.set_group_collapsed(group, True)
+    group.set_pos(group.x_pos() + 400, group.y_pos() + 250)
+    graph = canvas.to_ir()
+    for nid, (x, y) in before.items():                  # saved where they will open
+        assert graph.nodes[nid].position == pytest.approx((x + 400, y + 250))
+    canvas.load_ir(graph)
+    app.processEvents()
+    card = canvas._annotations("group")[0]
+    assert card.folded
+    assert canvas.set_group_collapsed(card, False)
+    reopened = sorted(tuple(n.pos()) for n in canvas.group_members(card))
+    assert reopened == pytest.approx(sorted((x + 400, y + 250) for x, y in before.values()))
