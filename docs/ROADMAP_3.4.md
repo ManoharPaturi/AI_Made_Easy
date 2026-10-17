@@ -102,6 +102,9 @@ A read-only audit of 3.3 and 3.4's newest code found four bugs; each fix has a t
   - One guess, that `scene.changed` connected to plain Python callables leaves hidden
     receivers behind, was tested by making the stand-in manager a QObject child of the
     scene. The message stayed, so the change was dropped.
+  - The 26 test files that use Qt, run in two groups (233 and 256 tests), don't print it
+    either. It needs most of the suite in one process, so it's an interpreter-teardown
+    effect, not one feature's.
   - It stays open.
 
 ## Planned (draft, not yet agreed)
