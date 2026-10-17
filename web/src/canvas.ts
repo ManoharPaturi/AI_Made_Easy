@@ -6,7 +6,8 @@ export const MARKER = "aime_clipboard";
 export const GROUP_COLORS = ["#91A7FF", "#63E6BE", "#FFC078", "#F783AC", "#B197FC", "#99E9F2"];
 
 export type Note = { id: string; text: string; position: [number, number]; size: [number, number] };
-export type Group = { id: string; title: string; nodes: string[]; color: string };
+export type Group = { id: string; title: string; nodes: string[]; color: string;
+                      collapsed?: boolean };
 type PNode = Project["nodes"][number];
 type PEdge = Project["edges"][number];
 export type Fragment = { [MARKER]: 1; nodes: PNode[]; edges: PEdge[]; groups: Group[] };
@@ -150,4 +151,21 @@ export function groupBounds(group: Group, positions: Map<string, { x: number; y:
   const x1 = Math.max(...pts.map((p) => p.x)) + size[0] + pad;
   const y1 = Math.max(...pts.map((p) => p.y)) + size[1] + pad;
   return { x, y, width: x1 - x, height: y1 - y };
+}
+
+/** Fold a group into one card (or open it again). Collapsing changes no blocks or wires. */
+export function setCollapsed(meta: Record<string, unknown>, id: string,
+                             collapsed: boolean): Record<string, unknown> {
+  return { ...meta, groups: groupsOf(meta).map((g) => {
+    if (g.id !== id) return g;
+    const { collapsed: _was, ...rest } = g;
+    return collapsed ? { ...rest, collapsed: true } : rest;
+  }) };
+}
+
+/** Block id -> the collapsed group hiding it. */
+export function hiddenBy(meta: Record<string, unknown>): Map<string, Group> {
+  const out = new Map<string, Group>();
+  for (const g of groupsOf(meta)) if (g.collapsed) for (const n of g.nodes) out.set(n, g);
+  return out;
 }

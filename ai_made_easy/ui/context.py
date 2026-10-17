@@ -521,6 +521,10 @@ class AppContext(FileActions, ExportActions, RunActions, DataActions, QtCore.QOb
         if not self.canvas.ungroup_selected():
             self.status_message.emit("Select a group (or a block in one) to ungroup")
 
+    def act_collapse_group(self, *_):
+        if not self.canvas.toggle_selected_groups():
+            self.status_message.emit("Select a group (or a block in one) to collapse it")
+
     def act_add_note(self, *_):
         text, ok = QtWidgets.QInputDialog.getMultiLineText(self.window, "Note", "Note:")
         if ok:

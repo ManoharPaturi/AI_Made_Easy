@@ -59,6 +59,8 @@ def _run(graph, tmp_path, monkeypatch, framework="pytorch"):
 @pytest.mark.parametrize("loss_id", cat.LOSS_IDS)
 def test_every_loss_trains(loss_id, tmp_path, monkeypatch):
     pytest.importorskip("torch")
+    if cat.COMPONENTS[loss_id].meta.get("views"):
+        pytest.skip("learns from two views of each image: tests/test_v34.py trains it")
     graph = _loss_graph(loss_id)
     if graph is None:
         pytest.skip("needs probability-distribution targets")

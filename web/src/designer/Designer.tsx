@@ -6,7 +6,7 @@ import "@xyflow/react/dist/style.css";
 import { type DragEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { api, streamRun } from "../api";
-import { groupBounds, groupsOf, notesOf } from "../canvas";
+import { groupBounds, groupsOf, hiddenBy, notesOf } from "../canvas";
 import { RunOnSelect, useRunOn } from "../components/Backends";
 import { LineChart, metricSeries } from "../components/LineChart";
 import { PipelinePanel } from "../components/Pipeline";
@@ -20,6 +20,7 @@ import { Inspector } from "./Inspector";
 import { DRAG_TYPE, Library } from "./Library";
 
 const nodeTypes = { block: BlockNode, note: NoteNode, aimeGroup: GroupNode };
+const COLLAPSED: [number, number] = [230, 58];   // a folded group's card
 const DATA_SUFFIXES = [".csv", ".tsv", ".txt", ".parquet", ".pq", ".xlsx", ".xls", ".json",
                        ".jsonl", ".zip"];
 
@@ -30,7 +31,7 @@ function Canvas({ onDataFile }: { onDataFile?: (file: File) => void }) {
   const { nodes, edges, onNodesChange, onEdgesChange, setEdges, addBlock, setSelected, commit,
           validation, undo, redo, loads, arrange, blockMap, meta, copySelection, pasteText,
           duplicateSelection, groupSelection, ungroup, addNoteAt, updateNote, removeNote,
-          notify, canvas, selectIds } = useStore();
+          notify, canvas, selectIds, collapseGroup } = useStore();
   const flow = useReactFlow();
 
   // notes and group frames are drawn as extra nodes around the blocks
@@ -43,6 +44,13 @@ function Canvas({ onDataFile }: { onDataFile?: (file: File) => void }) {
     for (const g of groups) {
       const b = groupBounds(g, positions);
       if (!b) continue;
+      if (g.collapsed) {   // one card in place of its blocks; their wires end on it
+        frames.push({ id: `group:${g.id}`, type: "aimeGroup", position: { x: b.x, y: b.y + 22 },
+                      data: { group: g }, style: { width: COLLAPSED[0], height: COLLAPSED[1] },
+                      width: COLLAPSED[0], height: COLLAPSED[1], draggable: false,
+                      selectable: false });
+        continue;
+      }
       frames.push({ id: `group:${g.id}`, type: "aimeGroup", position: { x: b.x, y: b.y },
                     data: { group: g }, style: { width: b.width, height: b.height },
                     // a known size: these nodes are rebuilt each render, so React Flow's own
@@ -55,8 +63,11 @@ function Canvas({ onDataFile }: { onDataFile?: (file: File) => void }) {
       data: { note: n }, style: { width: n.size[0], height: n.size[1] },
       width: n.size[0], height: n.size[1],
       selected: marked.has(`note:${n.id}`), dragHandle: ".note-head" }));
-    return [...frames, ...nodes, ...sticky] as Node[];
-  }, [nodes, groups, notes, marked]);
+    const hidden = hiddenBy(meta);
+    const blocks = hidden.size
+      ? nodes.map((n) => (hidden.has(n.id) ? { ...n, hidden: true, selected: false } : n)) : nodes;
+    return [...frames, ...blocks, ...sticky] as Node[];
+  }, [nodes, groups, notes, marked, meta]);
 
   const handleNodes = useCallback((changes: NodeChange[]) => {
     const blocks: NodeChange<FlowNode>[] = [];
@@ -217,6 +228,14 @@ function Canvas({ onDataFile }: { onDataFile?: (file: File) => void }) {
         const ids = new Set(latest.current.nodes.filter((n) => n.selected).map((n) => n.id));
         latest.current.groups.filter((g) => g.nodes.some((n) => ids.has(n))).forEach((g) => ungroup(g.id));
       },
+      toggleGroups: () => {
+        const ids = new Set(latest.current.nodes.filter((n) => n.selected).map((n) => n.id));
+        const all = latest.current.groups;
+        const picked = ids.size ? all.filter((g) => g.nodes.some((n) => ids.has(n))) : all;
+        const fold = picked.some((g) => !g.collapsed);   // fold them all, else open them all
+        picked.forEach((g) => collapseGroup(g.id, fold));
+        return picked.length;
+      },
       addNote,
       image: () => {
         const { nodes: ns, edges: es, groups: gs, notes: nts, validation: v, blockMap: bm } = latest.current;
@@ -243,14 +262,34 @@ function Canvas({ onDataFile }: { onDataFile?: (file: File) => void }) {
       },
     };
     return () => { canvas.current = null; };
-  }, [canvas, flow, selectIds, ungroup, addNote]);
+  }, [canvas, flow, selectIds, ungroup, addNote, collapseGroup]);
   const selectedCount = nodes.filter((n) => n.selected).length;
 
   // wires show the tensor shape flowing through them
-  const labelled: Edge[] = useMemo(() => edges.map((e) => {
-    const shape = validation?.shapes[e.source];
-    return shape ? { ...e, label: shapeLabel(shape) } : e;
-  }), [edges, validation]);
+  const labelled: Edge[] = useMemo(() => {
+    const hidden = hiddenBy(meta);
+    const out: Edge[] = [];
+    const seen = new Set<string>();
+    for (const e of edges) {
+      const shape = validation?.shapes[e.source];
+      const from = hidden.get(e.source);
+      const to = hidden.get(e.target);
+      if (from && from === to) continue;            // inside a collapsed group
+      if (!from && !to) {
+        out.push(shape ? { ...e, label: shapeLabel(shape) } : e);
+        continue;
+      }
+      const source = from ? `group:${from.id}` : e.source;
+      const target = to ? `group:${to.id}` : e.target;
+      const key = `${source}>${target}`;
+      if (seen.has(key)) continue;                  // one wire per pair of ends
+      seen.add(key);
+      out.push({ ...e, id: `${e.id}~${key}`, source, target, selectable: false, deletable: false,
+                 sourceHandle: from ? null : e.sourceHandle, targetHandle: to ? null : e.targetHandle,
+                 label: shape ? shapeLabel(shape) : undefined });
+    }
+    return out;
+  }, [edges, validation, meta]);
 
   return (
     <div className="canvas" ref={wrapper} onDragOver={(e) => { e.preventDefault(); }}

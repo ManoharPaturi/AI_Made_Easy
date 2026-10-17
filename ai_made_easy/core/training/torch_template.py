@@ -184,6 +184,25 @@ def image_datasets():
 {% endif %}
 
 
+{% if two_views %}
+class TwoViews:
+    """Two independent augmentations of one image (SimCLR)."""
+
+    def __init__(self, transform) -> None:
+        self.transform = transform
+
+    def __call__(self, image):
+        return torch.stack([self.transform(image), self.transform(image)])
+
+
+def views(xb: torch.Tensor, yb: torch.Tensor):
+    """A batch of view pairs as one batch (first views, then their twins), else as is."""
+    if xb.dim() == len(INPUT_SHAPE) + 2:
+        return torch.cat([xb[:, 0], xb[:, 1]]), torch.cat([yb, yb]), True
+    return xb, yb, False
+
+
+{% endif %}
 class TransformedSubset(Dataset):
     """A view of ``base`` restricted to ``indices`` with its own transform."""
 
@@ -238,8 +257,14 @@ def make_datasets():
 {% endif %}
     INFERENCE_STATE["norm"] = (list(mean), list(std)) if mean is not None else None
     eval_tf = build_transforms(train=False, mean=mean, std=std)
+{% if two_views %}
+    views_tf = TwoViews(build_transforms(train=True, mean=mean, std=std))
+    train = TransformedSubset(pool, train_idx, views_tf)
+    val = TransformedSubset(pool, val_idx, views_tf)   # the contrastive loss needs pairs
+{% else %}
     train = TransformedSubset(pool, train_idx, build_transforms(train=True, mean=mean, std=std))
     val = TransformedSubset(pool, val_idx, eval_tf)
+{% endif %}
     test = (TransformedSubset(official_test, range(len(official_test)), eval_tf)
             if official_test is not None else TransformedSubset(pool, test_idx, eval_tf))
     return train, val, test
@@ -403,6 +428,9 @@ def predict(model: nn.Module, loader: DataLoader, device: torch.device):
     model.eval()
     outs, ys = [], []
     for xb, yb in loader:
+{% if two_views %}
+        xb, yb, _paired = views(xb, yb)
+{% endif %}
 {% if metric_loss %}
         outs.append(SCORER(model(xb.to(device))).float().cpu())
 {% else %}
@@ -422,6 +450,9 @@ def evaluate(model: nn.Module, loss_fn, loader: DataLoader, device: torch.device
     loss_fn.eval()
     total, seen, scores, ys = 0.0, 0, [], []
     for xb, yb in loader:
+{% if two_views %}
+        xb, yb, loss_fn.paired = views(xb, yb)
+{% endif %}
         emb = model(xb.to(device))
         total += float(loss_fn(emb, yb.to(device))) * len(xb)
         seen += len(xb)
@@ -518,6 +549,9 @@ def fit(model: nn.Module, train_loader, val_loader, device, log: bool = True):
         optimizer.zero_grad(set_to_none=True)
         step = 0
         for step, (xb, yb) in enumerate(train_loader, start=1):
+{% if two_views %}
+            xb, yb, loss_fn.paired = views(xb, yb)
+{% endif %}
             xb, yb = xb.to(device), yb.to(device)
 {% if mixup %}
             xb, yb = mix(xb, yb)
@@ -717,6 +751,9 @@ def _inputs(loader: DataLoader, limit: int) -> tuple:
     for xb, yb in loader:
         if not torch.is_tensor(xb):
             break
+{% if two_views %}
+        xb, yb, _paired = views(xb, yb)
+{% endif %}
         xs.append(xb.cpu().numpy())
         ys.append(yb.cpu().numpy() if torch.is_tensor(yb) else np.asarray(yb))
         seen += len(xb)
@@ -798,7 +835,7 @@ def main() -> None:
 {% if spec.explain %}
     try:
         explain_features(model, loss_fn, test_loader if len(test_loader.dataset) else val_loader,
-                         device)
+                         device{{ ", background_loader=train_loader" if spec.explain.method == "shap" else "" }})
     except Exception as exc:  # noqa: BLE001 — an explanation is optional
         print(f"(could not explain the features: {exc})")
 {% endif %}
@@ -823,7 +860,54 @@ def feature_names(n: int) -> list[str]:
     return [f"feature {i}" for i in range(n)]
 
 
-{% if spec.explain.method == "integrated_gradients" %}
+{% if spec.explain.method == "shap" %}
+def explain_features(model: nn.Module, loss_fn, loader: DataLoader, device: torch.device,
+                     background_loader: DataLoader | None = None):
+    """SHAP values by expected gradients (shap.GradientExplainer) against training rows."""
+    import shap
+
+    model.eval()
+    xs = [xb for xb, _ in loader]
+    if not xs:
+        return
+    x = torch.cat(xs)[:{{ spec.explain.max_samples }}].float().to(device)
+    pool = torch.cat([xb for xb, _ in background_loader]) if background_loader else x
+    gen = torch.Generator().manual_seed(SEED)
+    background = pool[torch.randperm(len(pool), generator=gen)[:{{ spec.explain.background }}]]
+    background = background.float().to(device)
+{% if metric_loss %}
+    explained = nn.Sequential(model, ScoreHead())
+{% else %}
+    explained = model
+{% endif %}
+    values = shap.GradientExplainer(explained, background).shap_values(x)
+    values = np.asarray(values)
+    with torch.no_grad():
+        out = explained(x)
+    if values.ndim == 3:   # (rows, features, outputs): take each row's predicted output
+        picked = out.argmax(1).cpu().numpy() if out.shape[1] > 1 else np.zeros(len(x), int)
+        values = values[np.arange(len(x)), :, picked]
+    magnitude = np.abs(values)
+    rows = []
+    names = feature_names(x.shape[1])
+    for j in range(x.shape[1]):
+        rows.append({"name": names[j], "importance": float(magnitude[:, j].mean()),
+                     "std": float(magnitude[:, j].std(ddof=1)) if len(x) > 1 else 0.0})
+    rows.sort(key=lambda r: r["importance"], reverse=True)
+    Path("explain.json").write_text(json.dumps(
+        {"method": "shap", "metric": "mean |SHAP value|", "background": len(background),
+         "rows": len(x), "features": rows}, indent=1))
+    print("SHAP: " + ", ".join(f"{r['name']}={r['importance']:.4f}" for r in rows[:5]))
+{% if metric_loss %}
+
+
+class ScoreHead(nn.Module):
+    """Class scores of an embedding, so SHAP explains the predicted class."""
+
+    def forward(self, emb: torch.Tensor) -> torch.Tensor:
+        return SCORER(emb)
+{% endif %}
+{% elif spec.explain.method == "integrated_gradients" %}
 def explain_features(model: nn.Module, loss_fn, loader: DataLoader, device: torch.device):
     """Integrated gradients (Sundararajan et al., 2017): the gradient of the explained
     output, averaged along the straight path from a baseline row to each test row."""

@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased (3.4)
+
+### Added
+- **SHAP values:** a third way to explain a run's features (expected gradients against
+  training rows), beside permutation importance and Integrated Gradients. `pip install
+  'ai-made-easy[explain]'`.
+- **Collapse a group** into one card (▾ on its title, or Edit ▸ Collapse / Expand Group),
+  in both apps. Wires to its blocks end on the card; the design and its code don't change,
+  and a folded group stays folded when the design is reopened.
+- **SimCLR:** the NT-Xent loss learns image features without labels, from two random
+  augmentations of every image, and the **SimCLR (self-supervised)** recipe trains an
+  encoder with it. Labels only measure the result. 585 blocks, 67 recipes.
+
 ## 3.3.0
 
 More blocks, a canvas that keeps up, and a more polished web app. 583 blocks, 66 recipes.

@@ -59,6 +59,8 @@ CATALOG: list[ActionSpec] = [
     ActionSpec("edit.group", "&Group Selection", "&Edit", "act_group", "Ctrl+G",
                "Frame the selected blocks with a title; the frame moves them together"),
     ActionSpec("edit.ungroup", "U&ngroup", "&Edit", "act_ungroup", "Ctrl+Shift+U"),
+    ActionSpec("edit.collapse_group", "Collapse / E&xpand Group", "&Edit",
+               "act_collapse_group", "", "Fold a group into one card, or open it again"),
     ActionSpec("edit.note", "Add &Note", "&Edit", "act_add_note", "",
                "A sticky note on the canvas, saved with the design", separator_after=True),
     ActionSpec("edit.delete", "&Delete Selection", "&Edit", "act_delete", "Delete",

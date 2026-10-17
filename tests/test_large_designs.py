@@ -27,6 +27,7 @@ def chain(n: int) -> Graph:
 
 
 def test_validation_scales_linearly():
+    chain(4).validate()   # warm up (lazy imports, registry, lint tables) outside the timing
     g = chain(2000)
     start = time.perf_counter()
     assert g.validate() == []
