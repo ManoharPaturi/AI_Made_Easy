@@ -1,6 +1,10 @@
 # Changelog
 
-## Unreleased (3.4)
+## 3.4.0
+
+Explain image models, learn from pairs, and fold groups away. 589 blocks, 68 recipes.
+See [docs/ROADMAP_3.4.md](docs/ROADMAP_3.4.md) for what is in this release and what is
+still open.
 
 ### Added
 - **SHAP values:** a third way to explain a run's features (expected gradients against
