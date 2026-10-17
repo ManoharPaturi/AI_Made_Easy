@@ -211,3 +211,73 @@ def test_simclr_recipe_is_valid():
     assert not [i for i in graph.validate() if i.severity == "error"]
     code = generate_training(graph, "pytorch")
     assert "NTXentLoss(EMBED_DIM, NUM_CLASSES" in code and "TwoViews" in code
+
+
+# ------------------------------------------------------------------ pair losses
+
+PAIR_DATA = ("data.synthetic", {"n_features": 6, "n_classes": 3, "n_samples": 300, "seed": 1})
+EMBED = [("core.dense", {"units": 32}), ("core.relu", {}), ("core.dense", {"units": 8})]
+
+
+@pytest.mark.parametrize("loss", ["train.loss_cosine_embedding", "train.loss_margin_ranking"])
+def test_pair_losses_learn_from_pairs_made_from_the_labels(loss, tmp_path, monkeypatch, capsys):
+    pytest.importorskip("torch")
+    assert get_registry().get(loss).description
+    graph = chain(loss.split(".")[1], "6", EMBED,
+                  [PAIR_DATA, (loss, {"classes": 3}), ("train.adamw", {"lr": 0.01}), TRAINER,
+                   ("eval.accuracy", {})])
+    assert not [i for i in graph.validate() if i.severity == "error"]
+    code = _run(graph, tmp_path, monkeypatch)
+    assert "EMBED_DIM = 8" in code and "NUM_CLASSES = 3" in code
+    lines = [x for x in capsys.readouterr().out.splitlines() if "accuracy=" in x]
+    assert float(lines[-1].split("accuracy=")[1].split()[0]) > 0.6     # chance is 1/3
+
+
+def test_pair_losses_handle_batches_without_pairs():
+    torch = pytest.importorskip("torch")
+    from torch import nn
+
+    from ai_made_easy.core.training import catalog as cat
+
+    ns = {"torch": torch, "nn": nn}
+    for name in ("CosineEmbeddingPairsLoss", "MarginRankingPairsLoss"):
+        exec(cat.TRAIN_HELPERS[name], ns)
+        fn = ns[name](4, 3)
+        emb = torch.randn(3, 4, requires_grad=True)
+        one_class = fn(emb, torch.tensor([1, 1, 1]))        # no negatives
+        all_different = fn(emb, torch.tensor([0, 1, 2]))    # no positives
+        for value in (one_class, all_different):
+            assert torch.isfinite(value)
+            value.backward()
+
+
+def test_desktop_folded_groups_draw_stand_ins_for_wires_that_cross_them(desk):
+    ctx, _win, app = desk
+    canvas = ctx.canvas
+    core = _core_nodes(ctx)
+    inside = core[1:3]                        # a group in the middle of the chain
+    for n in canvas.node_graph.all_nodes():
+        n.set_selected(n in inside)
+    group = canvas.group_selected("Middle")
+    ids = {n.id for n in inside}
+    crossing = {id(p) for n in inside
+                for port in [*n.input_ports(), *n.output_ports()]
+                for p in port.view.connected_pipes
+                if p.input_port and p.output_port
+                and (p.input_port.node.id in ids) != (p.output_port.node.id in ids)}
+    assert crossing
+    assert canvas.set_group_collapsed(group, True)
+    app.processEvents()
+    items = canvas.stand_ins.items
+    assert {id(i.pipe) for i in items} == crossing
+    assert all(i.isVisible() and i.scene() is not None for i in items)
+    rect = group.view.sceneBoundingRect()
+    ends = [i.path().pointAtPercent(t) for i in items for t in (0.0, 1.0)]
+    assert any(abs(p.x() - rect.left()) < 1 or abs(p.x() - rect.right()) < 1 for p in ends)
+    before = [i.path().boundingRect() for i in items]
+    group.set_pos(group.x_pos() + 200, group.y_pos() + 120)   # stand-ins follow the card
+    app.processEvents()
+    app.processEvents()
+    assert [i.path().boundingRect() for i in items] != before
+    assert canvas.set_group_collapsed(group, False)
+    assert canvas.stand_ins.items == [] and all(i.scene() is None for i in items)

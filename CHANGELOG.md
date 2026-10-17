@@ -11,7 +11,14 @@
   and a folded group stays folded when the design is reopened.
 - **SimCLR:** the NT-Xent loss learns image features without labels, from two random
   augmentations of every image, and the **SimCLR (self-supervised)** recipe trains an
-  encoder with it. Labels only measure the result. 585 blocks, 67 recipes.
+  encoder with it. Labels only measure the result.
+- **Cosine Embedding and Margin Ranking losses** for embeddings. The pairs come from the
+  class labels in each batch, so they work with any dataset that has classes. 587 blocks,
+  67 recipes.
+
+### Changed
+- On the desktop, wires into and out of a folded group now end on the card as dashed
+  stand-ins and follow it when it moves, as they do on the web.
 
 ## 3.3.0
 
