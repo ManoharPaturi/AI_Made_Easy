@@ -884,6 +884,10 @@ def main() -> None:
     if BEFORE_SAVE is not None:
         BEFORE_SAVE(model)
     torch.save(model.state_dict(), CHECKPOINT)
+{% if metric_loss %}
+    # the loss's class centres / averages score embeddings for serving (see infer)
+    INFERENCE_STATE["scorer"] = {k: v.detach().cpu() for k, v in loss_fn.state_dict().items()}
+{% endif %}
     save_inference_state()
     save_calibration(train_loader, test_loader)
     print(f"saved best weights to {CHECKPOINT}")

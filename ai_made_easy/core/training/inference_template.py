@@ -178,8 +178,39 @@ def infer(raw: list) -> list[dict]:
     x = torch.from_numpy(np.ascontiguousarray(prepare_inputs(raw))).to(device)
 {% if prob %}
     return serve(_PREDICTOR, x)
+{% elif pairs == "ranking" %}
+    # labelled pairs: each item gets its score; the higher one ranks first
+    return [{"score": round(float(v), 6)} for v in _PREDICTOR(x).float().cpu().numpy()[:, 0]]
+{% elif pairs %}
+    # labelled pairs: each item gets its embedding; compare two by cosine similarity
+    return [{"embedding": [round(float(v), 6) for v in row]}
+            for row in _PREDICTOR(x).float().cpu().numpy()]
+{% elif metric_loss %}
+    # the model outputs embeddings: the trained loss scores them against its classes
+    emb = _PREDICTOR(x).float().cpu()
+    results = describe(_scorer().scores(emb).numpy())
+    for result, row in zip(results, emb.numpy(), strict=True):
+        result["embedding"] = [round(float(v), 6) for v in row]
+    return results
 {% else %}
     return describe(_PREDICTOR(x).float().cpu().numpy())
+{% endif %}
+{% if metric_loss and not pairs %}
+
+
+_SCORER_FN = None
+
+
+def _scorer():
+    """The metric-learning loss with its trained class centres / averages."""
+    global _SCORER_FN
+    if _SCORER_FN is None:
+        if "scorer" not in INFERENCE_STATE:
+            raise RuntimeError("this run saved no class scorer: retrain it to serve labels")
+        _SCORER_FN = make_loss()
+        _SCORER_FN.load_state_dict(INFERENCE_STATE["scorer"])
+        _SCORER_FN.eval()
+    return _SCORER_FN
 {% endif %}
 '''
 

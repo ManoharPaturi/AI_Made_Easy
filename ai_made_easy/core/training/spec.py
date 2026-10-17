@@ -220,7 +220,10 @@ def collect_spec(graph: Graph) -> TrainingSpec:
     ex = pick(cat.EXPLAIN_IDS, "explanation (Feature Importance or Integrated Gradients)")
     if ex is not None:
         name = cat.COMPONENTS[ex.type_id].name
-        if spec.modality in ("tabular", "array") and len(spec.input_shape) == 1 \
+        if spec.pairs:
+            spec.warnings.append(f"{name} explains single rows; it is skipped for labelled "
+                                 "pairs")
+        elif spec.modality in ("tabular", "array") and len(spec.input_shape) == 1 \
                 and spec.input_dtype.startswith("float"):
             spec.explain = {"method": cat.EXPLAIN_METHODS[ex.type_id],
                             **cat.resolved(ex.type_id, ex.params)}
