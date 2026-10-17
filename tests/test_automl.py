@@ -21,7 +21,7 @@ def test_metrics_and_candidates(tmp_path):
     assert automl.AutoMLSpec("binary", metric="f1").resolved_metric() == ("f1", False)
     assert automl.AutoMLSpec("binary", metric="f1", direction="min").resolved_metric()[1]
     with pytest.raises(automl.AutoMLError, match="does not support"):
-        automl.candidates(automl.AutoMLSpec("probabilistic_inference"))
+        automl.candidates(automl.AutoMLSpec("text_generation"))
     facts = recipes.detect(churn_csv(tmp_path)).to_dict()
     ids = [r.id for r in automl.candidates(automl.AutoMLSpec("binary", facts=facts))]
     assert {"random_forest", "gradient_boosting", "tabular_mlp"} <= set(ids)
@@ -84,7 +84,7 @@ def test_api_and_web(tmp_path, isolated_home):
 
     path = str(churn_csv(tmp_path))
     with pytest.raises(api.ApiError, match="does not support"):
-        api.start_automl({"task": "regime_detection"})
+        api.start_automl({"task": "retrieval_qa"})
     app = create_app(token="", projects_dir=tmp_path / "projects")
     with TestClient(app) as client:
         tasks = client.get("/api/wizard/tasks").json()["tasks"]
@@ -126,10 +126,11 @@ def test_pareto_front_and_objective_checks(tmp_path):
     facts = recipes.detect(churn_csv(tmp_path)).to_dict()
     picked = automl.candidates(automl.AutoMLSpec("binary", facts=facts,
                                                  objectives=["latency_ms"]))
-    assert picked and all(r.family == "neural" for r in picked)   # costed designs only
-    with pytest.raises(automl.AutoMLError, match="neural networks only"):
-        automl.candidates(automl.AutoMLSpec("binary", facts=facts, objectives=["latency_ms"],
-                                            recipes=["random_forest"]))
+    assert picked and all(r.family in ("neural", "classic") for r in picked)  # costed only
+    assert any(r.family == "classic" for r in picked)
+    with pytest.raises(automl.AutoMLError, match="neural networks and classic models"):
+        automl.candidates(automl.AutoMLSpec("probabilistic_inference",
+                                            objectives=["latency_ms"]))
 
 
 @pytest.mark.skipif(not HAS_TORCH, reason="needs torch")

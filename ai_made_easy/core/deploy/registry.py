@@ -40,6 +40,7 @@ class ModelVersion:
     description: str = ""
     created_at: float = field(default_factory=time.time)
     stage_changed_at: float | None = None
+    mirrors: list = field(default_factory=list)  # [{target, name, version, uri}] (tracking)
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -141,6 +142,24 @@ class ModelRegistry:
                         other.stage, other.stage_changed_at = "archived", time.time()
                         self._save(other)
             mv.stage, mv.stage_changed_at = stage, time.time()
+            self._save(mv)
+            return mv
+
+    def mirror(self, name: str, version: int, targets: list[str] | tuple = ()) -> ModelVersion:
+        """Also register the version in MLflow's model registry and / or as a W&B
+        model artifact (``core.tracking.register_version``), with its stage."""
+        from ai_made_easy.core import tracking
+
+        with self._lock:
+            mv = self.get(name, version)
+            for target in tracking.parse(list(targets)):
+                try:
+                    where = tracking.register_version(
+                        target, self.path(name, mv.version), name, mv.version,
+                        stage=mv.stage, metrics=mv.metrics)
+                except tracking.TrackingError as exc:
+                    raise RegistryError(str(exc)) from exc
+                mv.mirrors = [m for m in mv.mirrors if m.get("target") != target] + [where]
             self._save(mv)
             return mv
 

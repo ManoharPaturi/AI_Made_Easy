@@ -375,6 +375,11 @@ starter("tiny_gpt", "tiny_gpt", "language_modeling", "small", "text", "Tiny GPT"
         "A small causal transformer that writes text byte by byte.",
         swaps={"corpus": _corpus}, knobs=TRAIN_KNOBS(1e-3, 30),
         strengths="any language, no tokenizer files")
+starter("tiny_llama", "tiny_llama", "language_modeling", "small", "text", "Tiny Llama",
+        "A small Llama-style decoder: RMSNorm, grouped-query attention with rotary "
+        "positions and SwiGLU feed-forward blocks.",
+        swaps={"corpus": _corpus}, knobs=TRAIN_KNOBS(1e-3, 30), priority=-0.1,
+        strengths="the architecture of today's open LLMs, small enough to read")
 starter("seq2seq_transformer", "reverse_seq2seq", "sequence_to_sequence", "medium", "text",
         "Encoder-decoder transformer", "Reads the source sequence and writes the target "
         "(translation, summarisation, rewriting).", swaps={"pairs": _pairs},
@@ -388,6 +393,12 @@ starter("spline_flow", "flow_checkerboard_spline", "density_estimation", "medium
         "densities.", knobs=(lr("opt.lr", 3e-3), epochs("trainer.epochs", 60)),
         swaps={"table": _density},
         strengths="complex, multi-modal densities")
+starter("glow", "glow_shapes", "density_estimation", "large", "image", "Glow",
+        "A multi-scale image flow: squeeze, ActNorm, invertible 1×1 convolutions and "
+        "convolutional couplings. Exact likelihoods in bits per dimension, and new images.",
+        knobs=(lr("opt.lr", 1e-3), epochs("trainer.epochs", 15)),
+        swaps={"image_folder": _images}, fit=_fit_images,
+        strengths="exact image likelihoods and sampling in one network")
 # graphs, recommenders, RL
 GRAPH_EXTRA = dict(requires=("torch_geometric",), extra="graph")
 starter("gcn", "graph_node_classification", "node_classification", "small", "graph", "GCN",
@@ -427,6 +438,14 @@ starter("sac", "rl_pendulum_sac", "reinforcement_learning", "medium", "environme
                Knob("total_timesteps", "int", 20_000, 1_000, 10**8,
                     help="Environment steps", target="algo.total_timesteps")),
         **RL_EXTRA, strengths="sample-efficient continuous control")
+starter("atari_ppo", "rl_atari_pong_ppo", "reinforcement_learning", "large", "environment",
+        "Atari PPO (Nature CNN)", "PPO with the Nature-DQN convolutional policy on stacked "
+        "84×84 grayscale frames of an Atari game.",
+        knobs=(lr("algo.learning_rate", 2.5e-4),
+               Knob("total_timesteps", "int", 2_000_000, 10_000, 10**9,
+                    help="Environment steps", target="algo.total_timesteps")),
+        requires=("gymnasium", "stable_baselines3", "ale_py"), extra="atari",
+        strengths="the standard pixel-based benchmark; needs a GPU and millions of steps")
 # probabilistic models
 PROB = dict(extra="probabilistic")
 GROUPS = dict(swaps={"table": _grouped}, fit=_fit_groups)
@@ -438,25 +457,42 @@ starter("bayesian_network", "student_network", "probabilistic_inference", "small
 starter("structure_learning", "structure_learning", "probabilistic_inference", "medium",
         "tabular", "Learned Bayesian network", "Learns the dependency graph and the tables "
         "from data.", requires=("pgmpy",), family="pgm", **PROB,
+        knobs=(Knob("method", "choice", "ges", values=("ges", "hill_climb", "mmhc", "tree"),
+                    help="Search", target="structure.method"),
+               Knob("score", "choice", "bic", values=("bic", "bdeu", "k2"),
+                    help="Structure score", target="structure.score"),
+               Knob("equivalent_sample_size", "float", 5.0, 0.5, 100.0, log=True,
+                    help="Dirichlet prior strength", target="parameters.equivalent_sample_size")),
         strengths="discovers which variables depend on which")
 starter("hmm", "market_regimes_hmm", "regime_detection", "small", "timeseries",
         "Hidden Markov model", "Hidden regimes that switch over time.",
         requires=("hmmlearn",), family="pgm", **PROB,
         swaps={"series": _regimes}, fit=_fit_regimes,
         knobs=(Knob("iterations", "int", 100, 10, 10_000, help="EM iterations",
-                    target="hmm.iterations"),),
+                    target="hmm.iterations"),
+               Knob("n_states", "int", 3, 2, 6, help="Hidden states", target="hmm.n_states"),
+               Knob("covariance", "choice", "diag", values=("diag", "full", "spherical"),
+                    help="Emission covariance", target="hmm.covariance")),
         strengths="finds hidden states in a sequence")
 starter("hierarchical_regression", "hierarchical_regression", "bayesian_modeling", "small",
         "tabular", "Hierarchical regression", "A Bayesian model with partial pooling across "
         "groups, sampled with NUTS.", requires=("pymc",), family="ppl", **PROB, **GROUPS,
         knobs=(Knob("draws", "int", 1000, 100, 100_000, help="Posterior draws",
-                    target="sampler.draws"),),
+                    target="sampler.draws"),
+               Knob("non_centered", "choice", True, values=(True, False),
+                    help="Non-centred group effects", target="a.non_centered"),
+               Knob("group_scale", "float", 1.0, 0.1, 10.0, log=True,
+                    help="Prior scale of the group effects", target="a.sigma")),
         strengths="honest uncertainty with few rows per group")
 starter("hierarchical_logistic", "hierarchical_logistic", "bayesian_modeling", "medium",
         "tabular", "Hierarchical logistic regression", "Partial pooling for a yes/no "
         "outcome.", requires=("pymc",), family="ppl", **PROB, **GROUPS,
         knobs=(Knob("draws", "int", 1000, 100, 100_000, help="Posterior draws",
-                    target="sampler.draws"),),
+                    target="sampler.draws"),
+               Knob("non_centered", "choice", True, values=(True, False),
+                    help="Non-centred group effects", target="a.non_centered"),
+               Knob("group_scale", "float", 1.0, 0.1, 10.0, log=True,
+                    help="Prior scale of the group effects", target="a.sigma")),
         strengths="binary outcomes across groups")
 starter("gp_regression", "gp_trend_seasonality", "gp_regression", "small", "tabular",
         "Gaussian process", "A kernel GP: trend plus seasonality with uncertainty bands.",
@@ -467,10 +503,22 @@ starter("gp_regression", "gp_trend_seasonality", "gp_regression", "small", "tabu
 starter("structural_time_series", "structural_time_series", "state_space_forecasting",
         "small", "timeseries", "Structural time series", "Level, trend and seasonal "
         "components estimated with a Kalman filter.", requires=("statsmodels",),
-        family="ssm", **PROB, **SERIES, strengths="interpretable components and intervals")
+        family="ssm", **PROB, **SERIES,
+        knobs=(Knob("trend", "choice", "local linear trend",
+                    values=("local level", "local linear trend", "smooth trend",
+                            "random walk with drift"), help="Trend component",
+                    target="trend.kind"),
+               Knob("ar_order", "int", 1, 1, 4, help="Autoregressive order",
+                    target="ar.order")),
+        strengths="interpretable components and intervals")
 starter("sarimax", "sarimax_airline", "state_space_forecasting", "medium", "timeseries",
         "SARIMAX", "Seasonal ARIMA with exogenous regressors.", requires=("statsmodels",),
-        family="ssm", **PROB, **SERIES, strengths="the classical statistical forecasting model")
+        family="ssm", **PROB, **SERIES,
+        knobs=(Knob("p", "int", 0, 0, 3, help="AR order", target="arima.p"),
+               Knob("q", "int", 1, 0, 3, help="MA order", target="arima.q"),
+               Knob("seasonal_q", "int", 1, 0, 2, help="Seasonal MA order",
+                    target="arima.seasonal_q")),
+        strengths="the classical statistical forecasting model")
 # LLM workflows (exported as scripts, not trained in the app)
 LLM = dict(family="llm", extra="llm")
 starter("llm_prompting", "llm_generation", "text_generation", "pretrained", "text",

@@ -52,6 +52,9 @@ class RunRecord:
     trial: dict[str, Any] = field(default_factory=dict)  # sampled sweep values
     error: str = ""
     pid: int | None = None
+    backend: str = ""  # where it trained: "" / local, ssh:<host>, kaggle, … (see backends)
+    remote: dict[str, Any] = field(default_factory=dict)  # what following it again needs
+    tracking: list[dict] = field(default_factory=list)  # [{tracker, id, url}] (core.tracking)
 
     @property
     def duration(self) -> float | None:
@@ -89,7 +92,7 @@ def lower_is_better(metric: str) -> bool:
     m = metric.lower()
     return any(t in m for t in ("loss", "error", "mae", "mse", "rmse", "mape", "mase", "wape",
                                 "crps", "pinball", "nll", "perplexity", "wer", "cer", "fid", "kid",
-                                "bits_per_byte", "davies_bouldin"))
+                                "bits_per_byte", "bits_per_dim", "nlpd", "davies_bouldin"))
 
 
 class RunHistory:
@@ -123,7 +126,8 @@ class RunHistory:
 
     # ------------------------------------------------------------- paths
     def path(self, run_id: str) -> Path:
-        if not run_id or "/" in run_id or "\\" in run_id or run_id.startswith("."):
+        if (not run_id or run_id.startswith(".")
+                or any(ch in run_id for ch in ("/", "\\", ":", "\0"))):
             raise KeyError(f"invalid run id {run_id!r}")
         return self.root / run_id
 
@@ -230,21 +234,57 @@ class RunHistory:
                 raise KeyError(f"unknown run {run_id!r}")
             shutil.rmtree(path)
 
+    def reset_epochs(self, run_id: str) -> None:
+        """Forget recorded epochs (before replaying a remote run's events again)."""
+        with self._lock:
+            (self.path(run_id) / "epochs.jsonl").unlink(missing_ok=True)
+            record = self.get(run_id)
+            record.epochs_done = 0
+            record.best_metrics = {}
+            self.save(record)
+
     def mark_interrupted(self) -> int:
-        """Runs left 'running' by a process that no longer exists become 'failed'."""
+        """Runs left 'running' by a process that no longer exists become 'failed'.
+        Remote runs keep going without the app: they stay 'running' to be followed
+        again (``RunManager.attach``)."""
         count = 0
         for rec in self.list():
-            if rec.status in ("created", "running") and not _alive(rec.pid):
+            if rec.backend not in ("", "local"):
+                continue
+            if rec.status in ("created", "running") and not _alive(rec.pid, rec.created_at):
                 self.finalize(rec.run_id, "failed", error="interrupted (the app exited)")
                 count += 1
         return count
 
 
-def _alive(pid: int | None) -> bool:
+_REUSE_SLACK = 600.0  # seconds
+
+
+def _alive(pid: int | None, since: float | None = None) -> bool:
+    """Is ``pid`` still the process that started the run at ``since``?
+
+    Never signals the process: on Windows ``os.kill(pid, 0)`` terminates it. The worker
+    starts right after its record is created, so a process that started well after
+    that (``_REUSE_SLACK``) is a reused PID, not the run.
+    """
     if not pid:
         return False
     try:
-        os.kill(pid, 0)
+        import psutil
+    except ImportError:
+        psutil = None
+    if psutil is not None:
+        try:
+            started = psutil.Process(pid).create_time()
+        except (psutil.NoSuchProcess, psutil.ZombieProcess):
+            return False
+        except psutil.Error:  # access denied: it exists
+            return True
+        return since is None or started <= since + _REUSE_SLACK
+    if os.name == "nt":
+        return _alive_windows(pid)
+    try:
+        os.kill(pid, 0)  # POSIX: signal 0 only checks
     except ProcessLookupError:
         return False
     except PermissionError:
@@ -252,6 +292,22 @@ def _alive(pid: int | None) -> bool:
     except OSError:
         return False
     return True
+
+
+def _alive_windows(pid: int) -> bool:
+    import ctypes
+
+    kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
+    handle = kernel32.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+    if not handle:
+        return ctypes.get_last_error() == 5  # access denied: it exists
+    try:
+        code = ctypes.c_ulong()
+        if not kernel32.GetExitCodeProcess(handle, ctypes.byref(code)):
+            return False
+        return code.value == 259  # STILL_ACTIVE
+    finally:
+        kernel32.CloseHandle(handle)
 
 
 def compare(records: list[RunRecord]) -> dict[str, Any]:

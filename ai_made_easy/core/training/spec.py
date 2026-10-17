@@ -41,6 +41,7 @@ class TrainingSpec:
     metrics: list[tuple[str, dict]] = field(default_factory=list)
     kfold: dict[str, Any] | None = None
     predict: dict[str, Any] | None = None
+    explain: dict[str, Any] | None = None      # permutation importance after training
     warnings: list[str] = field(default_factory=list)
 
     # ---------------------------------------------------------- derived
@@ -53,7 +54,20 @@ class TrainingSpec:
         return self.task == "regression"
 
     @property
+    def metric_loss(self) -> bool:
+        """ArcFace, triplet, …: the model outputs an embedding, not one unit per class."""
+        return bool(self.loss and cat.COMPONENTS[self.loss["kind"]].meta.get("metric"))
+
+    @property
+    def embed_dim(self) -> int:
+        return self.output_shape[0] if self.output_shape else 1
+
+    @property
     def num_outputs(self) -> int:
+        """Classes (classification) or targets: the model's output width, except for metric
+        losses, whose ``classes`` parameter says how many classes there are."""
+        if self.metric_loss:
+            return int(self.loss["classes"])
         return self.output_shape[0] if self.output_shape else 1
 
     @property
@@ -174,6 +188,9 @@ def collect_spec(graph: Graph) -> TrainingSpec:
     sch = pick(cat.SCHEDULER_IDS, "scheduler")
     if sch is not None:
         spec.scheduler = {"kind": sch.type_id, **cat.resolved(sch.type_id, sch.params)}
+        if cat.COMPONENTS[spec.optimizer["kind"]].meta.get("schedule_free"):
+            spec.warnings.append("Schedule-Free AdamW replaces the learning-rate schedule; "
+                                 f"{cat.COMPONENTS[sch.type_id].name} fights its averaging")
     tr = pick(("train.trainer",), "Trainer")
     spec.trainer = cat.resolved("train.trainer", tr.params if tr else {})
     kf = pick(("train.kfold",), "K-Fold")
@@ -185,6 +202,17 @@ def collect_spec(graph: Graph) -> TrainingSpec:
     pr = pick(("eval.predict",), "Prediction Preview")
     if pr is not None:
         spec.predict = cat.resolved("eval.predict", pr.params)
+    ex = pick(cat.EXPLAIN_IDS, "explanation (Feature Importance or Integrated Gradients)")
+    if ex is not None:
+        name = cat.COMPONENTS[ex.type_id].name
+        if spec.modality in ("tabular", "array") and len(spec.input_shape) == 1 \
+                and spec.input_dtype.startswith("float"):
+            spec.explain = {"method": "permutation" if ex.type_id ==
+                            "eval.permutation_importance" else "integrated_gradients",
+                            **cat.resolved(ex.type_id, ex.params)}
+        else:
+            spec.warnings.append(f"{name} explains tables and feature vectors "
+                                 "([F] float inputs); it is skipped for this design")
 
     # ------------------------------------------------------------ metrics
     for node in graph.nodes.values():

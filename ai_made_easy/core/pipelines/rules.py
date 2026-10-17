@@ -103,8 +103,8 @@ def _stage_rules(stage, sources) -> list:  # noqa: ANN001
     if stage.kind == "pipeline.qat" and first is not None:
         inputs = [n for n in first.nodes.values() if n.type_id == "core.input"]
         if inputs and str(inputs[0].resolved_params().get("dtype", "")).startswith("int"):
-            out.append(_issue("error", "Quantization-aware training needs float inputs; "
-                                       "token-id models (embeddings) are not supported",
+            out.append(_issue("info", "QAT keeps embedding tables 8-bit with float scales "
+                                      "(weight-only); the layers after them become int8",
                               stage.id))
         try:
             kinds = {n.type_id for n in first.model_nodes()}
@@ -145,12 +145,21 @@ def _stage_rules(stage, sources) -> list:  # noqa: ANN001
             framework = resolve_framework(first)
         except ValueError:
             framework = "pytorch"
-        wanted = [f.strip() for f in str(stage.params["formats"]).split(",") if f.strip()]
+        from ai_made_easy.core.deploy.exporters import ALIASES
+        from ai_made_easy.core.deploy.exportability import blockers
+
+        wanted = [ALIASES.get(f.strip(), f.strip())
+                  for f in str(stage.params["formats"]).split(",") if f.strip()]
         unknown = [f for f in wanted if f not in FORMATS.get(framework, ())]
         if unknown:
             out.append(_issue("error", f"Export: {', '.join(unknown)} not available for "
                                        f"{framework} models; choose from "
                                        f"{', '.join(FORMATS.get(framework, ()))}", stage.id))
+        blocked = blockers(first, framework)
+        for fmt in wanted:
+            if fmt in blocked:
+                out.append(_issue("warning", f"Export: {fmt} will be skipped: "
+                                             f"{blocked[fmt][0]}", stage.id))
     return out
 
 
@@ -222,14 +231,19 @@ def _budget(graph, plan) -> list:  # noqa: ANN001
         for stage in plan:
             if stage.kind != "pipeline.ensemble":
                 continue
-            total = 0
+            total, unknown = 0, []
             for sid in stage.inputs:
                 model = plan.stages[sid].model
                 if model is not None:
                     try:
                         total += budget.estimate(model).params
-                    except Exception:  # noqa: BLE001
-                        pass
+                    except Exception:  # noqa: BLE001 — counted as unknown, said below
+                        unknown.append(sid)
+            if unknown:
+                out.append(_issue("warning", "Ensemble: the size of "
+                                             f"{', '.join(unknown)} is unknown, so the "
+                                             "parameter limit is checked without it",
+                                  stage.id))
             if total / 1e6 > limits["max_params_m"]:
                 out.append(_issue("error", f"Ensemble: the members have {total / 1e6:.3g} M "
                                            f"parameters together > the pipeline's "

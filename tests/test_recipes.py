@@ -156,8 +156,14 @@ def test_modalities_and_demo_tasks():
     image = recipes.recommend("multiclass", modality="image")
     assert {s.recipe.id for s in image} == {"image_cnn", "image_cnn_augmented",
                                             "image_transfer", "timm_probe", "timm_finetune",
-                                            "dinov2_probe", "dinov2_finetune"}
-    assert all(Graph.from_dict(s.graph).nodes["dense"].params["units"] == 10 for s in image)
+                                            "dinov2_probe", "dinov2_finetune",
+                                            "image_vit", "image_convnext", "image_arcface"}
+    for s in image:   # 10 classes: one output each, or ArcFace's 10 class centres
+        nodes = Graph.from_dict(s.graph).nodes
+        if s.recipe.id == "image_arcface":
+            assert nodes["loss"].params["classes"] == 10
+        else:
+            assert nodes["dense"].params["units"] == 10
     assert not recipes.recommend("binary", modality="image")   # the image demo has 10 classes
 
 
@@ -241,7 +247,8 @@ def test_api_and_cli(tmp_path):
     tasks = {t["id"]: t for t in api.wizard_tasks()["tasks"]}
     assert tasks["multiclass"]["demo_modalities"] == ["tabular", "image"]
     assert {"text", "audio"} <= set(tasks["binary"]["modalities"])
-    assert tasks["binary"]["automl"] and not tasks["probabilistic_inference"]["automl"]
+    assert tasks["binary"]["automl"] and tasks["probabilistic_inference"]["automl"]
+    assert not tasks["text_generation"]["automl"]
     out = api.recommend_recipes("binary", path=str(path), limit=2)
     assert out["facts"]["target"] == "label" and len(out["suggestions"]) == 2
     with pytest.raises(api.ApiError):

@@ -11,7 +11,8 @@ Usage:
   aime jit <project.json> [-o DIR]    # generate (and with --run, execute) a TorchScript export script
   aime run <project.json> [-f auto]   # train headlessly (recorded in the run history)
   aime runs [list | show ID | compare ID ID… | delete ID]
-  aime deploy RUN_ID -o DIR [--formats onnx,torchscript]   # model server package
+  aime deploy RUN_ID -o DIR [--formats onnx,executorch_int8|suggested]   # model server package
+  aime deploy RUN_ID --list-formats    # export formats: available, suggested for the device
   aime models [list | register RUN_ID NAME | stage NAME VERSION STAGE | deploy NAME VERSION -o DIR]
   aime serve DIR [--port 8000]       # run a deployment package locally
   aime import pytorch model.py --attr Net --shape 3,32,32 -o project.json
@@ -57,10 +58,28 @@ def main(argv: list[str] | None = None) -> int:
     p_run.add_argument("project", help="path to project .json")
     p_run.add_argument("-f", "--framework", default="auto",
                        help="auto (the design's framework), pytorch, keras, sklearn, ...")
+    on_help = ("where to train: local (default), ssh:<host>, kaggle, colab, modal, "
+               "container or a saved backend (see `aime backends`)")
+    p_run.add_argument("--on", default=None, metavar="BACKEND", help=on_help)
     p_runs = sub.add_parser("runs", help="run history")
     p_runs.add_argument("action", nargs="?", default="list",
-                        choices=("list", "show", "compare", "delete"))
-    p_runs.add_argument("ids", nargs="*", help="run id(s)")
+                        choices=("list", "show", "compare", "delete", "attach", "import",
+                                 "export"))
+    p_runs.add_argument("ids", nargs="*", help="run id(s); import: the results .zip")
+    p_runs.add_argument("-o", "--out", default="runs.csv",
+                        help="export: .csv or .parquet file (default runs.csv)")
+    p_runs.add_argument("--epochs", action="store_true",
+                        help="export: one row per epoch instead of per run")
+    p_be = sub.add_parser("backends", help="where runs train: list, add, test, remove")
+    p_be.add_argument("action", nargs="?", default="list",
+                      choices=("list", "add", "test", "remove"))
+    p_be.add_argument("name", nargs="?", default="",
+                      help="backend name (test: also ssh:<host>, kaggle, …)")
+    p_be.add_argument("--kind", default="", help="add: ssh, kaggle, colab, modal, container")
+    p_be.add_argument("-s", "--set", action="append", default=[], metavar="OPTION=VALUE",
+                      help="add: a backend option, e.g. host=gpu-box (repeatable; "
+                           "`aime backends list --options` shows them)")
+    p_be.add_argument("--options", action="store_true", help="list: show every kind's options")
     p_runs.add_argument("--project", default=None, help="filter by project name")
     p_sw = sub.add_parser("sweep", help="hyperparameter sweep (trials go to the run history)")
     p_sw.add_argument("project", help="path to project .json")
@@ -73,13 +92,18 @@ def main(argv: list[str] | None = None) -> int:
     p_sw.add_argument("-n", "--trials", type=int, default=10)
     p_sw.add_argument("--points", type=int, default=3, help="grid points per range")
     p_sw.add_argument("--seed", type=int, default=0)
+    p_sw.add_argument("--on", default=None, metavar="BACKEND", help="where trials train")
     p_sw.add_argument("--list-params", action="store_true",
                       help="print the parameters that can be swept and exit")
     p_dep = sub.add_parser("deploy", help="build a model-server package from a finished run")
     p_dep.add_argument("run_id")
-    p_dep.add_argument("-o", "--out", required=True, help="output folder (must be empty)")
+    p_dep.add_argument("-o", "--out", default=None, help="output folder (must be empty)")
     p_dep.add_argument("--formats", default="", help="comma-separated: onnx, onnx_int8, "
-                       "torchscript, coreml (PyTorch); onnx, saved_model, tflite (Keras)")
+                       "torchscript, coreml, executorch, executorch_int8 (PyTorch); onnx, "
+                       "saved_model, litert, litert_int8 (Keras); or 'suggested' for the "
+                       "formats the project's budget device runs")
+    p_dep.add_argument("--list-formats", action="store_true",
+                       help="list the run's export formats (availability, suggestions)")
     p_dep.add_argument("--name", default=None)
     p_mod = sub.add_parser("models", help="model registry")
     p_mod.add_argument("action", nargs="?", default="list",
@@ -87,13 +111,17 @@ def main(argv: list[str] | None = None) -> int:
     p_mod.add_argument("args", nargs="*")
     p_mod.add_argument("-o", "--out", default=None)
     p_mod.add_argument("--formats", default="")
+    p_mod.add_argument("--also", default="", metavar="mlflow,wandb",
+                       help="register / stage: also register the version in MLflow's model "
+                            "registry and / or as a W&B model artifact")
     p_srv = sub.add_parser("serve", help="serve a deployment package with uvicorn")
     p_srv.add_argument("package")
     p_srv.add_argument("--host", default="127.0.0.1")
     p_srv.add_argument("--port", type=int, default=8000)
     p_imp = sub.add_parser("import", help="import a PyTorch / ONNX / Keras model as a project")
-    p_imp.add_argument("kind", choices=("pytorch", "onnx", "keras"))
-    p_imp.add_argument("source", help=".py file or module (pytorch), .onnx, .keras / .h5")
+    p_imp.add_argument("kind", choices=("pytorch", "onnx", "keras", "mlflow"))
+    p_imp.add_argument("source", help=".py file, module or saved .pt module (pytorch), .onnx, "
+                       ".keras / .h5, or an MLflow model URI (models:/name/1, runs:/id/model)")
     p_imp.add_argument("--attr", default="", help="model class or factory (pytorch)")
     p_imp.add_argument("--shape", default="", help="per-sample input shape, e.g. 3,224,224")
     p_imp.add_argument("--dtype", default="float32", choices=("float32", "int64"))
@@ -101,12 +129,36 @@ def main(argv: list[str] | None = None) -> int:
     p_imp.add_argument("-o", "--out", required=True, help="project .json to write")
     p_data = sub.add_parser("data", help="profile datasets, preview splits and augmentation")
     p_data.add_argument("action", choices=("profile", "check", "split", "augment",
-                                           "fingerprint"))
-    p_data.add_argument("source", help="project .json, or a data file / folder (profile)")
+                                           "fingerprint", "fetch"))
+    p_data.add_argument("source", help="project .json, or a data file / folder (profile); "
+                        "fetch: kaggle:owner/name, kaggle-competition:name[/file] or "
+                        "hf:owner/repo[:split]")
+    p_data.add_argument("--force", action="store_true", help="fetch: download again")
     p_data.add_argument("--target", default=None, help="target column (profiling a table)")
     p_data.add_argument("--json", action="store_true", help="print JSON")
     p_data.add_argument("-o", "--out", default="augmentation_preview",
                         help="output folder (augment)")
+    p_hub = sub.add_parser("hub", help="the Hugging Face Hub: push a run, pull it back, "
+                                       "deploy a Space (sign in with `hf auth login`)")
+    p_hub.add_argument("action", choices=("push", "pull", "space"))
+    p_hub.add_argument("args", nargs="+", help="push RUN_ID REPO | pull REPO | "
+                                               "space RUN_ID SPACE")
+    p_hub.add_argument("--model", action="store_true",
+                       help="push / space: the first argument is a registered model "
+                            "(NAME or NAME/VERSION) instead of a run id")
+    p_hub.add_argument("--public", action="store_true", help="make the repo public")
+    p_hub.add_argument("--name", default="", help="pull: registry name (default: repo name)")
+    p_hub.add_argument("--formats", default="", help="space: export formats to include")
+    p_kag = sub.add_parser("kaggle", help="submit predictions to a Kaggle competition")
+    p_kag.add_argument("action", choices=("submit",))
+    p_kag.add_argument("competition")
+    p_kag.add_argument("file", help="predictions file (the competition's format)")
+    p_kag.add_argument("-m", "--message", required=True)
+    p_kag.add_argument("--yes", action="store_true",
+                       help="don't ask (a submission counts against the daily limit)")
+    p_trk = sub.add_parser("tracking", help="MLflow / W&B experiment tracking status")
+    p_trk.add_argument("project", nargs="?", default="",
+                       help="project .json (shows its meta.tracking setting)")
     p_web = sub.add_parser("web", help="serve the browser UI and REST API")
     p_web.add_argument("--host", default="127.0.0.1")
     p_web.add_argument("--port", type=int, default=8765)
@@ -121,8 +173,10 @@ def main(argv: list[str] | None = None) -> int:
     p_rec = sub.add_parser("recipes", help="list design recipes")
     p_rec.add_argument("--task", default=None, help="only recipes for this task")
 
-    def wizard_args(p: argparse.ArgumentParser) -> None:
-        p.add_argument("--task", required=True, help="task id (see `aime recipes`)")
+    def wizard_args(p: argparse.ArgumentParser, task_required: bool = True) -> None:
+        p.add_argument("--task", required=task_required,
+                       default="", help="task id (see `aime recipes`)"
+                       + ("" if task_required else "; default: the first task --data fits"))
         p.add_argument("--data", default="", help="a table file or dataset folder "
                                                   "(default: each recipe's demo data)")
         p.add_argument("--target", default="", help="target column of a table")
@@ -136,8 +190,9 @@ def main(argv: list[str] | None = None) -> int:
         p.add_argument("--max-latency-ms", type=float, default=0.0,
                        help="budget: inference latency on the device")
 
-    p_new = sub.add_parser("new", help="create a project from the best recipe for a task")
-    wizard_args(p_new)
+    p_new = sub.add_parser("new", help="create a project from the best recipe for a task "
+                                       "(or for your data: aime new --data table.csv)")
+    wizard_args(p_new, task_required=False)
     p_new.add_argument("--recipe", default="", help="use this recipe instead of the best")
     p_new.add_argument("--list", action="store_true", help="rank the recipes and exit")
     p_new.add_argument("-o", "--out", default="", help="project .json to write")
@@ -153,12 +208,19 @@ def main(argv: list[str] | None = None) -> int:
     p_aml.add_argument("--objectives", default="",
                        help="also minimise these design costs on --device, comma-separated: "
                             "latency_ms, params_m, model_mb (a Pareto front, not one best)")
+    p_aml.add_argument("--on", default="", metavar="BACKEND",
+                       help="where trials train: ssh:<host>, kaggle, modal, … (see "
+                            "`aime backends`)")
+    p_aml.add_argument("--concurrency", type=int, default=1,
+                       help="trials training at once (default 1; a few on remote backends)")
     p_aml.add_argument("-o", "--out", default="", help="write the best design here")
     p_pipe = sub.add_parser("pipeline", help="run multi-stage pipelines")
     p_pipe.add_argument("action", choices=("run", "status", "list", "resume"))
     p_pipe.add_argument("target", nargs="?", default="",
                         help="pipeline project .json (run) or pipeline id (status, resume)")
     p_pipe.add_argument("--no-wait", action="store_true", help="start and return the id")
+    p_pipe.add_argument("--on", default="", metavar="BACKEND",
+                        help="where training stages run (the other stages run here)")
     p_llm = sub.add_parser("llm", help="generate an LLM workflow script")
     p_llm.add_argument("project", help="path to project .json")
     p_llm.add_argument("-o", "--out", default="exports", help="output directory")
@@ -178,6 +240,8 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "runs":
         return _runs_command(args)
+    if args.command == "backends":
+        return _backends_command(args)
     if args.command in ("deploy", "models", "serve"):
         return _deploy_command(args)
     if args.command == "import":
@@ -188,6 +252,8 @@ def main(argv: list[str] | None = None) -> int:
         return _wizard_command(args)
     if args.command == "pipeline":
         return _pipeline_command(args)
+    if args.command in ("hub", "kaggle", "tracking"):
+        return _tools_command(args)
     if args.command == "web":
         try:
             from ai_made_easy.server.app import main as serve_web
@@ -254,7 +320,7 @@ def main(argv: list[str] | None = None) -> int:
 
         mgr = RunManager()
         try:
-            run_id = mgr.start(graph, args.framework)
+            run_id = mgr.start(graph, args.framework, on=args.on)
         except Exception as exc:
             print(f"error: {exc}", file=sys.stderr)
             return 1
@@ -264,9 +330,9 @@ def main(argv: list[str] | None = None) -> int:
         seen = 0
         while True:
             st = mgr.status(run_id)
-            for event in mgr.get(run_id).events[seen:]:
+            events, seen = mgr.get(run_id).events_since(seen)
+            for event in events:
                 print(json.dumps(event), flush=True)
-            seen = len(mgr.get(run_id).events)
             if st["state"] in ("finished", "failed", "stopped"):
                 print(json.dumps({"type": "run_" + st["state"],
                                   "returncode": st["returncode"]}), flush=True)
@@ -311,7 +377,9 @@ def main(argv: list[str] | None = None) -> int:
         script.write_text(code)
         print(script)
         if args.run:
-            result = subprocess.run([sys.executable, str(script)], cwd=".")
+            from ai_made_easy.core.runner.manager import python_executable
+
+            result = subprocess.run([python_executable(), str(script)], cwd=".")
             return result.returncode
         return 0
 
@@ -399,7 +467,8 @@ def _sweep_command(args, graph) -> int:  # noqa: ANN001
     try:
         spec = {"dimensions": [parse_space(t, args.points) for t in args.param],
                 "metric": args.metric, "direction": args.direction,
-                "strategy": args.strategy, "max_trials": args.trials, "seed": args.seed}
+                "strategy": args.strategy, "max_trials": args.trials, "seed": args.seed,
+                "on": args.on or ""}
         sweep_id = api.start_sweep(graph, spec)["sweep_id"]
     except (ValueError, KeyError) as exc:
         print(f"error: {exc}", file=sys.stderr)
@@ -438,6 +507,19 @@ def _wizard_command(args) -> int:  # noqa: ANN001
                       f"{','.join(r['tasks'])}{missing}")
             return 0
         budget = _budget_args(args)
+        if args.command == "new" and not args.task:
+            if not args.data:
+                print("error: give --task, or --data to pick the task from your data",
+                      file=sys.stderr)
+                return 1
+            facts = api.detect_data(args.data, args.target)
+            if not facts.get("tasks"):
+                print(f"error: {facts.get('summary') or args.data}: no task fits this data; "
+                      "give --task", file=sys.stderr)
+                return 1
+            args.task = facts["tasks"][0]
+            print(f"task: {args.task} (from the data; --task to choose another of "
+                  f"{', '.join(facts['tasks'])})", file=sys.stderr)
         if args.command == "new":
             if args.recipe:
                 graph = api.build_recipe(args.recipe, args.task, path=args.data or None,
@@ -475,7 +557,8 @@ def _wizard_command(args) -> int:  # noqa: ANN001
                 "recipes": [r for r in args.recipes.split(",") if r.strip()],
                 "metric": args.metric, "tune": not args.no_tune, "prune": not args.no_prune,
                 "budget": budget, "seed": args.seed,
-                "objectives": [o.strip() for o in args.objectives.split(",") if o.strip()]}
+                "objectives": [o.strip() for o in args.objectives.split(",") if o.strip()],
+                "on": args.on, "concurrency": args.concurrency}
         started = api.start_automl({k: v for k, v in spec.items() if v is not None})
     except (api.ApiError, KeyError, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr)
@@ -528,7 +611,7 @@ def _pipeline_command(args) -> int:  # noqa: ANN001
         if args.action == "run":
             path = Path(args.target)
             graph = json.loads(path.read_text())
-            started = api.start_pipeline(graph, base=str(path.resolve().parent))
+            started = api.start_pipeline(graph, base=str(path.resolve().parent), on=args.on)
         else:
             started = api.resume_pipeline(args.target)
     except (api.ApiError, KeyError, OSError, ValueError) as exc:
@@ -561,8 +644,12 @@ def _import_command(args) -> int:  # noqa: ANN001
 
     try:
         shape = [int(d) for d in args.shape.replace("x", ",").split(",") if d.strip()] or None
-        result = api.import_model(args.kind, args.source, attr=args.attr, input_shape=shape,
-                                  dtype=args.dtype, kwargs=json.loads(args.kwargs))
+        if args.kind == "mlflow":
+            result = api.open_mlflow_model(args.source, input_shape=shape)
+        else:
+            result = api.import_model(args.kind, args.source, attr=args.attr,
+                                      input_shape=shape, dtype=args.dtype,
+                                      kwargs=json.loads(args.kwargs))
     except (ValueError, KeyError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
@@ -582,6 +669,21 @@ def _data_command(args) -> int:  # noqa: ANN001
     from ai_made_easy.core import api
     from ai_made_easy.core.data.lints import project_base
 
+    if args.action == "fetch":
+        try:
+            result = api.fetch_dataset(args.source, force=args.force)
+        except ValueError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 1
+        if args.json:
+            print(json.dumps(result, indent=1, default=str))
+            return 0
+        facts = result["facts"]
+        print(f"{args.source} -> {result['path']}")
+        print(f"{facts.get('kind', '')}: {facts.get('rows', 0):,} rows; fits "
+              f"{', '.join(facts.get('tasks') or []) or 'no task detected'}")
+        print(f"start a project: aime new <task> --data {result['path']}")
+        return 0
     source = Path(args.source).expanduser()
     is_project = source.suffix == ".json" and source.is_file() and \
         "nodes" in json.loads(source.read_text() or "{}")
@@ -646,12 +748,30 @@ def _deploy_command(args) -> int:  # noqa: ANN001
     from ai_made_easy.core import api
 
     formats = [f.strip() for f in getattr(args, "formats", "").split(",") if f.strip()]
+    also = [t.strip() for t in getattr(args, "also", "").split(",") if t.strip()]
     try:
         if args.command == "serve":
-            result = subprocess.run([sys.executable, "-m", "uvicorn", "app:app", "--host",
+            from ai_made_easy.core.runner.manager import python_executable
+
+            result = subprocess.run([python_executable(), "-m", "uvicorn", "app:app", "--host",
                                      args.host, "--port", str(args.port)], cwd=args.package)
             return result.returncode
         if args.command == "deploy":
+            options = api.export_options(args.run_id)["formats"]
+            if args.list_formats:
+                for row in options:
+                    mark = "suggested" if row["suggested"] else \
+                        "available" if row["available"] else "no"
+                    tail = f"  ({row['device']})" if row["suggested"] else \
+                        f"  {row['reason']}" if not row["available"] else ""
+                    print(f"{row['id']:<16} {mark:<10}{tail}")
+                return 0
+            if not args.out:
+                print("error: -o/--out is required", file=sys.stderr)
+                return 2
+            if "suggested" in formats:
+                formats = [f for f in formats if f != "suggested"] + [
+                    r["id"] for r in options if r["suggested"]]
             result = api.deploy_run(args.run_id, args.out, formats, args.name)
             print(result["log"].replace("EXPORT-DONE", "").strip())
             print(f"package: {result['path']}")
@@ -664,11 +784,13 @@ def _deploy_command(args) -> int:  # noqa: ANN001
                 print(f"{m['name']:<24} v{m['version']:<4} {m['stage']:<11} "
                       f"{m['framework']:<8} {metrics}")
         elif args.action == "register" and len(a) == 2:
-            m = api.register_model(a[0], a[1])
+            m = api.register_model(a[0], a[1], also=also)
             print(f"registered {m['name']} v{m['version']}")
+            _print_mirrors(m)
         elif args.action == "stage" and len(a) == 3:
-            m = api.set_model_stage(a[0], int(a[1]), a[2])
+            m = api.set_model_stage(a[0], int(a[1]), a[2], also=also)
             print(f"{m['name']} v{m['version']} -> {m['stage']}")
+            _print_mirrors(m)
         elif args.action == "deploy" and len(a) in (1, 2) and args.out:
             result = api.deploy_model(a[0], a[1] if len(a) == 2 else "latest", args.out,
                                       formats)
@@ -687,10 +809,78 @@ def _deploy_command(args) -> int:  # noqa: ANN001
         return 1
 
 
+def _print_mirrors(model: dict) -> None:
+    for where in model.get("mirrors") or []:
+        print(f"  also in {where['target']}: {where['uri']}")
+
+
+def _tools_command(args) -> int:  # noqa: ANN001
+    """``aime hub``, ``aime kaggle submit`` and ``aime tracking``."""
+    from pathlib import Path
+
+    from ai_made_easy.core import api
+
+    try:
+        if args.command == "tracking":
+            graph = json.loads(Path(args.project).read_text()) if args.project else None
+            status = api.tracking_status(graph)
+            chosen = ", ".join(status["selected"]) or "off"
+            print(f"tracking: {chosen}  (AIME_TRACKING={status['env'] or '-'}; per project: "
+                  f"meta.tracking)")
+            print(f"MLflow store: {status['mlflow_uri']}")
+            for t in status["trackers"]:
+                print(f"  {t['label']:<18} {'installed' if t['installed'] else 'not installed'}")
+            return 0
+        if args.command == "kaggle":
+            if not args.yes:
+                answer = input(f"Submit {args.file} to {args.competition}? It counts against "
+                               "the daily limit. [y/N] ")
+                if answer.strip().lower() not in ("y", "yes"):
+                    print("not submitted")
+                    return 1
+            result = api.submit_to_kaggle(args.competition, args.file, args.message,
+                                          confirm=True)
+            print(f"submitted: {result['result'] or 'ok'}\n{result['url']}")
+            return 0
+        a = args.args
+
+        def source(ref: str) -> dict:
+            if not args.model:
+                return {"run_id": ref}
+            name, _, version = ref.partition("/")
+            return {"model": name, "version": version or "latest"}
+
+        if args.action == "push" and len(a) == 2:
+            result = api.push_to_hub(a[1], private=not args.public, **source(a[0]))
+            print(f"pushed: {result['url']}")
+        elif args.action == "pull" and len(a) == 1:
+            m = api.pull_from_hub(a[0], name=args.name)
+            print(f"registered {m['name']} v{m['version']}; package it with: "
+                  f"aime models deploy {m['name']} {m['version']} -o server")
+        elif args.action == "space" and len(a) == 2:
+            formats = [f.strip() for f in args.formats.split(",") if f.strip()]
+            result = api.deploy_to_space(a[1], formats=formats, private=not args.public,
+                                         **source(a[0]))
+            print(f"Space: {result['url']} (it builds the Docker image on the Hub)")
+        else:
+            print("usage: aime hub push RUN_ID REPO | pull REPO | space RUN_ID SPACE",
+                  file=sys.stderr)
+            return 2
+        return 0
+    except (KeyError, ValueError, OSError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+
+
 def _runs_command(args) -> int:  # noqa: ANN001
     from ai_made_easy.core import api
 
     try:
+        if args.action == "export":
+            result = api.export_runs(args.out, project=args.project, epochs=args.epochs)
+            print(f"wrote {result['rows']} row(s), {result['columns']} column(s) to "
+                  f"{result['path']}")
+            return 0
         if args.action == "list":
             rows = api.list_runs(args.project)["runs"]
             for r in rows:
@@ -703,6 +893,16 @@ def _runs_command(args) -> int:  # noqa: ANN001
         if not args.ids:
             print("error: give a run id", file=sys.stderr)
             return 2
+        if args.action in ("attach", "import"):
+            if args.action == "attach":
+                status = api.attach_run(args.ids[0])
+            else:
+                status = api.import_run_results(args.ids[0])
+            run_id = status["run_id"]
+            if status["state"] not in ("finished", "failed", "stopped"):
+                status = api.manager().wait(run_id, timeout=7 * 24 * 3600)
+            print(f"{run_id}  {status['state']}  {status.get('latest_metrics') or ''}")
+            return 0 if status["state"] == "finished" else 1
         if args.action == "show":
             print(json.dumps(api.get_run(args.ids[0]), indent=2, default=str))
         elif args.action == "compare":
@@ -713,6 +913,60 @@ def _runs_command(args) -> int:  # noqa: ANN001
                 print(f"deleted {run_id}")
         return 0
     except (KeyError, ValueError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+
+
+def _option_value(text: str):  # noqa: ANN202
+    """``true`` / numbers / JSON lists become values; anything else stays a string."""
+    try:
+        return json.loads(text)
+    except ValueError:
+        return text
+
+
+def _backends_command(args) -> int:  # noqa: ANN001
+    from ai_made_easy.core import api
+
+    try:
+        if args.action == "list":
+            listed = api.list_backends()
+            for b in listed["backends"]:
+                options = " ".join(f"{k}={v}" for k, v in b["options"].items())
+                live = "" if b["live"] else "  (curves per poll)"
+                print(f"{b['name']:<16} {b['kind']:<10} {options}{live}")
+            if args.options:
+                for kind, options in listed["options"].items():
+                    print(f"\n{kind}:")
+                    for name, text in options.items():
+                        print(f"  {name:<16} {text}")
+            return 0
+        if not args.name:
+            print("error: give a backend name", file=sys.stderr)
+            return 2
+        if args.action == "add":
+            options = {}
+            for item in args.set:
+                key, sep, value = item.partition("=")
+                if not sep:
+                    print(f"error: --set needs OPTION=VALUE, got {item!r}", file=sys.stderr)
+                    return 2
+                options[key.strip()] = _option_value(value)
+            entry = api.save_backend(args.name, args.kind, options)
+            print(f"saved {entry['name']} ({entry['kind']}); test it: aime backends test "
+                  f"{entry['name']}")
+        elif args.action == "test":
+            result = api.test_backend(args.name)
+            accel = result.get("accelerator") or {}
+            gpu = f"  gpu: {accel['gpu']}" if accel.get("gpu") else ""
+            device = f"  budget device: {accel['device']}" if accel.get("device") else ""
+            print(f"{'ok' if result['ok'] else 'FAILED'}: {result['message']}{gpu}{device}")
+            return 0 if result["ok"] else 1
+        elif args.action == "remove":
+            api.delete_backend(args.name)
+            print(f"removed {args.name}")
+        return 0
+    except (api.ApiError, KeyError, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
 

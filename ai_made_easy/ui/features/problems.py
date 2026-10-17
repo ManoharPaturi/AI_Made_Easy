@@ -49,6 +49,7 @@ class ProblemsPanel(QtWidgets.QWidget):
         layout.addLayout(bar)
 
         self.tree = QtWidgets.QTreeWidget()
+        self.tree.setAccessibleName("Problems in the design")
         self.tree.setColumnCount(2)
         self.tree.setHeaderLabels(["Problem", "Block"])
         self.tree.setRootIsDecorated(False)

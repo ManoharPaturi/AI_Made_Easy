@@ -52,12 +52,29 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
-          pip install -e ".[dev,classic,keras,mcp-server,serve,export,tuning]" pandas
+          pip install -e ".[dev,classic,umap,imbalance,keras,mcp-server,serve,export,tuning]" pandas
       - name: Test
         run: pytest -q -p no:cacheprovider
       - name: Every sample and recipe validates and generates code
         if: matrix.os == 'ubuntu-latest' && matrix.python == '3.12'
         run: python scripts/sweep_e2e.py
+      - name: A real SSH server on localhost
+        if: matrix.os == 'ubuntu-latest' && matrix.python == '3.12'
+        run: |
+          sudo apt-get install -y openssh-server
+          sudo systemctl start ssh || sudo service ssh start
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          ssh-keygen -q -t ed25519 -N "" -f ~/.ssh/id_ed25519
+          cat ~/.ssh/id_ed25519.pub >> ~/.ssh/authorized_keys
+          chmod 600 ~/.ssh/authorized_keys
+          ssh-keyscan -H localhost >> ~/.ssh/known_hosts
+          printf 'Host aime-ci\n  HostName localhost\n' >> ~/.ssh/config
+          ssh -o BatchMode=yes aime-ci true
+      - name: Train over real SSH (matches local, survives a cut connection)
+        if: matrix.os == 'ubuntu-latest' && matrix.python == '3.12'
+        env:
+          AIME_SSH_TEST_HOST: aime-ci
+        run: pytest -q -p no:cacheprovider tests/test_backends.py -k real_ssh
 
   test-vision:
     # the vision-tasks extra (timm, transformers, pycocotools): every vision block and
@@ -82,11 +99,15 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
-          pip install -e ".[dev,vision-tasks,generative,serve]"
+          pip install -e ".[dev,vision-tasks,generative,serve,export]"
       - name: Test
         run: >-
           pytest -q -p no:cacheprovider tests/test_vision.py
           tests/test_codegen_runtime.py -k "vision or exercised or Vision"
+      - name: Detectors and segmenters export to ONNX / TorchScript
+        run: >-
+          pytest -q -p no:cacheprovider tests/test_export.py
+          -k "vision_heads or detector_package"
       - name: Pretrained image recipes (random weights)
         run: pytest -q -p no:cacheprovider tests/test_pretrained_recipes.py -k "image or budget"
       - name: Detectors from blocks, Mask2Former, Stable Diffusion LoRA (tiny, offline)
@@ -121,6 +142,8 @@ jobs:
         run: pytest -q -p no:cacheprovider tests/test_pgm.py tests/test_ppl.py tests/test_gp.py tests/test_ssm.py
       - name: Your series and grouped tables
         run: pytest -q -p no:cacheprovider tests/test_your_data.py -k "series_recipes or grouped_table"
+      - name: AutoML for every family (held-out metrics, structured costs, parallel trials)
+        run: pytest -q -p no:cacheprovider tests/test_automl_families.py
       - name: MvNormal / LKJ, MMHC, time-varying coefficients
         run: >-
           pytest -q -p no:cacheprovider tests/test_block_coverage.py
@@ -148,17 +171,78 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install torch --index-url https://download.pytorch.org/whl/cpu
-          pip install -e ".[dev,graph,rl,rl-box2d,serve]"
+          pip install -e ".[dev,graph,rl,rl-box2d,atari,serve,export]"
       - name: Test
         run: >-
           pytest -q -p no:cacheprovider tests/test_gnn.py tests/test_rl.py
           tests/test_codegen_runtime.py -k "graph or exercised"
+      - name: OGB (official splits and evaluators), Atari, custom environments
+        run: pytest -q -p no:cacheprovider tests/test_deferred.py -k "ogb or atari or custom"
+      - name: Graph networks export to ONNX (any number of nodes and edges)
+        run: pytest -q -p no:cacheprovider tests/test_export.py -k "graph"
       - name: Your graphs and interaction tables
         run: pytest -q -p no:cacheprovider tests/test_your_data.py -k "recommender_and_graph"
       - name: CNN policies on pixels and Box2D
         run: >-
           pytest -q -p no:cacheprovider tests/test_block_coverage.py
           -k "pixel or cnn_policy or lunar"
+
+  test-edge:
+    # on-device exports: ExecuTorch (float / int8) for every sample, Keras -> LiteRT
+    # (float / int8) through a TensorFlow-backend process, as users with tensorflow get
+    needs: lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      QT_QPA_PLATFORM: offscreen
+      KERAS_BACKEND: torch
+      AIME_SLOW: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: System libraries for headless Qt
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libegl1 libgl1 libxkbcommon-x11-0 libdbus-1-3 \
+            libfontconfig1 libxcb-cursor0
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+          pip install -e ".[dev,keras,serve,export,edge,graph]" tensorflow-cpu pandas
+      - name: Every sample round-trips; packages check exports on the run's samples
+        run: pytest -q -p no:cacheprovider tests/test_export.py
+
+  test-tools:
+    # 3.2 Phase 3: MLflow (local SQLite store) and W&B (offline) mirror real runs; the
+    # Hub and Kaggle clients are faked (real calls only in the nightly job)
+    needs: lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      QT_QPA_PLATFORM: offscreen
+      KERAS_BACKEND: torch
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: System libraries for headless Qt
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libegl1 libgl1 libxkbcommon-x11-0 libdbus-1-3 \
+            libfontconfig1 libxcb-cursor0
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
+          pip install -e ".[dev,serve,export,data,tracking,hub,kaggle]"
+      - name: Tracking, registries, the Hub, Kaggle / Hub datasets, run export
+        run: pytest -q -p no:cacheprovider tests/test_integrations.py
 
   test-audio:
     # the audio extra (Hugging Face speech encoders): speech and sequence blocks, their
@@ -265,6 +349,14 @@ jobs:
                   if missing_requirements(b) and not b.type_id.startswith('llm.')}
           assert not gaps, gaps
           print('all block requirements installed')"
+      - name: The image works with your tools (MLflow, W&B, the Hub)
+        run: |
+          docker run --rm ai-made-easy python -c "
+          from ai_made_easy.core import api
+          status = api.tracking_status()
+          assert all(t['installed'] for t in status['trackers']), status
+          import ai_made_easy, datasets, huggingface_hub
+          print(ai_made_easy.__version__, [t['id'] for t in status['trackers']])"
 
 
   package:
@@ -289,6 +381,12 @@ jobs:
           test -f "dist/AI Made Easy/_internal/ai_made_easy/worker/train_worker.py"
           test -f "dist/AI Made Easy/_internal/ai_made_easy/core/pipelines/stages.py"
           test -f "dist/AI Made Easy/_internal/ai_made_easy/samples/pipeline_distill_quantize.json"
+          # 3.2: remote launcher, tracking, Hub / Kaggle integrations, environment probe
+          test -f "dist/AI Made Easy/_internal/ai_made_easy/worker/aime_launch.py"
+          test -f "dist/AI Made Easy/_internal/ai_made_easy/core/tracking.py"
+          test -f "dist/AI Made Easy/_internal/ai_made_easy/core/integrations/hub.py"
+          test -f "dist/AI Made Easy/_internal/ai_made_easy/core/rl/spaces.py"
+          test -f "dist/AI Made Easy/_internal/ai_made_easy/samples/rl_atari_pong_ppo.json"
       - name: The bundled app starts
         run: |
           export AIME_HOME="$(mktemp -d)"

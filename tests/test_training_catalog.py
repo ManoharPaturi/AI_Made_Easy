@@ -42,8 +42,9 @@ def _loss_graph(loss_id: str):
                                    "n_samples": 200})
     layers = [("core.dense", {"units": 8}), ("core.relu", {}), ("core.dense", {"units": k}),
               *tail]
+    params = {"classes": 3} if loss_id in cat.METRIC_LOSS_IDS else {}   # metric learning
     return chain(f"loss_{loss_id.split('.')[-1]}", "6", layers,
-                 [data, (loss_id, {}), TRAINER])
+                 [data, (loss_id, params), TRAINER])
 
 
 def _run(graph, tmp_path, monkeypatch, framework="pytorch"):

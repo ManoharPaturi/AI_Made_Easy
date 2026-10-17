@@ -46,6 +46,7 @@ class PipelineRecord:
     stages: dict[str, dict] = field(default_factory=dict)
     resumed_from: str = ""
     message: str = ""
+    on: str = ""  # where train stages run (a backend); the other stages run here
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -118,7 +119,8 @@ class PipelineRunner:
     """Runs one pipeline's stages in order on a background thread."""
 
     def __init__(self, manager, store: PipelineStore, graph, project: str = "",  # noqa: ANN001
-                 base=None, listener: Listener | None = None, resumed_from: str = ""):  # noqa: ANN001
+                 base=None, listener: Listener | None = None, resumed_from: str = "",  # noqa: ANN001
+                 on: str = ""):
         from ai_made_easy.core.pipelines.rules import pipeline_issues
 
         errors = [i for i in pipeline_issues(graph) if i.severity == "error"]
@@ -133,7 +135,7 @@ class PipelineRunner:
         self.record = PipelineRecord(
             pipeline_id=time.strftime("pl-%Y%m%d-%H%M%S-") + uuid.uuid4().hex[:4],
             name=graph.name, graph=graph.to_dict(), project=project, order=self.plan.order,
-            resumed_from=resumed_from,
+            resumed_from=resumed_from, on=on or "",
             stages={s.id: {"id": s.id, "kind": s.kind, "label": s.label, "state": "pending",
                            "run_id": "", "fingerprint": "", "metrics": {}, "message": "",
                            "output": {}, "started_at": None, "finished_at": None,
@@ -265,7 +267,7 @@ class PipelineRunner:
     def _start(self, design, stage: Stage) -> dict:  # noqa: ANN001
         run_id = self.manager.start(design, project=self.record.project,
                                     parent=self.pipeline_id, trial=self._trial(stage),
-                                    tags=["pipeline"])
+                                    tags=["pipeline"], on=self.record.on or None)
         result = self._await(run_id)
         result["output"] = {"model_dir": str(self.manager.history.path(run_id))}
         return result
@@ -333,6 +335,7 @@ class PipelineRunner:
         return task.id if task else ""
 
     def _export(self, stage: Stage, source: Path, upstream: dict) -> dict:
+        from ai_made_easy.core.deploy.exporters import summary
         from ai_made_easy.core.deploy.package import build_package
 
         out = Path(stage.params["out_dir"]).expanduser() if stage.params["out_dir"] \
@@ -341,10 +344,17 @@ class PipelineRunner:
                         if f.strip())
         result = build_package(source, out, formats=formats)
         ok = {k: v.get("file") for k, v in result.formats.items() if v.get("ok")}
-        failed = [k for k, v in result.formats.items() if not v.get("ok")]
-        return {"output": {**upstream, "path": str(out)}, "metrics": {},
+        failed = {k: v.get("error", "") for k, v in result.formats.items() if not v.get("ok")}
+        # how each export compares with the trained model: <format>_max_diff,
+        # _top1_agreement, _accuracy, _matched_detections, and its size in MB
+        metrics = summary(result.formats)
+        return {"output": {**upstream, "path": str(out),
+                           "exports": {k: str(out / f) for k, f in ok.items()}},
+                "metrics": metrics,
                 "message": f"package in {out}; exported {', '.join(ok) or 'nothing'}"
-                           + (f"; failed: {', '.join(failed)}" if failed else "")}
+                           + ("; failed: " + "; ".join(f"{k} ({e[:120]})"
+                                                      for k, e in failed.items())
+                              if failed else "")}
 
     def _register(self, stage: Stage, source: Path, upstream: dict) -> dict:
         from ai_made_easy.core.deploy import ModelRegistry
@@ -396,7 +406,7 @@ def resume(manager, store: PipelineStore, pipeline_id: str, base=None,  # noqa: 
 
     old = store.get(pipeline_id)
     runner = PipelineRunner(manager, store, Graph.from_dict(old.graph), old.project, base,
-                            listener, resumed_from=pipeline_id)
+                            listener, resumed_from=pipeline_id, on=old.on)
     runner.start()
     return runner
 

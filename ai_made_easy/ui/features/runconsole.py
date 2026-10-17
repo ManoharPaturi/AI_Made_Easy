@@ -13,9 +13,10 @@ import pyqtgraph as pg
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from ai_made_easy.ui import icons
+from ai_made_easy.ui.theme import SERIES
 from ai_made_easy.ui.stores import LogBus, RunStore
 
-_SERIES_COLORS = ("#4c8dff", "#f0883e", "#3fb950", "#d2a8ff", "#e3a008", "#56d4dd", "#ff7b72")
+_SERIES_COLORS = SERIES
 
 
 class OutputPage(QtWidgets.QPlainTextEdit):
@@ -94,6 +95,10 @@ class TrainingPage(QtWidgets.QWidget):
         self.stop_btn.setEnabled(False)
         self.start_btn.clicked.connect(self.train_clicked.emit)
         self.stop_btn.clicked.connect(self.stop_clicked.emit)
+        from ai_made_easy.ui.features.backends import RunOnCombo
+
+        self.run_on = RunOnCombo()
+        top.addWidget(self.run_on)
         top.addWidget(self.start_btn)
         top.addWidget(self.stop_btn)
         layout.addLayout(top)

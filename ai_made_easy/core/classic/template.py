@@ -26,7 +26,11 @@ import numpy as np
 import pandas as pd
 {% endif %}
 from sklearn import metrics
+{% if sampler %}
+from imblearn.pipeline import Pipeline   # runs the sampler while fitting only
+{% else %}
 from sklearn.pipeline import Pipeline
+{% endif %}
 {% for line in imports %}
 {{ line }}
 {% endfor %}
@@ -320,7 +324,12 @@ def feature_importances(model: Pipeline, top: int = 15) -> list[tuple[str, float
     if values is None:
         return []
     try:
+{% if sampler %}
+        names = list(Pipeline([s for s in model.steps[:-1]   # samplers don't name features
+                               if not hasattr(s[1], "fit_resample")]).get_feature_names_out())
+{% else %}
         names = list(model[:-1].get_feature_names_out())
+{% endif %}
     except Exception:  # noqa: BLE001 — not every transformer names its outputs
         names = [f"feature_{i}" for i in range(len(values))]
     if len(names) != len(values):
@@ -388,6 +397,7 @@ def main() -> None:
         print("top features: " + ", ".join(f"{n}={v:.3g}" for n, v in importances[:10]))
     joblib.dump(model, MODEL_FILE)
     save_inference_state(X)
+    save_costs(model, X)
     print(f"saved model to {MODEL_FILE}")
     Path("metrics.json").write_text(json.dumps(
         {**test_metrics, "train": train_metrics,
@@ -438,6 +448,7 @@ def main() -> None:
     print("test: " + " ".join(f"{k}={v:.4f}" for k, v in m.items()))
     joblib.dump(model, MODEL_FILE)
     save_inference_state(X)
+    save_costs(model, X)
     Path("metrics.json").write_text(json.dumps(m, indent=1))
     Path("clusters.json").write_text(json.dumps([int(v) for v in labels]))
     print(f"saved model to {MODEL_FILE}")
@@ -459,6 +470,7 @@ def main() -> None:
     print("test: " + " ".join(f"{k}={v:.4f}" for k, v in m.items()))
     joblib.dump(model, MODEL_FILE)
     save_inference_state(X)
+    save_costs(model, X)
     Path("metrics.json").write_text(json.dumps(m, indent=1))
     print(f"saved model to {MODEL_FILE}")
 {% endif %}
@@ -468,6 +480,26 @@ def main() -> None:
 INFERENCE_FILE = "inference.json"
 _PREDICTOR = None
 _COLUMNS = None
+
+
+def save_costs(model, X) -> None:
+    """Measured costs for AutoML's trade-offs: the median time to predict one row on this
+    machine and the saved model's size."""
+    row = X.iloc[:1] if hasattr(X, "iloc") else X[:1]
+    call = getattr(model, "predict", None) or getattr(model, "fit_predict", None)
+    times = []
+    try:
+        for _ in range(25):
+            started = time.perf_counter()
+            call(row)
+            times.append((time.perf_counter() - started) * 1e3)
+    except Exception as exc:  # noqa: BLE001 — costs are informative only
+        print(f"(no latency measurement: {exc})")
+        times = []
+    costs = {"model_mb": Path(MODEL_FILE).stat().st_size / 2**20}
+    if times and getattr(model, "predict", None) is not None:
+        costs["predict_ms"] = float(sorted(times)[len(times) // 2])
+    Path("costs.json").write_text(json.dumps(costs, indent=1))
 
 
 def save_inference_state(X) -> None:

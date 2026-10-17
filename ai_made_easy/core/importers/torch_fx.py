@@ -861,7 +861,15 @@ class _FakeCall:
 # ------------------------------------------------------------- entrypoint
 
 def load_model(source: str, attr: str, kwargs: dict) -> nn.Module:
-    """``source`` is a .py file path or an importable module name."""
+    """``source`` is a .py file path, an importable module name, or a whole saved
+    module (``torch.save(model)``, as MLflow's PyTorch flavor stores it: unpickling
+    runs code, so only open models you trust)."""
+    if source.endswith((".pt", ".pth")):
+        model = torch.load(Path(source).expanduser(), map_location="cpu", weights_only=False)
+        if not isinstance(model, nn.Module):
+            raise Unsupported(f"{source} holds weights only (a state dict); open the .py "
+                              "file that builds the model instead")
+        return model
     if source.endswith(".py"):
         path = Path(source).expanduser().resolve()
         spec = importlib.util.spec_from_file_location(path.stem, path)

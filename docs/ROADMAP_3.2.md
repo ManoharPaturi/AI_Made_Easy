@@ -1,5 +1,8 @@
 # AI Made Easy 3.2 — plan
 
+*Status: shipped in 3.2.0. Every phase below is done, including the deferred items in
+gap 6; the gaps list describes 3.1 as it was.*
+
 ## Context
 3.1 shipped 9 families, 35 tasks, 59 recipes and 544 blocks.
 - Every design has a task.
@@ -42,7 +45,7 @@ stores or logs a password, token or API key. It uses each tool's own sign-in:
 - `huggingface-cli login`
 - `modal token`
 - `wandb login`
-- a Google OAuth consent screen for Drive
+- Google Drive for desktop (for Colab runs)
 
 Settings only say *which* host, account or project to use. Every integration is off
 until the user turns it on.
@@ -117,47 +120,79 @@ until the user turns it on.
   on every backend. Backends:
   - **Local** (today's runner).
   - **SSH:**
-    - any host in `~/.ssh/config`, with the run folder synced by rsync
-    - events streamed over the channel
-    - a dropped connection resumes from the last checkpoint
+    - any host in `~/.ssh/config`, through the system `ssh` client (keys, agent and
+      jump hosts as in a terminal; it never prompts for a password)
+    - the run travels as a bundle over the same connection (tar, no rsync needed)
+    - the training runs under `nohup`, so a dropped connection loses nothing: the app
+      reconnects and continues from the last event it received
     - The same backend covers GPU clouds that hand out SSH machines (RunPod, Lambda,
       Vast.ai, Paperspace), with a short guide for each.
   - **Kaggle** (Kaggle API, `kaggle` package):
-    - pushes the run as a private Kaggle notebook (script kernel) with GPU / TPU chosen
-      from the budget
+    - pushes the run as a private Kaggle notebook (script kernel) with T4 / P100 / TPU
     - attaches Kaggle datasets
     - polls the kernel status
     - downloads the outputs into the run folder when it finishes
-    - Curves arrive per poll, not live, and the UI says so.
+    - Kaggle has no live log API, so curves arrive when the kernel finishes, and the UI
+      says so.
   - **Colab:**
     - Colab has no job API, so this is a hand-off: AI Made Easy builds a notebook with
       the run bundle
-    - **Open in Colab** uploads it to the user's Google Drive (OAuth, Drive file scope
-      only) and opens it
-    - the notebook writes events and checkpoints back to the same Drive folder, which
-      the app syncs into the run record
-    - A downloaded results zip can also be imported (`aime runs import`).
+    - with Google Drive for desktop, the bundle and notebook go to `My Drive/AI Made
+      Easy`; the notebook writes events and checkpoints back there, and the app follows
+      them as Drive syncs
+    - without it, the notebook ends by downloading a results zip, which **Import
+      results** / `aime runs import` turns into the run record
+    - (Changed from the first plan: the Drive API with the `drive.file` scope cannot see
+      files the Colab notebook writes, and a wider scope would mean holding a broad
+      Google token. Drive for desktop needs no token in AI Made Easy at all.)
   - **Modal:**
-    - runs the training function on a Modal GPU with the deploy image
+    - runs the launcher in a Modal sandbox on a Modal GPU, with an image built from the
+      run's requirements
     - logs stream live
-    - outputs come back through a Modal volume
-  - **Container:** the deploy Dockerfile's image, locally or on an SSH host, for
-    reproducible environments.
+    - the bundle and the outputs pass through a Modal volume
+  - **Container:** an image built like the deploy Dockerfile's (or one you name), on
+    this computer, or on an SSH host through its `docker_image` option.
 - **Budgets:** each backend reports its accelerator (SSH: `nvidia-smi`; Kaggle: T4 /
-  P100 / TPU; Colab / Modal: the chosen GPU), which picks the device profile for budget
-  checks automatically.
+  P100 / TPU; Colab / Modal: the chosen GPU). That picks the device profile (P100, L4
+  and A10G are new), and the design's budget is checked against it when the run
+  starts.
 - **UI:**
   - a **Run on** selector in the Training panel and the sweep / pipeline dialogs
     (desktop and web)
-  - a Backends page to add hosts and test the connection
-  - `aime train --on ssh:<host>|kaggle|colab|modal`
-  - MCP tools
+  - a Backends dialog to add backends and test the connection (desktop **Run ▸
+    Backends…**, web **Run on ▸ Manage backends…**)
+  - `aime run --on ssh:<host>|kaggle|colab|modal|container`, `aime backends`,
+    `aime runs attach | import`
+  - MCP tools and REST routes
 - **Tests:**
   - an SSH server in a CI container (localhost) runs a tiny training end to end,
     including a dropped connection
-  - Kaggle, Drive and Modal clients are mocked at their HTTP / SDK boundary in CI
+  - Kaggle and Modal clients are faked at their SDK boundary in CI; Colab syncs through
+    a folder that stands in for Drive
   - the nightly `AIME_ONLINE` job runs one real Kaggle kernel when a token is
     configured as a secret
+- **Status: done.**
+  - Everything runs through one launcher, `worker/aime_launch.py`, which is standard
+    library only. It unpacks the bundle, trains, writes `events.jsonl`, and always
+    leaves an exit code.
+  - **The bundle** carries the script, the worker, the requirements and every local
+    file the design points at. Paths are rewritten to `data/…`, and nothing else from
+    the computer is sent.
+  - **SSH:**
+    - its runs match a local run with the same seed, metric for metric
+    - a cut connection resumes with no epoch lost or repeated
+    - after a restart, `aime runs attach` (or **Follow again**) picks the run up again
+  - The SSH and Docker tests run the shipped code against stand-in `ssh` and `docker`
+    clients. CI also runs the SSH test against real OpenSSH on localhost.
+  - **Bugs found while testing:**
+    - starting an SSH run blocked until training ended (`cd && nohup … &` backgrounds
+      a subshell that keeps ssh's output open)
+    - files written into the bundle had a 1970 timestamp, which Colab's results zip
+      refuses
+    - the web Training panel missed a run's first log lines, including the hand-off
+      instructions; it now replays them
+  - **Not done:** a Modal run cannot be followed again after the app restarts. Its
+    outputs stay in the `aime-runs` volume.
 
 ## Phase 2 — Export everywhere
 - **Detectors to ONNX:**
@@ -176,6 +211,36 @@ until the user turns it on.
   model's outputs with PyTorch.
 - **Tests:** every exportable sample round-trips through onnxruntime / ExecuTorch /
   LiteRT and matches PyTorch within a tolerance.
+- **Status: done.** See [EXPORT.md](EXPORT.md).
+  - **One exporter module** (`core/deploy/exporters.py`) is copied into every package and
+    used by the tests. Each format runs the source model and the exported file on the
+    same inputs:
+    - the run's own `calibration.npz` (training inputs plus labelled test inputs), saved
+      by the training scripts
+    - random inputs for older runs
+  - **Coverage:**
+    - all 36 PyTorch samples export to ONNX, ONNX int8 and TorchScript and match
+    - ExecuTorch float and int8 work for every sample except the ones a design rule
+      covers (detectors, graph networks, Bayesian layers, STFT front ends, DLRM, spline
+      flows, seq2seq)
+    - Keras → LiteRT float and int8 work, including from torch-backend runs (converted
+      in a TensorFlow-backend process)
+  - **Detectors:**
+    - torchvision R-CNNs, RetinaNet, FCOS, SSD, the YOLO-style head, DETR and
+      Conditional DETR export with NMS included: one image in, padded `[1, D, 6]` out
+    - DETR goes through `torch.onnx` directly rather than Hugging Face's exporter (the
+      same tracing, one dependency fewer)
+  - **Graph networks:** GCN, GAT(v2), GraphSAGE, GIN, GraphConv, EdgeConv, Transformer
+    conv and every pooling except TopK / SAG export with dynamic node and edge counts.
+    This is better than the planned static shapes.
+  - **Bugs found while testing:**
+    - detection padding and the YOLO head froze the number of detections into traced
+      exports
+    - transformer layers used PyTorch's fused fast path, which has no ONNX equivalent
+    - ActNorm read a tensor flag before checking `training`, which broke `torch.export`
+    - int8 ONNX failed when the exporter merged identical zero-initialised weights
+  - **Not done:** RT-DETR's ONNX query selection can differ from PyTorch on untrained
+    models (near-tied encoder scores). TorchScript matches.
 
 ## Phase 3 — Work with your tools
 - **Experiment tracking:**
@@ -200,6 +265,23 @@ until the user turns it on.
   - MLflow with a local file store
   - W&B in offline mode
   - Hub and Kaggle clients mocked; real calls only in the nightly job
+- **Status: done.** See [TOOLS.md](TOOLS.md).
+  - **Tracking** follows the events every backend already reports, on a thread of its
+    own, so SSH / Kaggle / Colab / Modal runs mirror like local ones and a slow or
+    failing tracker never touches the run. A test checks that MLflow and W&B hold the
+    same per-epoch metrics as the local record.
+  - **MLflow's file store is deprecated**, so the default store is a local SQLite file
+    (`~/.aime/mlflow`) rather than the planned `./mlruns` folder.
+  - **Kaggle and Hub datasets are sources** (`kaggle:owner/name`, `hf:owner/repo`) that
+    download into a cache and become ordinary local data, not a new block type. Every
+    rule, profiler and remote bundle then treats them like a folder you picked. The
+    existing Hugging Face Dataset block still loads inside the training script.
+  - **Hub round trip:** push → pull → register → package; packaging loads the model and
+    predicts on the run's samples.
+  - **Submissions** need confirmation every time: a dialog in the app, a prompt in the
+    CLI, `confirm: true` in the API; they aren't an MCP tool.
+  - **Web UI** for these settings comes with the Phase 6 parity audit; the REST routes
+    are in.
 
 ## Phase 4 — AutoML for every family
 - **Multi-objective for classic ML:**
@@ -221,6 +303,31 @@ until the user turns it on.
 - **Remote trials:** AutoML trials can run on a Phase 1 backend, with a concurrency
   limit.
 
+- **Status: done.**
+  - **Metrics:** every trainable family now has one. Bayesian networks and HMMs use
+    held-out log-likelihood; PyMC models use PSIS-LOO ELPD (`elpd_loo`, from the run's
+    pointwise log-likelihood); GPs use test NLPD; state-space models use MASE on the
+    held-out horizon; flows use bits per dimension; anomaly detectors use ROC AUC on
+    labelled data.
+  - **Tuning:** the probabilistic recipes gained knobs: structure search and score,
+    HMM states and covariance, non-centred pooling and group prior scale, the trend and
+    AR order of structural models, and ARIMA orders.
+  - **Costs:** `core/budget_structured.py` estimates stored values, predict cost and
+    training memory for classic models, Bayesian networks, HMMs, PyMC posteriors (with
+    LOO's pointwise matrix), exact and sparse GPs and state-space models, sized from the
+    dataset block. The budget checks and the Summary use it, so a forest that won't fit a
+    size limit is flagged before training.
+  - **One Pareto front:** classic recipes join multi-objective searches. Their latency
+    and size are estimated before training, then replaced by what the run measured
+    (`costs.json`: the median time to predict one row and the saved model's size),
+    scaled from a laptop CPU to the target device.
+  - **Remote trials:** `on` sends trials to a backend and `concurrency` trains several
+    at once (CLI, MCP, desktop and web wizards). AutoML waits for the whole baseline
+    round before TPE proposes, so parallel trials don't skip it.
+  - **Test:** each family's search is checked to end at least as well as its baseline
+    round, with every finished trial scored. Strictly beating the baseline isn't
+    asserted: with three to five trials on demo data, the defaults are sometimes best.
+
 ## Phase 5 — The last deferred items
 - **Glow:** actnorm, invertible 1×1 conv, affine coupling, squeeze / split; image bits
   per dimension.
@@ -235,6 +342,36 @@ until the user turns it on.
   checks move into the Problems panel.
 - **QAT for embedding models:** embeddings keep float qparams, and the rest quantizes.
   This lifts the "token-id models are not supported" rule.
+
+- **Status: done.**
+  - **Glow:**
+    - new layers: invertible 1×1 convolution (LU), convolutional affine coupling,
+      squeeze, and a split with a learned prior; ActNorm now also works per channel
+    - flows train on images: dequantised 8-bit pixels, bits per dimension, sample
+      grids, a Gaussian baseline
+    - new: a generated-images dataset, the `glow_shapes` sample and the Glow recipe
+    - tests: the layers invert exactly and their log-determinants match autograd's
+      Jacobian; Glow beats a RealNVP of similar size in bits per dimension
+  - **OGB:** node, graph and link blocks load the official split (link datasets: the
+    official negatives too) and report OGB's evaluator numbers (`ogb_acc`, `ogb_rocauc`,
+    `ogb_hits@50`). Graph and link models are selected on them. CI uses a fake `ogb`
+    package; the nightly job runs the real ogbg-molbace.
+  - **Atari:**
+    - Pong, Breakout, Space Invaders, Seaquest and Freeway through `ale-py` (the
+      `atari` extra, with OpenCV for the preprocessing)
+    - Atari Preprocessing and Frame Stack blocks, and the Atari PPO recipe with the
+      Nature CNN
+    - rules flag a missing `ale-py` and a missing ROM. `ale-py` 0.9 and newer wheels
+      include the ROMs themselves; AI Made Easy ships none (docs/RL.md).
+  - **Custom environments:**
+    - a `module` setting imports the file or module that registers the environment
+    - its spaces are read once in a subprocess and cached, so the Input-shape and
+      action-kind checks, and creation errors, show in the Problems panel
+  - **QAT for embedding models:**
+    - embedding tables use PyTorch's float-qparams QAT config (8-bit rows with float
+      scales); the rest is int8
+    - the rule is now an info note
+    - a QAT text classifier stays within one point of float
 
 ## Phase 6 — Release 3.2.0
 - **Web parity audit:**
@@ -254,9 +391,7 @@ until the user turns it on.
 ## Extras (pyproject)
 | Extra | Packages |
 | --- | --- |
-| `remote` | asyncssh |
 | `kaggle` | kaggle |
-| `colab` | google-api-python-client, google-auth-oauthlib |
 | `modal` | modal |
 | `export` | onnx, onnxruntime, executorch |
 | `tracking` | mlflow, wandb |

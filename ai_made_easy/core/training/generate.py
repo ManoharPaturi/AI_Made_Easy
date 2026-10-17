@@ -216,9 +216,20 @@ def _torch_ctx(graph: Graph, spec: TrainingSpec) -> dict:
                      for n in graph.nodes.values()),
         loss_expr=loss_expr,
         optimizer_expr=cat.render(spec.optimizer["kind"], spec.optimizer, "pytorch"),
+        ema=bool(float(spec.trainer.get("ema_decay") or 0)),
+        swa=int(spec.trainer.get("swa_start") or 0),
+        metric_loss=spec.metric_loss,
+        sam=bool(cat.COMPONENTS[spec.optimizer["kind"]].meta.get("sam")),
+        schedule_free=bool(cat.COMPONENTS[spec.optimizer["kind"]].meta.get("schedule_free")),
         scheduler_expr=sched_expr, scheduler_step=sched_step,
         uses_functional=ctx["uses_functional"] or ctx["loss_helper"] == "FocalLoss",
     )
+    if ctx["ema"] and ctx["swa"]:
+        raise CodegenError("use one kind of weight averaging on the Trainer: EMA or SWA")
+    for kind in (spec.optimizer["kind"], spec.loss["kind"]):
+        helper = cat.COMPONENTS[kind].meta.get("torch_helper")
+        if helper:
+            ctx["torch_helpers"] = [*ctx["torch_helpers"], cat.TRAIN_HELPERS[helper]]
     image_train, after_tensor = [], []
     for tid, params in spec.image_train:
         blk = dcat.BLOCKS[tid]
@@ -290,6 +301,13 @@ def _keras_ctx(graph: Graph, spec: TrainingSpec) -> dict:
     opt_expr = cat.render(spec.optimizer["kind"], spec.optimizer, "keras")
     if opt_expr is None:
         unsupported.append(cat.COMPONENTS[spec.optimizer["kind"]].name)
+    if int(spec.trainer.get("swa_start") or 0):
+        unsupported.append("SWA weight averaging (use EMA in Keras)")
+    if opt_expr is None:
+        pass
+    elif float(spec.trainer.get("ema_decay") or 0):  # Keras keeps the average itself
+        opt_expr = (f"{opt_expr[:-1]}, use_ema=True, "
+                    f"ema_momentum={float(spec.trainer['ema_decay'])})")
     sched = None
     if spec.scheduler:
         comp = cat.COMPONENTS[spec.scheduler["kind"]]

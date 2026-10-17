@@ -80,7 +80,7 @@ def test_wizard_demo_data_and_automl_spec(app):  # noqa: F811
     dialog.automl.click()
     assert dialog.automl_spec == {"task": "multiclass", "facts": {}, "modality": "image",
                                   "budget": {}, "max_trials": 4, "epochs": 0,
-                                  "objectives": []}
+                                  "objectives": [], "on": "", "concurrency": 1}
     dialog.trade_off.setCurrentIndex(1)
     dialog.automl.click()
     assert dialog.automl_spec["objectives"] == ["latency_ms"]

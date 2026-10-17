@@ -1,0 +1,243 @@
+{
+ "schema_version": 1,
+ "name": "rl_atari_pong_ppo",
+ "meta": {
+  "title": "Reinforcement Learning \u2014 Atari Pong from pixels",
+  "description": "PPO with the Nature-DQN CNN on Pong: four stacked 84\u00d784 grayscale frames after the standard Atari preprocessing. Needs the atari extra (ale-py); a GPU and a few million steps to win."
+ },
+ "nodes": [
+  {
+   "id": "input",
+   "type": "core.input",
+   "params": {
+    "shape": "4, 84, 84"
+   },
+   "position": [
+    0,
+    0
+   ]
+  },
+  {
+   "id": "conv1",
+   "type": "core.conv2d",
+   "params": {
+    "out_channels": 32,
+    "kernel_size": 8,
+    "stride": 4,
+    "padding": 0
+   },
+   "position": [
+    0,
+    0
+   ]
+  },
+  {
+   "id": "relu1",
+   "type": "core.relu",
+   "params": {},
+   "position": [
+    0,
+    0
+   ]
+  },
+  {
+   "id": "conv2",
+   "type": "core.conv2d",
+   "params": {
+    "out_channels": 64,
+    "kernel_size": 4,
+    "stride": 2,
+    "padding": 0
+   },
+   "position": [
+    0,
+    0
+   ]
+  },
+  {
+   "id": "relu2",
+   "type": "core.relu",
+   "params": {},
+   "position": [
+    0,
+    0
+   ]
+  },
+  {
+   "id": "conv3",
+   "type": "core.conv2d",
+   "params": {
+    "out_channels": 64,
+    "kernel_size": 3,
+    "stride": 1,
+    "padding": 0
+   },
+   "position": [
+    0,
+    0
+   ]
+  },
+  {
+   "id": "relu3",
+   "type": "core.relu",
+   "params": {},
+   "position": [
+    0,
+    0
+   ]
+  },
+  {
+   "id": "flatten",
+   "type": "core.flatten",
+   "params": {},
+   "position": [
+    0,
+    0
+   ]
+  },
+  {
+   "id": "dense",
+   "type": "core.dense",
+   "params": {
+    "units": 512
+   },
+   "position": [
+    0,
+    0
+   ]
+  },
+  {
+   "id": "relu4",
+   "type": "core.relu",
+   "params": {},
+   "position": [
+    0,
+    0
+   ]
+  },
+  {
+   "id": "output",
+   "type": "core.output",
+   "params": {},
+   "position": [
+    0,
+    0
+   ]
+  },
+  {
+   "id": "env",
+   "type": "rl.env",
+   "position": [
+    0,
+    0
+   ],
+   "params": {
+    "env_id": "ALE/Pong-v5",
+    "custom_id": "",
+    "module": "",
+    "n_envs": 8,
+    "seed": 0
+   }
+  },
+  {
+   "id": "preprocess",
+   "type": "rl.atari_preprocessing",
+   "position": [
+    0,
+    0
+   ],
+   "params": {
+    "frame_skip": 4,
+    "screen_size": 84,
+    "noop_max": 30,
+    "terminal_on_life_loss": false
+   }
+  },
+  {
+   "id": "stack",
+   "type": "rl.frame_stack",
+   "position": [
+    0,
+    0
+   ],
+   "params": {
+    "frames": 4
+   }
+  },
+  {
+   "id": "algo",
+   "type": "rl.ppo",
+   "position": [
+    0,
+    0
+   ],
+   "params": {
+    "total_timesteps": 2000000,
+    "learning_rate": 0.00025,
+    "n_steps": 128,
+    "batch_size": 256,
+    "n_epochs": 4,
+    "gamma": 0.99,
+    "gae_lambda": 0.95,
+    "clip_range": 0.1,
+    "ent_coef": 0.01,
+    "head": "",
+    "evaluations": 20,
+    "eval_episodes": 5
+   }
+  },
+  {
+   "id": "trainer",
+   "type": "train.trainer",
+   "position": [
+    0,
+    0
+   ],
+   "params": {
+    "device": "auto"
+   }
+  }
+ ],
+ "edges": [
+  {
+   "from": "input/out",
+   "to": "conv1/in"
+  },
+  {
+   "from": "conv1/out",
+   "to": "relu1/in"
+  },
+  {
+   "from": "relu1/out",
+   "to": "conv2/in"
+  },
+  {
+   "from": "conv2/out",
+   "to": "relu2/in"
+  },
+  {
+   "from": "relu2/out",
+   "to": "conv3/in"
+  },
+  {
+   "from": "conv3/out",
+   "to": "relu3/in"
+  },
+  {
+   "from": "relu3/out",
+   "to": "flatten/in"
+  },
+  {
+   "from": "flatten/out",
+   "to": "dense/in"
+  },
+  {
+   "from": "dense/out",
+   "to": "relu4/in"
+  },
+  {
+   "from": "relu4/out",
+   "to": "output/in"
+  }
+ ]
+}

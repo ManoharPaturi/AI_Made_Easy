@@ -34,6 +34,10 @@ def _norm(name: str) -> str:
     return re.split(r"[<>=\[ ;]", name)[0].lower().replace("_", "-")
 
 
+# import names that differ from the pip package name
+PIP_NAMES = {"umap": "umap-learn", "imblearn": "imbalanced-learn"}
+
+
 def test_extras_provide_what_blocks_and_recipes_require():
     from ai_made_easy.core.recipes import all_recipes
     from ai_made_easy.core.registry import get_registry
@@ -45,7 +49,7 @@ def test_extras_provide_what_blocks_and_recipes_require():
     assert items
     for item, requires, extra in items:
         assert extra in extras, f"{item} names the extra {extra!r}, which does not exist"
-        missing = [m for m in requires if _norm(m) not in extras[extra]]
+        missing = [m for m in requires if _norm(PIP_NAMES.get(m, m)) not in extras[extra]]
         assert not missing, f"{item}: pip install ai-made-easy[{extra}] lacks {missing}"
 
 
@@ -59,6 +63,12 @@ def test_every_family_extra_exists():
 
 def test_families_doc_is_current():
     proc = subprocess.run([sys.executable, str(ROOT / "scripts/gen_families.py"), "--check"],
+                          capture_output=True, text=True, cwd=ROOT, timeout=300)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+
+
+def test_deploy_doc_is_current():
+    proc = subprocess.run([sys.executable, str(ROOT / "scripts/gen_deploy.py"), "--check"],
                           capture_output=True, text=True, cwd=ROOT, timeout=300)
     assert proc.returncode == 0, proc.stdout + proc.stderr
 

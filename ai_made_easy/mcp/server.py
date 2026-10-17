@@ -62,9 +62,11 @@ def _impl_expand(graph: dict, node_id: str) -> dict:
     return api.expand(graph, node_id)
 
 
-def _impl_start_training(graph: dict, framework: str = "auto") -> dict:
-    result = api.start_training(graph, framework)
-    result["hint"] = "poll get_run_status(run_id); metrics arrive per epoch"
+def _impl_start_training(graph: dict, framework: str = "auto", on: str = "") -> dict:
+    result = api.start_training(graph, framework, on=on or None)
+    result["hint"] = ("poll get_run_status(run_id); metrics arrive per epoch"
+                      + ("" if not on or on == "local" else
+                         " (Kaggle and Colab: when the remote run reports back)"))
     return result
 
 
@@ -132,11 +134,62 @@ def expand_architecture(graph: dict[str, Any], node_id: str) -> str:
 
 
 @mcp.tool()
-def start_training(graph: dict[str, Any], framework: str = "auto") -> str:
-    """Start training the graph in a managed subprocess (framework: auto,
-    pytorch, keras or sklearn). Returns a run_id; poll get_run_status /
-    get_run_metrics; stop with stop_run. Every run is kept in the run history."""
-    return json.dumps(_impl_start_training(graph, framework))
+def start_training(graph: dict[str, Any], framework: str = "auto", on: str = "") -> str:
+    """Start training the graph (framework: auto, pytorch, keras or sklearn). ``on`` picks
+    where: "" / local (this computer), ssh:<host from ~/.ssh/config>, kaggle, colab, modal,
+    container or a saved backend's name (see list_backends). Returns a run_id; poll
+    get_run_status / get_run_metrics; stop with stop_run. Every run is kept in the run
+    history."""
+    try:
+        return json.dumps(_impl_start_training(graph, framework, on))
+    except api.ApiError as exc:
+        return _err(exc)
+
+
+@mcp.tool()
+def list_backends() -> str:
+    """Where runs can train (this computer, SSH hosts, Kaggle, Colab, Modal, containers),
+    the saved backends and every kind's options. Sign-in is each tool's own (~/.ssh,
+    ~/.kaggle/kaggle.json, modal token, Google Drive for desktop): never pass secrets."""
+    return json.dumps(api.list_backends())
+
+
+@mcp.tool()
+def test_backend(on: str) -> str:
+    """Check a backend works (connection / sign-in) and report its accelerator and the
+    device profile budget checks will use."""
+    try:
+        return json.dumps(api.test_backend(on))
+    except api.ApiError as exc:
+        return _err(exc)
+
+
+@mcp.tool()
+def save_backend(name: str, kind: str, options: dict[str, Any] | None = None) -> str:
+    """Save a backend under a name, e.g. kind "ssh" with {"host": "gpu-box"}, or "kaggle"
+    with {"accelerator": "P100"}. Options only (hosts, GPU types); never secrets."""
+    try:
+        return json.dumps(api.save_backend(name, kind, options))
+    except api.ApiError as exc:
+        return _err(exc)
+
+
+@mcp.tool()
+def attach_run(run_id: str) -> str:
+    """Follow a remote run again after the app restarted or the connection dropped."""
+    try:
+        return json.dumps(api.attach_run(run_id), default=str)
+    except api.ApiError as exc:
+        return _err(exc)
+
+
+@mcp.tool()
+def import_run_results(path: str) -> str:
+    """Complete a Colab hand-off run from the results zip its notebook downloaded."""
+    try:
+        return json.dumps(api.import_run_results(path), default=str)
+    except api.ApiError as exc:
+        return _err(exc)
 
 
 @mcp.tool()
@@ -260,15 +313,18 @@ def explain_design(graph: dict[str, Any]) -> str:
 def start_automl(task: str, path: str = "", target: str = "", max_trials: int = 12,
                  epochs: int = 0, recipes: list[str] | None = None,
                  budget: dict[str, Any] | None = None, objectives: list[str] | None = None,
-                 device: str = "") -> str:
+                 device: str = "", on: str = "", concurrency: int = 1) -> str:
     """AutoML: train every candidate recipe for the task once, then tune recipes and
     their settings with TPE, pruning weak trials early and skipping designs over the
     budget. ``objectives`` (latency_ms, params_m, model_mb, estimated on ``device``)
-    makes it multi-objective: the leaderboard then marks the Pareto front. Returns a
-    sweep_id; poll automl_leaderboard."""
+    makes it multi-objective: the leaderboard then marks the Pareto front (neural and
+    classic recipes together; classic costs are measured after training). ``on`` trains
+    the trials on a backend (ssh:<host>, kaggle, modal, ...), ``concurrency`` at once.
+    Returns a sweep_id; poll automl_leaderboard."""
     spec = {"task": task, "path": path or None, "target": target, "max_trials": max_trials,
             "epochs": epochs, "recipes": recipes or [], "budget": budget or {},
-            "objectives": objectives or [], "device": device}
+            "objectives": objectives or [], "device": device, "on": on,
+            "concurrency": concurrency}
     try:
         return json.dumps(api.start_automl({k: v for k, v in spec.items() if v is not None}))
     except api.ApiError as exc:
@@ -286,12 +342,13 @@ def automl_leaderboard(sweep_id: str) -> str:
 
 
 @mcp.tool()
-def start_pipeline(graph: dict[str, Any], project: str = "") -> str:
+def start_pipeline(graph: dict[str, Any], project: str = "", on: str = "") -> str:
     """Run a pipeline design (Train → Fine-tune / Distill / Prune / Quantize → Evaluate →
     Export / Register stages). Finished, unchanged stages from earlier attempts are
-    reused. Returns a pipeline_id; poll get_pipeline."""
+    reused; ``on`` sends the training stages to a backend. Returns a pipeline_id; poll
+    get_pipeline."""
     try:
-        return json.dumps(api.start_pipeline(graph, project))
+        return json.dumps(api.start_pipeline(graph, project, on=on))
     except api.ApiError as exc:
         return _err(exc)
 
@@ -317,9 +374,21 @@ def resume_pipeline(pipeline_id: str) -> str:
 
 
 @mcp.tool()
+def export_formats(run_id: str) -> str:
+    """The export formats of a finished run: which the design can use (with the reason
+    when not) and which the project's budget device runs (suggested)."""
+    try:
+        return json.dumps(api.export_options(run_id))
+    except (api.ApiError, KeyError) as exc:
+        return _err(exc)
+
+
+@mcp.tool()
 def deploy_run(run_id: str, out_dir: str, formats: list[str] | None = None) -> str:
-    """Build a model-server package (FastAPI app, Dockerfile, pinned requirements,
-    optional ONNX / TorchScript / Core ML exports) from a finished training run."""
+    """Build a model-server package (FastAPI app, Dockerfile, pinned requirements) from a
+    finished training run, with optional exports: onnx, onnx_int8, torchscript, coreml,
+    executorch, executorch_int8 (PyTorch); onnx, saved_model, litert, litert_int8
+    (Keras). Each export is checked against the model (see the result's formats)."""
     try:
         return json.dumps(api.deploy_run(run_id, out_dir, formats), default=str)
     except (api.ApiError, KeyError) as exc:
@@ -331,6 +400,67 @@ def register_model(run_id: str, name: str) -> str:
     """Copy a finished run into the model registry as a new version."""
     try:
         return json.dumps(api.register_model(run_id, name), default=str)
+    except (api.ApiError, KeyError) as exc:
+        return _err(exc)
+
+
+@mcp.tool()
+def mirror_model(name: str, version: str, to: list[str]) -> str:
+    """Also register a model version in MLflow's model registry and / or as a W&B model
+    artifact (to = ["mlflow", "wandb"]), with its stage."""
+    try:
+        return json.dumps(api.mirror_model(name, version, to), default=str)
+    except (api.ApiError, KeyError) as exc:
+        return _err(exc)
+
+
+@mcp.tool()
+def tracking_status() -> str:
+    """Experiment tracking: which trackers runs mirror to (AIME_TRACKING, or a project's
+    meta.tracking), the MLflow store, and whether mlflow / wandb are installed."""
+    return json.dumps(api.tracking_status())
+
+
+@mcp.tool()
+def export_runs(out: str, project: str | None = None, epochs: bool = False) -> str:
+    """Write the run history as a CSV or Parquet table (by the file's suffix) for
+    notebooks: one row per run, or one per epoch with epochs=true."""
+    try:
+        return json.dumps(api.export_runs(out, project=project, epochs=epochs))
+    except api.ApiError as exc:
+        return _err(exc)
+
+
+@mcp.tool()
+def fetch_dataset(source: str) -> str:
+    """Download a dataset and detect it like a local folder: kaggle:owner/name,
+    kaggle-competition:name[/file] or hf:owner/repo[:split]. Returns the local path (use
+    it as the data path of recommend_recipes / build_recipe) and what was detected."""
+    try:
+        return json.dumps(api.fetch_dataset(source), default=str)
+    except api.ApiError as exc:
+        return _err(exc)
+
+
+@mcp.tool()
+def open_mlflow_model(uri: str, input_shape: list[int] | None = None) -> str:
+    """Open an MLflow PyTorch or ONNX model (models:/name/1, runs:/id/model) as an
+    editable design, through the importers."""
+    try:
+        return json.dumps(api.open_mlflow_model(uri, input_shape=input_shape), default=str)
+    except api.ApiError as exc:
+        return _err(exc)
+
+
+@mcp.tool()
+def push_to_hub(repo_id: str, run_id: str = "", model: str = "",
+                version: str = "latest") -> str:
+    """Push a finished run (or a registered model version) to the Hugging Face Hub as a
+    private model repo with its model card. Only when the user asked to publish; sign-in
+    is the user's own `hf auth login`."""
+    try:
+        return json.dumps(api.push_to_hub(repo_id, run_id=run_id or None, model=model or None,
+                                          version=version), default=str)
     except (api.ApiError, KeyError) as exc:
         return _err(exc)
 

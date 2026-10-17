@@ -17,7 +17,7 @@ ai_made_easy/
 │   ├── api.py            headless facade used by the CLI, MCP server and web server
 │   ├── paths.py          $AIME_HOME (default ~/.aime) and its sub-folders
 │   ├── runs/             persistent run history: run.json, epochs.jsonl, artefacts
-│   ├── runner/           RunManager: training subprocesses + event listeners
+│   ├── runner/           RunManager, run backends (local, SSH, Kaggle, Colab, Modal, Docker)
 │   ├── sweeps.py         grid / random / Optuna sweeps over design parameters
 │   ├── deploy/           serving packages (FastAPI + Dockerfile), exports, model registry
 │   ├── importers/        PyTorch (torch.fx), ONNX and Keras importers (run in a subprocess)
@@ -54,6 +54,10 @@ web/                      React + TypeScript + Vite + React Flow frontend (built
 | Every block can be placed and edited on the canvas | `tests/test_ui.py` |
 | Imported models reproduce the original outputs | `tests/test_import.py` |
 | Serving packages answer `/predict` like the checkpoint | `tests/test_deploy.py` |
+| Every sample exports (ONNX, TorchScript, ExecuTorch, int8) and matches PyTorch, or a rule says why not | `tests/test_export.py` |
+| Runs mirrored to MLflow / W&B match the local record; Hub push → pull → predict; Kaggle / Hub datasets detect like folders | `tests/test_integrations.py` |
+| Every family's AutoML ranks its trials; classic and neural share one Pareto front; parallel trials | `tests/test_automl_families.py` |
+| Glow inverts exactly and beats RealNVP; OGB official splits / evaluators; Atari and custom environments; QAT with embeddings | `tests/test_deferred.py` |
 | The split preview equals the generated split | `tests/test_data.py` |
 | Every REST endpoint and the run WebSocket | `tests/test_server.py` |
 | The browser UI loads, validates and edits | `web/e2e/smoke.spec.ts` (Playwright) |
@@ -316,9 +320,59 @@ RunManager.start(graph) ─► RunHistory.create (design snapshot, params, data 
       ─► env / epoch / log / done events ─► epochs.jsonl + listeners
          (desktop panels, MCP, WebSocket clients)
 SweepRunner ─► for each trial: apply values ─► validate ─► RunManager.start(parent=sweep)
-build_package(run dir) ─► app.py + model + inference state + Dockerfile (+ ONNX / TorchScript / Core ML)
+build_package(run dir) ─► app.py + model + inference state + Dockerfile
+      ─► export_formats.py + exporters.py: ONNX / TorchScript / Core ML / ExecuTorch / LiteRT,
+         each checked against the model on the run's calibration.npz (export_report.json)
 ModelRegistry.register(run dir) ─► $AIME_HOME/models/<name>/<version>/ with a stage
 ```
+
+**Where a run trains** is a backend (`core/runner/backends/`): `local` (the worker as a
+subprocess), `ssh`, `kaggle`, `colab`, `modal` or `container`. A remote backend gets a
+**bundle** (`bundle.py`), which holds:
+- the training script, with local data paths rewritten to `data/…`
+- the worker
+- `requirements.txt`
+- the data files
+
+On the far side it runs `worker/aime_launch.py` (standard library only). The launcher
+unpacks the bundle, runs the worker, and writes `events.jsonl` and an `exit_code`.
+
+The backend feeds those event lines into the same `TrainingRun`, so listeners cannot
+tell where a run trains. A run's `done` event is held back until its outputs are
+downloaded, so the record finalises with `metrics.json`. `RunRecord.backend` and
+`RunRecord.remote` let `RunManager.attach` follow a remote run again after a restart.
+`RunManager.import_results` completes a Colab hand-off run from its results zip.
+See [REMOTE.md](REMOTE.md).
+
+**The export layer** (`core/deploy/`) has three parts:
+- `exportability.py` decides, from the design alone, which formats it can reach and why
+  not (`blockers`), and which the budget device suggests. The Deploy and Share dialogs,
+  the Problems panel and `aime deploy --list-formats` all read it.
+- `package.py` writes the serving package. `_describe` picks what `/predict` takes for
+  the design's task (records, images, series, graphs, observations, …).
+- `exporters.py` runs inside the package (`export_formats.py`): each format is exported,
+  then run against the source model on `calibration.npz`, and only formats that match
+  are kept (`export_report.json`).
+
+[DEPLOY.md](DEPLOY.md) is generated from these modules (`scripts/gen_deploy.py`).
+
+**Your tools** sit beside the run, not inside it:
+- `core/tracking.py`: a `RunMirror` per run, on its own thread, fed from
+  `TrainingRun.record`. It replays parameters, per-epoch metrics, the design and the
+  run's files to MLflow (`MlflowClient`) and W&B. Because it listens to the same events
+  as the panels, it works for every backend. Where each run went is kept on
+  `RunRecord.tracking`; a tracker that fails writes to the run's log and never stops
+  training.
+- `ModelRegistry.mirror()` registers a version in MLflow's registry or as a W&B
+  artifact (`ModelVersion.mirrors`).
+- `core/integrations/hub.py` pushes and pulls Hub model repositories (with an
+  `aime.json`) and deploys a package as a Docker Space.
+- `core/integrations/datasets.py` turns `kaggle:` and `hf:` sources into cached local
+  folders, which data detection then reads.
+- `core/runs/export.py` writes the run history as CSV or Parquet.
+
+No module reads or stores a credential: each library uses its own sign-in. See
+[TOOLS.md](TOOLS.md).
 
 Generated training scripts save `inference_state.pkl` (the preprocessing fitted
 on the training split) and define `load_predictor()` / `infer()`, which the

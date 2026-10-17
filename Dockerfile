@@ -19,7 +19,7 @@ WORKDIR /app
 COPY pyproject.toml README.md LICENSE ./
 COPY ai_made_easy ./ai_made_easy
 RUN pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu \
-    && pip install ".[web,vision,vision-tasks,generative,audio,probabilistic,graph,rl,data,classic,export,tuning]"
+    && pip install ".[web,vision,vision-tasks,generative,audio,probabilistic,graph,rl,data,classic,umap,imbalance,export,tuning,atari,tracking,hub]"
 
 RUN useradd --create-home --uid 1000 aime && mkdir -p /data && chown aime /data
 USER aime

@@ -12,8 +12,9 @@ from PySide6 import QtCore, QtWidgets
 
 from ai_made_easy.core.runs.history import RunRecord, compare
 from ai_made_easy.ui import icons
+from ai_made_easy.ui.theme import SERIES
 
-_SERIES = ("#4c8dff", "#f0883e", "#3fb950", "#d2a8ff", "#e3a008", "#56d4dd", "#ff7b72")
+_SERIES = SERIES
 _MAX_METRIC_COLUMNS = 5
 
 
@@ -66,6 +67,7 @@ class ExperimentsPage(QtWidgets.QWidget):
     """Runs and Sweeps tabs over the persistent history."""
 
     restore_requested = QtCore.Signal(str)     # run_id
+    diff_requested = QtCore.Signal(str)        # run_id → compare with the canvas
     results_requested = QtCore.Signal(str)     # run_id → load into Training panel
     folder_requested = QtCore.Signal(str)      # run_id
     delete_requested = QtCore.Signal(list)     # run_ids
@@ -79,6 +81,7 @@ class ExperimentsPage(QtWidgets.QWidget):
     model_deploy_requested = QtCore.Signal(str, int)          # name, version
     model_stage_requested = QtCore.Signal(str, int, str)      # name, version, stage
     model_delete_requested = QtCore.Signal(str, int)          # name, version
+    model_share_requested = QtCore.Signal(str, int, str)      # name, version, target
     stop_pipeline_requested = QtCore.Signal(str)               # pipeline_id
     resume_pipeline_requested = QtCore.Signal(str)             # pipeline_id
 
@@ -122,6 +125,9 @@ class ExperimentsPage(QtWidgets.QWidget):
         self.restore_btn = QtWidgets.QPushButton("Restore Design")
         self.restore_btn.setIcon(icons.icon("undo"))
         self.restore_btn.setToolTip("Replace the canvas with the design this run trained")
+        self.diff_btn = QtWidgets.QPushButton("Changes…")
+        self.diff_btn.setToolTip("What changed on the canvas since this run: blocks, "
+                                 "parameters and wires")
         self.register_btn = QtWidgets.QPushButton("Register…")
         self.register_btn.setIcon(icons.icon("package"))
         self.register_btn.setToolTip("Add this run to the model registry as a new version")
@@ -135,7 +141,8 @@ class ExperimentsPage(QtWidgets.QWidget):
         self.delete_btn = QtWidgets.QPushButton("")
         self.delete_btn.setIcon(icons.icon("trash"))
         self.delete_btn.setToolTip("Delete the selected runs and their files")
-        for btn in (self.compare_btn, self.results_btn, self.restore_btn, self.register_btn,
+        for btn in (self.compare_btn, self.results_btn, self.restore_btn, self.diff_btn,
+                    self.register_btn,
                     self.deploy_btn, self.tag_btn, self.folder_btn, self.delete_btn):
             bar.addWidget(btn)
         box.addLayout(bar)
@@ -149,6 +156,16 @@ class ExperimentsPage(QtWidgets.QWidget):
             self.results_requested))
         box.addWidget(self.runs_table, 1)
 
+        # the Feature Importance block's result for the selected run (3.3)
+        self.explain_label = QtWidgets.QLabel("Feature importance")
+        self.explain_label.setObjectName("sectionTitle")
+        self.explain_table = _readonly_table(["Feature", "Importance", "± std"])
+        self.explain_table.setMaximumHeight(180)
+        self.explain_table.setAccessibleName("Feature importance of the selected run")
+        for w in (self.explain_label, self.explain_table):
+            w.hide()
+            box.addWidget(w)
+
         self.empty_label = QtWidgets.QLabel(
             "No runs yet. Every training run is recorded here with its design, "
             "parameters and metrics.")
@@ -160,6 +177,7 @@ class ExperimentsPage(QtWidgets.QWidget):
             lambda: self.compare_requested.emit(self.selected_run_ids()))
         self.results_btn.clicked.connect(lambda: self._emit_single(self.results_requested))
         self.restore_btn.clicked.connect(lambda: self._emit_single(self.restore_requested))
+        self.diff_btn.clicked.connect(lambda: self._emit_single(self.diff_requested))
         self.tag_btn.clicked.connect(lambda: self._emit_single(self.tag_requested))
         self.register_btn.clicked.connect(lambda: self._emit_single(self.register_requested))
         self.deploy_btn.clicked.connect(lambda: self._emit_single(self.deploy_run_requested))
@@ -189,12 +207,34 @@ class ExperimentsPage(QtWidgets.QWidget):
     def _update_buttons(self) -> None:
         n = len(self.selected_run_ids())
         self.compare_btn.setEnabled(n >= 2)
-        for btn in (self.results_btn, self.restore_btn, self.tag_btn, self.folder_btn):
+        for btn in (self.results_btn, self.restore_btn, self.diff_btn, self.tag_btn,
+                    self.folder_btn):
             btn.setEnabled(n == 1)
+        self._show_explanation(self.selected_run_ids()[0] if n == 1 else None)
         finished = n == 1 and self._status_of(self.selected_run_ids()[0]) == "finished"
         self.register_btn.setEnabled(finished)
         self.deploy_btn.setEnabled(finished)
         self.delete_btn.setEnabled(n >= 1)
+
+    def _show_explanation(self, run_id: str | None) -> None:
+        rows, method = [], ""
+        if run_id is not None:
+            from ai_made_easy.core import api
+
+            try:
+                data = api.run_explanation(run_id)
+                rows, method = data.get("features", [])[:20], data.get("method", "")
+            except Exception:  # noqa: BLE001 — a missing run folder: nothing to show
+                rows = []
+        self.explain_label.setText("Feature attribution (integrated gradients)"
+                                   if method == "integrated_gradients" else "Feature importance")
+        self.explain_table.setRowCount(len(rows))
+        for i, f in enumerate(rows):
+            self.explain_table.setItem(i, 0, _Item(str(f["name"])))
+            self.explain_table.setItem(i, 1, _Item(f"{f['importance']:.4f}", f["importance"]))
+            self.explain_table.setItem(i, 2, _Item(f"{f['std']:.4f}", f["std"]))
+        self.explain_label.setVisible(bool(rows))
+        self.explain_table.setVisible(bool(rows))
 
     def _status_of(self, run_id: str) -> str:
         rec = next((r for r in self._records if r.run_id == run_id), None)
@@ -521,10 +561,22 @@ class ExperimentsPage(QtWidgets.QWidget):
         self.stage_btn = QtWidgets.QPushButton("Set Stage")
         self.model_deploy_btn = QtWidgets.QPushButton("Deploy…")
         self.model_deploy_btn.setIcon(icons.icon("download"))
+        self.model_share_btn = QtWidgets.QPushButton("Share")
+        self.model_share_btn.setToolTip("MLflow / W&B registries, the Hugging Face Hub")
+        share_menu = QtWidgets.QMenu(self.model_share_btn)
+        from ai_made_easy.ui.features.tools import SHARE_TARGETS
+
+        for target, label in SHARE_TARGETS:
+            action = share_menu.addAction(label)
+            action.setObjectName(f"share_{target}")
+            action.triggered.connect(lambda _=False, t=target: self._emit_model(
+                lambda n, v: self.model_share_requested.emit(n, v, t)))
+        self.model_share_btn.setMenu(share_menu)
         self.model_delete_btn = QtWidgets.QPushButton("")
         self.model_delete_btn.setIcon(icons.icon("trash"))
         self.model_delete_btn.setToolTip("Delete the selected model version")
-        for w in (self.stage_combo, self.stage_btn, self.model_deploy_btn, self.model_delete_btn):
+        for w in (self.stage_combo, self.stage_btn, self.model_deploy_btn, self.model_share_btn,
+                  self.model_delete_btn):
             bar.addWidget(w)
         box.addLayout(bar)
         self.models_table = _readonly_table(["Model", "Version", "Stage", "Framework", "Task",
@@ -559,7 +611,8 @@ class ExperimentsPage(QtWidgets.QWidget):
 
     def _update_model_buttons(self) -> None:
         on = self._selected_model() is not None
-        for w in (self.stage_btn, self.model_deploy_btn, self.model_delete_btn):
+        for w in (self.stage_btn, self.model_deploy_btn, self.model_share_btn,
+                  self.model_delete_btn):
             w.setEnabled(on)
 
 

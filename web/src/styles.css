@@ -62,14 +62,14 @@ body {
 
 button, input, select, textarea { font: inherit; color: inherit; }
 
-button {
+button, label.button {
   background: var(--raised);
   border: 1px solid var(--border);
   border-radius: 6px;
   padding: 5px 12px;
   cursor: pointer;
 }
-button:hover:not(:disabled) { background: var(--hover); }
+button:hover:not(:disabled), label.button:hover { background: var(--hover); }
 button:disabled { opacity: 0.5; cursor: default; }
 button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
 button.primary:hover:not(:disabled) { background: var(--accent-hover); }
@@ -182,6 +182,26 @@ pre.code { margin: 0; font: 12px/1.5 "SF Mono", Menlo, Consolas, monospace; whit
 .block-node .body { padding: 4px 10px 6px; color: var(--node-subtext); font-size: 11px;
                     max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .block-node .shape { font-family: "SF Mono", Menlo, monospace; color: var(--text-dim); }
+/* notes and groups (3.3) */
+.canvas-note { width: 100%; height: 100%; display: flex; flex-direction: column;
+               background: var(--note-bg, #fff3bf); color: #2b2a1f; border-radius: 6px;
+               border: 1px solid rgba(0,0,0,.12); box-shadow: 0 2px 6px rgba(0,0,0,.25); }
+.canvas-note.selected { outline: 2px solid var(--accent); }
+.canvas-note .note-head { display: flex; justify-content: space-between; align-items: center;
+                          padding: 2px 4px 2px 8px; font-size: 10.5px; font-weight: 600;
+                          opacity: .65; cursor: grab; }
+.canvas-note textarea { flex: 1; resize: none; border: 0; background: transparent; color: inherit;
+                        padding: 2px 8px 8px; font: inherit; font-size: 12px; outline: none; }
+.canvas-group { width: 100%; height: 100%; border: 1.5px dashed; border-radius: 10px;
+                pointer-events: none; }
+.canvas-group .group-head { display: flex; align-items: center; gap: 4px; padding: 2px 6px;
+                            pointer-events: all; width: max-content; }
+.canvas-group .group-title { border: 0; background: transparent; color: inherit; font-weight: 600;
+                             font-size: 12px; cursor: pointer; padding: 0 2px; }
+.canvas-group .group-head input { font-size: 12px; width: 160px; }
+button.icon { border: 0; background: transparent; color: inherit; cursor: pointer;
+              font-size: 14px; line-height: 1; padding: 0 4px; opacity: .7; }
+button.icon:hover { opacity: 1; }
 /* composite view: a pipeline stage's design drawn inside the stage */
 .block-node .inline-toggle { display: block; width: 100%; text-align: left; border: 0;
                              border-top: 1px solid var(--node-border); border-radius: 0 0 6px 6px;
@@ -265,3 +285,82 @@ fieldset.budget label { display: flex; justify-content: space-between; align-ite
 .error-text { color: var(--error); margin: 2px 0; }
 .sample-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px; margin-top: 8px; }
 .sample-grid img { width: 100%; image-rendering: pixelated; border: 1px solid var(--border); border-radius: 4px; }
+
+/* deploy: export formats */
+.export-format { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; color: var(--text); }
+.export-format.blocked { color: var(--text-dim, #888); }
+.export-format .export-reason { flex-basis: 100%; margin-left: 24px; font-size: 12px; }
+
+/* 3.2 tools: Tools and Share dialogs */
+.modal section + section { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--border); }
+.modal section h3 { margin: 0 0 6px; }
+.modal section .toolbar { margin-top: 8px; }
+.check { display: inline-flex; align-items: center; gap: 6px; margin-right: 18px; }
+
+/* feature importance bars (3.3) */
+.importance-bar { height: 10px; border-radius: 3px; background: var(--accent); min-width: 1px; }
+
+/* ---- 3.3 polish: toasts, menus, palette, dialogs, tour */
+.toasts { position: fixed; bottom: 36px; right: 20px; display: flex; flex-direction: column;
+          gap: 8px; align-items: flex-end; z-index: 60; pointer-events: none; }
+.toasts .toast { position: static; display: flex; gap: 10px; align-items: flex-start;
+                 pointer-events: auto; animation: toast-in .16s ease-out; }
+.toasts .toast > span { flex: 1; }
+@keyframes toast-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .toasts .toast { animation: none; } }
+
+kbd { font: 11px "SF Mono", Menlo, Consolas, monospace; color: var(--text-dim);
+      background: var(--raised); border: 1px solid var(--border); border-bottom-width: 2px;
+      border-radius: 4px; padding: 0 5px; white-space: nowrap; }
+
+.menu { position: relative; }
+.menu-list { position: absolute; top: calc(100% + 4px); left: 0; min-width: 250px; z-index: 45;
+             background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
+             padding: 4px; box-shadow: 0 10px 30px rgba(0,0,0,.35); }
+.menu-item { display: flex; width: 100%; justify-content: space-between; gap: 16px;
+             background: transparent; border: 0; text-align: left; padding: 6px 10px; }
+.menu-item:hover, .menu-item:focus-visible { background: var(--hover); }
+.menu-sep { height: 1px; background: var(--border-soft); margin: 4px 2px; }
+.menu-heading { font-size: 11px; color: var(--text-muted); padding: 4px 10px 2px;
+                text-transform: uppercase; letter-spacing: .5px; }
+
+.palette-backdrop { place-items: start center; padding-top: 12vh; }
+.palette { width: min(620px, 92vw); background: var(--panel); border: 1px solid var(--border);
+           border-radius: 10px; box-shadow: 0 16px 48px rgba(0,0,0,.45); overflow: hidden; }
+.palette > input { width: 100%; border: 0; border-bottom: 1px solid var(--border); border-radius: 0;
+                   padding: 12px 14px; font-size: 15px; background: var(--panel); }
+.palette-list { max-height: 50vh; overflow: auto; padding: 4px; }
+.palette-item { display: flex; align-items: center; gap: 8px; padding: 7px 10px; border-radius: 6px;
+                cursor: pointer; }
+.palette-item.active { background: var(--accent-soft); }
+.palette-group { font-size: 11px; }
+.palette-button { font: 11px "SF Mono", Menlo, monospace; color: var(--text-dim); }
+
+.modal.narrow { width: min(440px, 92vw); }
+button.danger-fill { background: var(--error); border-color: var(--error); }
+button.danger-fill:hover:not(:disabled) { background: var(--error); filter: brightness(1.1); }
+.shortcut-groups { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 4px 20px; }
+.shortcut-groups h4 { margin: 10px 0 4px; color: var(--text-dim); }
+.shortcut-groups td { padding: 3px 4px; }
+
+.banner { display: flex; gap: 10px; align-items: center; padding: 6px 12px; font-size: 12.5px;
+          background: var(--accent-soft); border-bottom: 1px solid var(--border); }
+.banner > span { flex: 1; }
+.state-error { color: var(--error); }
+.spinner { display: inline-block; width: 12px; height: 12px; border-radius: 50%; vertical-align: -2px;
+           border: 2px solid var(--border); border-top-color: var(--accent); margin-right: 6px;
+           animation: spin .8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .spinner { animation: none; } }
+
+.tour-ring { position: fixed; border: 2px solid var(--accent); border-radius: 8px; z-index: 55;
+             pointer-events: none; box-shadow: 0 0 0 4px var(--accent-soft); }
+.tour-card { position: fixed; z-index: 56; background: var(--panel); border: 1px solid var(--accent);
+             border-radius: 10px; padding: 12px 14px; box-shadow: 0 12px 36px rgba(0,0,0,.4); }
+.tour-card h4 { margin: 2px 0 6px; }
+.tour-card p { margin: 0 0 10px; color: var(--text-dim); }
+.tour-step { font-size: 11px; }
+
+/* keyboard focus is always visible */
+button:focus-visible, .block-item:focus-visible, [role=button]:focus-visible, select:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: 1px; }

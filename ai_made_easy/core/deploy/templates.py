@@ -173,23 +173,35 @@ Set `AIME_API_KEY` to require an `x-api-key` header.
 
 # Runs in the deployment Python environment: loads the trained model through
 # the generated training script, verifies it, and writes optional formats.
-EXPORT_SCRIPT = r'''"""Verify the packaged model and export it to other runtime formats."""
+EXPORT_SCRIPT = r'''"""Verify the packaged model and export it to other runtime formats.
+
+    python export_formats.py                 # the formats chosen when the package was built
+    python export_formats.py onnx litert     # any others (see exporters.py)
+
+Each export is checked against the packaged model; export_report.json has the results.
+"""
 from __future__ import annotations
 
 import json
+import os
+import subprocess
 import sys
-import traceback
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 MODEL_DIR = HERE / "model"
+sys.path.insert(0, str(HERE))
 sys.path.insert(0, str(MODEL_DIR))
+import exporters  # noqa: E402
 import model_def  # noqa: E402
 
 FRAMEWORK = {framework!r}
-FORMATS = {formats!r}
-EXPORTS = HERE / "exports"
+KIND = {kind!r}
+FORMATS = tuple(exporters.ALIASES.get(f, f) for f in sys.argv[1:]) or {formats!r}
+REPORT = HERE / "export_report.json"
 report = {{"formats": {{}}}}
+if sys.argv[1:] and REPORT.exists():
+    report = json.loads(REPORT.read_text())
 model = model_def.load_predictor(MODEL_DIR)
 state = getattr(model_def, "INFERENCE_STATE", {{}})
 report["signature"] = {{
@@ -200,149 +212,65 @@ report["signature"] = {{
 }}
 
 
-def size(path: Path) -> int:
-    return sum(p.stat().st_size for p in path.rglob("*")) if path.is_dir() else path.stat().st_size
+def samples() -> "exporters.Samples":
+    """The run's saved samples (calibration.npz), else random inputs of the right shape."""
+    shape = tuple(getattr(model_def, "INPUT_SHAPE", ()) or ())
+    integer = False
+    if FRAMEWORK == "keras":
+        shape = tuple(model.input_shape[1:])
+    elif FRAMEWORK == "pytorch":
+        # token-id models take integers; recommenders embed ids too, but read one float
+        # row [user, item, *dense features] and round the ids themselves (rec_ids)
+        integer = not hasattr(model_def, "rec_ids") and any(
+            m.__class__.__name__ == "Embedding" for m in model.modules())
+    graph = None
+    st = getattr(model_def, "STATE", None)
+    if KIND == "graph" and isinstance(st, dict) and "x" in st and "edge_index" in st:
+        graph = (st["x"], st["edge_index"])
+    return exporters.load_samples(KIND, MODEL_DIR, input_shape=shape, integer=integer,
+                                  graph=graph)
 
 
-def export(fmt: str, fn) -> None:
-    try:
-        path, note = fn()
-        report["formats"][fmt] = {{"ok": True, "file": str(path.relative_to(HERE)),
-                                  "bytes": size(path), "note": note}}
-        print(f"{{fmt}}: {{path.name}} ({{size(path) / 1e6:.2f}} MB) {{note}}".rstrip())
-    except ImportError as exc:
-        report["formats"][fmt] = {{"ok": False, "error": f"not installed: {{exc.name}}"}}
-        print(f"{{fmt}}: skipped — {{exc.name}} is not installed")
-    except Exception as exc:  # noqa: BLE001 — reported per format
-        report["formats"][fmt] = {{"ok": False, "error": str(exc)[-500:]}}
-        print(f"{{fmt}}: failed — {{exc}}")
-        traceback.print_exc()
+def tensorflow_backend(formats: list) -> None:
+    """LiteRT int8 (and LiteRT without litert-torch) need Keras on TensorFlow: rerun
+    those formats in a TensorFlow-backend process, which reads the same .keras file."""
+    env = {{**os.environ, "KERAS_BACKEND": "tensorflow"}}
+    proc = subprocess.run([sys.executable, __file__, *formats], cwd=HERE, env=env,
+                          capture_output=True, text=True)
+    print(proc.stdout.replace("EXPORT-DONE", "").rstrip())
+    if REPORT.exists():
+        report["formats"].update(json.loads(REPORT.read_text()).get("formats", {{}}))
 
 
-if FRAMEWORK == "pytorch":
-    import numpy as np
-    import torch
+todo = list(FORMATS)
+if FRAMEWORK == "keras" and todo:
+    import importlib.util
 
-    _traced = {{}}
-
-    def traced_input():
-        """A dummy batch and the model's output on it, made only when a format is asked
-        for: some models (class-conditional diffusion, graph networks) take more than one
-        tensor, and loading them must not depend on a single-tensor call."""
-        if not _traced:
-            shape = tuple(model_def.INPUT_SHAPE)
-            # token-id models take integers; recommenders embed ids too, but read one float
-            # row [user, item, *dense features] and round the ids themselves (rec_ids)
-            floating = hasattr(model_def, "rec_ids") or \
-                not any(m.__class__.__name__ == "Embedding" for m in model.modules())
-            dummy = (torch.randn(2, *shape) if floating
-                     else torch.randint(0, 2, (2, *shape), dtype=torch.long))
-            with torch.no_grad():
-                _traced["io"] = dummy, model(dummy).float().numpy()
-        return _traced["io"]
-
-    def onnx_export():
-        dummy, reference = traced_input()
-        path = EXPORTS / "model.onnx"
-        torch.onnx.export(model, (dummy,), str(path), input_names=["input"],
-                          output_names=["output"], dynamo=False, opset_version=18,
-                          dynamic_axes={{"input": {{0: "batch"}}, "output": {{0: "batch"}}}})
-        import onnx
-
-        onnx.checker.check_model(onnx.load(str(path)))
-        try:
-            import onnxruntime as ort
-        except ImportError:
-            return path, "(install onnxruntime to verify outputs)"
-        got = ort.InferenceSession(str(path)).run(None, {{"input": dummy.numpy()}})[0]
-        err = float(np.abs(got - reference).max())
-        if err > 1e-3:
-            raise RuntimeError(f"ONNX output differs from PyTorch by {{err:.2e}}")
-        return path, f"verified with onnxruntime (max diff {{err:.1e}})"
-
-    def onnx_int8():
-        source = EXPORTS / "model.onnx"
-        if not source.exists():
-            onnx_export()
-        from onnxruntime.quantization import QuantType, quantize_dynamic
-
-        path = EXPORTS / "model.int8.onnx"
-        quantize_dynamic(str(source), str(path), weight_type=QuantType.QInt8)
-        return path, f"{{size(path) / max(size(source), 1):.0%}} of the float model"
-
-    def torchscript():
-        dummy, reference = traced_input()
-        path = EXPORTS / "model.torchscript.pt"
-        traced = torch.jit.trace(model, dummy)
-        traced.save(str(path))
-        err = float((torch.jit.load(str(path))(dummy).float() - torch.from_numpy(reference))
-                    .abs().max())
-        if err > 1e-4:
-            raise RuntimeError(f"TorchScript output differs by {{err:.2e}}")
-        return path, "verified"
-
-    def coreml():
-        import coremltools as ct
-
-        dummy, _ = traced_input()
-        path = EXPORTS / "model.mlpackage"
-        traced = torch.jit.trace(model, dummy[:1])
-        mlmodel = ct.convert(traced, inputs=[ct.TensorType(name="input", shape=dummy[:1].shape)],
-                             convert_to="mlprogram")
-        mlmodel.save(str(path))
-        return path, ""
-
-    table = {{"onnx": onnx_export, "onnx_int8": onnx_int8, "torchscript": torchscript,
-              "coreml": coreml}}
-elif FRAMEWORK == "keras":
     import keras
 
-    def keras_onnx():
-        path = EXPORTS / "model.onnx"
-        model.export(str(path), format="onnx")
-        return path, ""
-
-    def saved_model():
-        path = EXPORTS / "saved_model"
-        model.export(str(path), format="tf_saved_model")
-        return path, ""
-
-    def tflite():
-        import tensorflow as tf
-
-        saved = EXPORTS / "saved_model"
-        if not saved.exists():
-            saved_model()
-        path = EXPORTS / "model.tflite"
-        path.write_bytes(tf.lite.TFLiteConverter.from_saved_model(str(saved)).convert())
-        return path, ""
-
-    table = {{"onnx": keras_onnx, "saved_model": saved_model, "tflite": tflite}}
-else:
-    def sklearn_onnx():
-        from skl2onnx import to_onnx
-
-        columns = report["signature"]["columns"]
-        if columns:
-            raise RuntimeError("tabular pipelines with named columns: use the joblib model")
-        import numpy as np
-
-        path = EXPORTS / "model.onnx"
-        n_features = model.n_features_in_
-        onx = to_onnx(model, np.zeros((1, n_features), dtype=np.float32))
-        path.write_bytes(onx.SerializeToString())
-        return path, ""
-
-    table = {{"onnx": sklearn_onnx}}
-
-if FORMATS:
-    EXPORTS.mkdir(exist_ok=True)
-for fmt in FORMATS:
-    if fmt not in table:
-        report["formats"][fmt] = {{"ok": False, "error": f"not available for {{FRAMEWORK}}"}}
-        print(f"{{fmt}}: not available for {{FRAMEWORK}} models")
-        continue
-    export(fmt, table[fmt])
-(HERE / "export_report.json").write_text(json.dumps(report, indent=1, default=str))
+    litert = [f for f in todo if f.startswith("litert")]
+    on_tf = keras.backend.backend() == "tensorflow"
+    if litert and not on_tf and importlib.util.find_spec("tensorflow") is not None and (
+            "litert_int8" in litert or importlib.util.find_spec("litert_torch") is None):
+        todo = [f for f in todo if f not in litert]
+        REPORT.write_text(json.dumps(report, indent=1, default=str))
+        tensorflow_backend(litert)
+if todo:
+    try:
+        data = samples()
+    except exporters.Skipped as exc:
+        data = None
+        for fmt in todo:
+            report["formats"][fmt] = {{"ok": False, "error": str(exc)}}
+            print(f"{{fmt}}: skipped: {{exc}}")
+    if data is not None:
+        print(f"checking exports on {{len(data.cases)}} {{data.source}}")
+        report["formats"].update(exporters.export_all(model, FRAMEWORK, todo, HERE / "exports",
+                                                      data))
+for entry in report["formats"].values():
+    if entry.get("file"):
+        entry["file"] = os.path.relpath(entry["file"], HERE) if os.path.isabs(entry["file"]) \
+            else entry["file"]
+REPORT.write_text(json.dumps(report, indent=1, default=str))
 print("EXPORT-DONE")
 '''

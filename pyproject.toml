@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ai-made-easy"
-version = "3.1.0"
+version = "3.3.0"
 description = "Visual model builder: design neural networks, classic ML, probabilistic models and multi-stage pipelines, train them, and export clean PyTorch, Keras, scikit-learn, pgmpy and PyMC code"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -44,10 +44,13 @@ text = ["transformers>=4.45", "tokenizers>=0.19"]
 probabilistic = ["pgmpy>=1.1", "hmmlearn>=0.3", "pymc>=5.16", "gpytorch>=1.11",
                  "statsmodels>=0.14", "scikit-learn>=1.4", "pandas>=2.0", "scipy>=1.10",
                  "pillow>=10"]
-graph = ["torch_geometric>=2.5", "scipy>=1.10", "pandas>=2.0"]
+graph = ["torch_geometric>=2.5", "scipy>=1.10", "pandas>=2.0", "ogb>=1.3"]
 # Stable Diffusion LoRA fine-tuning
 generative = ["diffusers>=0.30", "peft>=0.11", "transformers>=4.45", "pillow>=10"]
 rl = ["gymnasium>=1.0", "stable-baselines3>=2.3"]
+# Atari games through the Arcade Learning Environment; AI Made Easy never ships ROMs
+# (docs/RL.md: which ale-py wheels include them, and how to add your own)
+atari = ["ale-py>=0.9", "gymnasium>=1.0", "stable-baselines3>=2.3", "opencv-python-headless>=4.8"]
 # Box2D environments (LunarLander, BipedalWalker, CarRacing)
 rl-box2d = ["gymnasium[box2d]>=1.0", "stable-baselines3>=2.3"]
 data = ["pandas>=2.0", "pyarrow>=14", "openpyxl>=3.1"]
@@ -56,9 +59,22 @@ classic = ["scikit-learn>=1.4", "joblib>=1.3", "xgboost>=2.0", "lightgbm>=4.0",
 keras = ["keras>=3.6"]
 serve = ["fastapi>=0.110", "uvicorn[standard]>=0.29", "python-multipart>=0.0.9", "httpx>=0.27"]
 export = ["onnx>=1.16", "onnxruntime>=1.18", "onnxscript>=0.1", "skl2onnx>=1.17"]
+# on-device exports: ExecuTorch (.pte, XNNPACK) for PyTorch, the LiteRT interpreter to
+# check .tflite files (Keras -> LiteRT also needs the tensorflow extra)
+edge = ["executorch>=1.0", "ai-edge-litert>=1.2"]
 tuning = ["optuna>=3.6"]
+# UMAP embeddings in classic pipelines
+umap = ["umap-learn>=0.5", "scikit-learn>=1.4"]
+imbalance = ["imbalanced-learn>=0.12", "scikit-learn>=1.4"]
+# train on Kaggle / Modal (SSH, Colab and containers need no Python packages)
+kaggle = ["kaggle>=1.6"]
+modal = ["modal>=0.64"]
+# mirror runs to MLflow (a local SQLite store unless MLFLOW_TRACKING_URI) and W&B
+tracking = ["mlflow-skinny>=3.0", "sqlalchemy>=2.0", "alembic>=1.13", "wandb>=0.19"]
+# push runs / Spaces to the Hugging Face Hub, load Hub datasets
+hub = ["huggingface_hub>=0.34", "datasets>=3.0", "pyarrow>=14"]
 web = ["ai-made-easy[serve]"]
-all = ["ai-made-easy[torch,vision,vision-tasks,audio,text,generative,probabilistic,graph,rl,data,classic,keras,llm,mcp-server,serve,export,tuning]"]
+all = ["ai-made-easy[torch,vision,vision-tasks,audio,text,generative,probabilistic,graph,rl,data,classic,umap,imbalance,keras,llm,mcp-server,serve,export,tuning,tracking,hub,kaggle]"]
 dev = ["pytest>=8.0", "pytest-qt>=4.4", "pytest-timeout>=2.3", "pillow>=10", "ruff>=0.6", "httpx>=0.27"]
 perception = ["sounddevice>=0.4"]
 mcp-server = ["mcp[cli]>=1.0,<2"]

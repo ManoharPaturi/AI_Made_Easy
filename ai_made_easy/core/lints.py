@@ -184,6 +184,37 @@ def classification_output_size(ctx: LintContext):
     return issues
 
 
+
+def metric_loss_classes(ctx: LintContext):
+    """ArcFace, triplet, …: the loss's class count must match the data; the model's last
+    layer is the embedding size and should not squash it."""
+    from ai_made_easy.core.training import catalog as cat
+
+    loss = ctx.loss_type()
+    if loss not in cat.METRIC_LOSS_IDS:
+        return []
+    node = next(iter(ctx.nodes_of(loss)), None)
+    if node is None:
+        return []
+    classes = int(node.resolved_params().get("classes") or 0)
+    issues = []
+    for ds in ctx.nodes_of("data.torchvision", "data.synthetic"):
+        p = ds.resolved_params()
+        want = (DATASET_CLASSES.get(p.get("dataset")) if ds.type_id == "data.torchvision"
+                else (int(p["n_classes"]) if p.get("kind") != "regression" else None))
+        if want and classes != want:
+            issues.append(_issue(
+                "error", f"{_name(ds)} has {want} classes but {_name(node)} is set to "
+                         f"{classes}. Set its classes to {want}.", node.instance_id))
+    last = ctx.last_compute()
+    if last is not None and last.type_id in SOFTMAX_LIKE:
+        issues.append(_issue(
+            "warning", f"{_name(node)} learns from the embedding the model outputs; end the "
+                       f"model with a Dense layer (the embedding size), not {_name(last)}.",
+            last.instance_id))
+    return issues
+
+
 def regression_output_activation(ctx: LintContext):
     loss, last = ctx.loss_type(), ctx.last_compute()
     if loss not in REGRESSION_LOSSES or last is None or last.type_id not in BOUNDED_ACTIVATIONS:
@@ -513,6 +544,40 @@ def resource_budget(ctx: LintContext):
     return out
 
 
+def export_targets(ctx: LintContext):
+    """Export formats the design can't reach: the budget device's formats, else ONNX."""
+    from ai_made_easy.core import budget
+    from ai_made_easy.core.deploy.exportability import (
+        blockers,
+        framework_of,
+        suggested_formats,
+    )
+    from ai_made_easy.core.deploy.exporters import SHORT
+
+    framework = framework_of(ctx.graph)
+    blocked = blockers(ctx.graph, framework)
+    if not blocked:
+        return []
+    device = budget.budget_of(ctx.graph).get("device")
+    wanted = suggested_formats(device, framework) if device else []
+    if wanted:
+        bad = [f for f in wanted if f in blocked]
+        if not bad:
+            return []
+        good = [f for f in wanted if f not in blocked]
+        reason, node = blocked[bad[0]]
+        label = budget.get_device(device).label
+        tail = f" {SHORT[good[0]]} still works there." if good else ""
+        return [_issue("warning" if bad[0] == wanted[0] else "info",
+                       f"{label} runs {' / '.join(SHORT[f] for f in bad)} models, but this "
+                       f"design can't be exported to {SHORT[bad[0]]}: {reason}.{tail}",
+                       node)]
+    if "onnx" in blocked:
+        reason, node = blocked["onnx"]
+        return [_issue("info", f"ONNX export: {reason}", node)]
+    return []
+
+
 def _registry():
     from ai_made_easy.core.registry import get_registry
 
@@ -524,6 +589,7 @@ RULES: list[Callable[[LintContext], list]] = [
     dense_on_spatial,
     softmax_before_logit_loss,
     classification_output_size,
+    metric_loss_classes,
     regression_output_activation,
     consecutive_linear,
     stacked_activations,
@@ -537,6 +603,7 @@ RULES: list[Callable[[LintContext], list]] = [
     training_setup,
     pretrained_needs_imagenet_norm,
     resource_budget,
+    export_targets,
 ]
 
 

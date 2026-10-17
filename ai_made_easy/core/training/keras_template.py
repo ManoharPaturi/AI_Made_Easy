@@ -193,6 +193,19 @@ def main() -> None:
                     class_weight=class_weight{% endif %})
     deploy_model.save(MODEL_FILE)
     save_inference_state()
+    try:  # inputs for int8 calibration and export checks (about 4 MB at most)
+        per = max(int(np.asarray(x_train[:1]).nbytes), 1)
+        calib = {"x": np.asarray(x_train[: max(4, min(128, int(4e6 // per)))])}
+        if len(x_test):
+            calib["x_eval"] = np.asarray(x_test[: max(4, min(256, int(4e6 // per)))])
+{% if spec.task == "multiclass" %}
+            labels = np.asarray(y_test[: len(calib["x_eval"])])
+            if labels.ndim == 1:
+                calib["y_eval"] = labels.astype(np.int64)
+{% endif %}
+        np.savez_compressed("calibration.npz", **calib)
+    except Exception as exc:  # noqa: BLE001 — exports fall back to random inputs
+        print(f"(no calibration sample: {exc})")
     print(f"saved model to {MODEL_FILE}")
     outputs = deploy_model.predict(x_test, verbose=0) if len(x_test) else np.zeros((0,))
     metrics = compute_metrics(outputs, y_test) if len(x_test) else {}

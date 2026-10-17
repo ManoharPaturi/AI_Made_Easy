@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { fileMenu } from "./helpers";
 
 // A 500-block design opens, validates and takes an edit without stalling the page.
 function chain(n: number) {
@@ -25,7 +26,7 @@ test("a 500-block design opens and validates quickly", async ({ page, request })
   try {
     await page.goto("/");
     await expect(page.locator(".block-node").first()).toBeVisible();
-    await page.getByRole("button", { name: "Open" }).click();
+    await fileMenu(page, "open-project");
     const start = Date.now();
     await page.locator(".issue", { hasText: "e2e_large" }).click();
     await expect(page.locator(".block-node")).toHaveCount(502, { timeout: 30_000 });

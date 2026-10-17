@@ -392,6 +392,21 @@ class Transformer:
     stage: str = "features"          # features | text
     checks: Callable | None = None
     seeded: bool = False
+    package: str = ""                # pip package outside scikit-learn ("" = none)
+    extra: str = ""                  # the ai-made-easy extra that installs it
+
+
+def _smooth(value) -> str:
+    text = str(value).strip()
+    return '"auto"' if text in ("", "auto") else str(float(text))
+
+
+def _smooth_check(p) -> list:
+    try:
+        _smooth(p.get("smooth", "auto"))
+    except ValueError:
+        return [("error", "smooth must be auto or a number")]
+    return []
 
 
 def _ctor(cls: str, **kwargs) -> str:
@@ -446,6 +461,40 @@ TRANSFORMERS: list[Transformer] = [
     Transformer("ml.fast_ica", "Independent Components", "FastICA", "sklearn.decomposition",
                 (P("n_components", "int", 10, lo=1),),
                 desc="Separate statistically independent sources.", seeded=True),
+    Transformer("ml.isomap", "Isomap", "Isomap", "sklearn.manifold",
+                (P("n_components", "int", 2, lo=1), P("n_neighbors", "int", 5, lo=1)),
+                desc="Non-linear embedding that keeps geodesic distances along the data's "
+                     "manifold."),
+    Transformer("ml.nystroem", "Kernel Features (Nystroem)", "Nystroem",
+                "sklearn.kernel_approximation",
+                (P("kernel", "enum", "rbf", options=("rbf", "poly", "sigmoid", "laplacian")),
+                 P("n_components", "int", 100, lo=1, help="Features to build")),
+                desc="Approximate kernel features: a linear model on them acts like a kernel "
+                     "SVM, but scales to large tables.", seeded=True),
+    Transformer("ml.umap", "UMAP", "UMAP", "umap",
+                (P("n_components", "int", 2, lo=1), P("n_neighbors", "int", 15, lo=2),
+                 P("min_dist", "float", 0.1, lo=0.0, hi=1.0)),
+                desc="Uniform manifold approximation: a fast non-linear embedding that keeps "
+                     "local and much of the global structure. Good before clustering.",
+                seeded=True, package="umap-learn", extra="umap"),
+    Transformer("ml.target_encode", "Target Encoding", "TargetEncoder", "sklearn.preprocessing",
+                (P("smooth", "str", "auto", help="Shrinkage toward the overall mean: auto or "
+                                                 "a number"),
+                 P("cv", "int", 5, lo=2, hi=20, help="Folds used to encode the training rows")),
+                desc="Replaces each category with the average target of its rows, learned "
+                     "with cross-fitting so a row never sees its own label. Good for columns "
+                     "with many categories, where one-hot would explode.",
+                render=lambda p: (f"TargetEncoder(smooth={_smooth(p['smooth'])}, "
+                                  f"cv={int(p['cv'])})"),
+                stage="categorical", seeded=True, checks=lambda p: _smooth_check(p)),
+    Transformer("ml.smote", "SMOTE Oversampling", "SMOTE", "imblearn.over_sampling",
+                (P("k_neighbors", "int", 5, lo=1, help="Neighbours used to make new rows"),
+                 P("sampling_strategy", "enum", "auto",
+                   options=("auto", "minority", "not majority", "all"))),
+                desc="Synthesizes new rows of the rarer classes between existing ones "
+                     "(Chawla et al., 2002). Applied to the training rows only, while fitting "
+                     "(also inside cross-validation), never to the test set.",
+                stage="sampler", seeded=True, package="imbalanced-learn", extra="imbalance"),
     Transformer("ml.tfidf", "TF-IDF Vectorizer", "TfidfVectorizer",
                 "sklearn.feature_extraction.text",
                 (P("max_features", "int", 20000, lo=1), P("ngram_max", "int", 2, lo=1, hi=5),
@@ -542,7 +591,10 @@ def register_all() -> None:
             type_id=tr.type_id, display_name=tr.name,
             category="Text Features" if tr.stage == "text" else "Feature Engineering",
             color=color, params=tuple(tr.params), checks_fn=tr.checks, description=tr.desc,
-            library="scikit-learn", meta={"kind": "transformer", "stage": tr.stage}))
+            library={"umap-learn": "umap-learn", "imbalanced-learn": "imbalanced-learn"}.get(
+                tr.package, "scikit-learn"),
+            meta={"kind": "transformer", "stage": tr.stage},
+            requires=(tr.module.split(".")[0],) if tr.package else (), extra=tr.extra))
     reg.register(SEARCH)
     for tid, name, key, desc in CLUSTER_METRICS:
         reg.register(BlockDefinition(

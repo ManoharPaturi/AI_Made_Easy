@@ -1,4 +1,6 @@
 // Dependency-free SVG line chart for training curves.
+import { SERIES } from "../theme";
+
 export interface Series {
   name: string;
   points: [number, number][];
@@ -6,8 +8,7 @@ export interface Series {
   dashed?: boolean;
 }
 
-const PALETTE = ["#4c8dff", "#3fb950", "#e3a008", "#f85149", "#a371f7", "#39c5cf",
-                 "#ff8bd1", "#9aa0a9"];
+const PALETTE = SERIES;
 
 function niceTicks(lo: number, hi: number, count = 4): number[] {
   if (!Number.isFinite(lo) || !Number.isFinite(hi)) return [];

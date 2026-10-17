@@ -1,5 +1,188 @@
 # Changelog
 
+## 3.3.0
+
+More blocks, a canvas that keeps up, and a more polished web app. 583 blocks, 66 recipes.
+See [docs/ROADMAP_3.3.md](docs/ROADMAP_3.3.md) for what is in this release and what moves
+to the next one.
+
+### Added
+- **Modern network parts** (Transformer Parts, Vision Blocks):
+  - Rotary embedding (RoPE), grouped-query attention, a SwiGLU / GeGLU feed-forward and
+    a Llama decoder block (RMSNorm, GQA with rotary positions, SwiGLU).
+  - Mixture of Experts: top-k routed SwiGLU experts with a load-balancing loss.
+  - LayerScale, DropPath (stochastic depth), FiLM conditioning, LoRA Dense.
+  - Patch Embedding (ViT), ConvNeXt block, Swin Transformer block (shifted windows with a
+    relative position bias), Conformer block.
+  - Every one is checked against the designer's shapes and parameter counts. Rotary
+    embedding, the gated feed-forward, LayerScale and DropPath also generate Keras.
+- **Optimizers:** Lion, LAMB and Lookahead (AdamW).
+- **Weight averaging:** the Trainer's `ema_decay` evaluates and keeps an exponential
+  moving average of the weights (PyTorch and Keras).
+- **Classic ML:** Isomap, Nystroem kernel features and UMAP (`pip install
+  'ai-made-easy[umap]'`).
+- **Recipes:** Tiny Llama (language modelling), Vision Transformer and ConvNeXt (image
+  classification, from scratch).
+- **Canvas conveniences (desktop and web):**
+  - Copy, paste and duplicate blocks (Ctrl/⌘ C, V, D) with their settings and the wires
+    between them. The clipboard holds design JSON, so blocks copied in one app paste in
+    the other, and a saved design pastes too.
+  - Groups (Ctrl/⌘ G): a titled frame around blocks. On the desktop it moves them
+    together; Ctrl/⌘ Shift U ungroups.
+  - Sticky notes. Groups and notes are saved with the design and never reach the code.
+  - Drop a data file (CSV, Parquet, Excel, JSON, text, or a zip of class folders) on the
+    window to start a project from it: the wizard opens with the data detected.
+- **Feature Importance** block: after training, permutation importance on the test set,
+  shown with the run on the Experiments page (PyTorch, tables and feature vectors).
+- **Compare with the canvas:** what changed since a run (blocks, parameters, wires).
+- **Metric learning:** ArcFace, CosFace, batch-hard Triplet and Supervised Contrastive
+  losses. The network learns an embedding; accuracy is measured against the class
+  centres, and an **ArcFace embeddings** recipe trains one on images.
+- **Optimizers:** SAM (sharpness-aware, around SGD or AdamW) and Schedule-Free AdamW.
+  The Trainer's `swa_start` averages the weights of every epoch from then on (SWA).
+- **Integrated Gradients:** a second way to explain a run's features, beside permutation
+  importance.
+- **Classic ML:** Target Encoding for categories, and SMOTE oversampling (`pip install
+  'ai-made-easy[imbalance]'`), applied while fitting only, inside cross-validation too.
+- `aime new --data table.csv` picks the task from the data. 583 blocks, 66 recipes.
+- **Web app, matching the desktop:**
+  - A command palette (Ctrl/⌘ K) for every command, and find a block on the canvas
+    (Ctrl/⌘ F, or `@` in the palette).
+  - A keyboard shortcuts sheet (`?`), select all (Ctrl/⌘ A) and zoom (Ctrl/⌘ =, −, 0).
+  - A File menu with recent projects, and Export canvas as PNG.
+  - Questions such as "Delete 3 runs?" and the access-token prompt now appear in the app
+    instead of as browser pop-ups.
+  - Messages stack (up to four), repeats are counted, and each has a × to close it.
+  - Lists show loading, error (with Try again) and empty states.
+  - A restored autosave can be discarded ("Start fresh").
+  - Add a block from the library with the keyboard (Enter), and every icon button has a
+    label for screen readers.
+- **Desktop:** a minimap (View ▸ Minimap, Ctrl+Shift+M) that you can click or drag to move
+  around, and screen-reader names for the panels.
+- **Both apps:** a three-step first-run tour (Help ▸ Show the Tour) and one chart palette,
+  so a run's curve has the same colour in both.
+
+### Fixed
+- The web app's Ctrl/⌘ S shortcut was registered again on every render.
+- The New Project wizard kept data from Tools ▸ Download a Dataset only until a task
+  was picked; it now starts on that data and keeps it.
+- Dropping a file on the desktop canvas tried to open it as a canvas session file.
+- On Windows, checking whether a run was still alive terminated its process. The check
+  no longer sends a signal, and a reused process id no longer counts as the run.
+- The web server marks runs a crash left "running" as failed when it starts, and a run's
+  live view ends once no process is running it, instead of waiting forever.
+- The access token in download and WebSocket links is hidden in the server's access log.
+- Uploads are limited to `AIME_MAX_UPLOAD_MB` (default 2 GB) and streamed to disk. A
+  results zip is checked for its unpacked size before it is extracted.
+- Stopping a run that had just finished no longer marks it stopped. Following a remote
+  run again from two places starts one poller.
+- Long runs and long-lived servers no longer keep every event in memory.
+- If a Modal job can't be stopped, the run log says so and how to stop it yourself.
+- Imports, augmentation previews, export checks and `aime run` use the configured
+  Python (`AIME_PYTHON`) instead of the app's own binary in the packaged app.
+- Exporting run history no longer leaves a temporary folder behind, and two saves of
+  one project at once no longer share a temporary file.
+- Docker image builds and `pip install` on remote machines have timeouts.
+- An ensemble whose member sizes can't be estimated gets a warning instead of passing
+  the parameter limit silently.
+
+## 3.2.0
+
+3.2 makes the app solid and gets designs out of it. Runs train on SSH hosts, Kaggle,
+Colab, Modal or a container as well as this computer. Trained models export to ONNX,
+TorchScript, Core ML, ExecuTorch and LiteRT, each format checked against the model. Runs
+and models reach the tools teams already use: MLflow, Weights & Biases, the Hugging Face
+Hub and Kaggle. AutoML covers every family, and the models put off in 3.0 and 3.1 land:
+Glow, the Open Graph Benchmark, Atari, your own Gymnasium environments, and QAT for text
+models. It has 554 blocks, 62 recipes and 35 tasks.
+
+AI Made Easy still never asks for, stores or logs a password, token or key. Every
+integration uses the tool's own sign-in and is off until you choose it.
+
+### Added
+- **Train anywhere** ([REMOTE.md](docs/REMOTE.md)):
+  - **Run on** (desktop and web): this computer, any SSH host in `~/.ssh/config`
+    (including rented GPU machines), a Kaggle notebook, a Colab hand-off, a Modal sandbox,
+    or a Docker container.
+  - Remote runs stream the same events as local ones, so live curves, Stop, sweeps,
+    pipelines and AutoML all work unchanged.
+  - A dropped SSH connection resumes with no epoch lost, and `aime runs attach` follows a
+    run again after a restart.
+  - Each backend reports its accelerator, which picks the device the budget is checked
+    against.
+- **Export everywhere** ([EXPORT.md](docs/EXPORT.md), [DEPLOY.md](docs/DEPLOY.md)):
+  - Formats: ONNX for detectors (post-processing included) and graph networks,
+    ExecuTorch (`.pte`) and LiteRT (`.tflite`), with int8 calibrated on the run's own
+    samples.
+  - Every format is run against the trained model before it is packaged.
+  - The budget device suggests a format, and a design rule names why a design can't
+    reach one.
+  - `docs/DEPLOY.md` lists, for every task, what `/predict` takes and which formats it
+    exports. It is generated from the code.
+- **Work with your tools** ([TOOLS.md](docs/TOOLS.md)):
+  - Runs mirror to MLflow and W&B as they train, on every backend.
+  - Registered models go to MLflow's registry, W&B, a Hugging Face model repository or a
+    Docker Space. Publishing is confirmed every time and private by default.
+  - `kaggle:`, `kaggle-competition:` and `hf:` datasets download once and are detected
+    like a local folder. Kaggle submissions are confirmed every time.
+  - MLflow PyTorch / ONNX models open as designs (`aime import mlflow`).
+  - The run history exports to CSV or Parquet.
+  - New extras: `tracking` and `hub`.
+- **AutoML for every family:**
+  - held-out metrics for each family: log-likelihood (Bayesian networks, HMMs), PSIS-LOO
+    ELPD (PyMC), NLPD (GPs), MASE (state-space), bits per dimension (flows), ROC AUC
+    (labelled anomaly detection)
+  - cost estimates for classic and probabilistic designs; classic runs measure their
+    predict latency and size, so one Pareto front mixes networks and classic models
+  - tuning knobs for the probabilistic recipes
+  - trials can train several at a time and on any backend (`--concurrency`, `--on`);
+    the tuned trials start after the baseline round is scored
+- **More models:**
+  - **Glow:** 1×1 invertible convolutions, convolutional couplings, squeeze and
+    multi-scale split blocks, image density data, and a Glow recipe scored in bits per
+    dimension.
+  - **Open Graph Benchmark:** node, graph and link datasets with their official splits
+    and evaluators (`ogb` in the `graph` extra).
+  - **Atari** games through ale-py, with the DQN-paper preprocessing and frame stacking
+    blocks and an Atari PPO recipe (the `atari` extra). A design rule reports a missing
+    ROM ([RL.md](docs/RL.md)).
+  - **Your own Gymnasium environments:** the spaces are read in a separate process while
+    you design and checked against the network.
+  - **QAT for text models:** embedding tables get weight-only quantization, so
+    quantization-aware training works for designs with embeddings.
+- **Web parity:**
+  - a **Backends** button in the header
+  - **Tools** (tracking for the project, Kaggle / Hub datasets that open the wizard with
+    the data detected, run-history downloads)
+  - a model's **Share** dialog (export formats, MLflow, W&B, Hub, Space)
+  - **Pull from the Hub**
+  - MLflow models in **Import model**
+
+### Fixed
+- **CI:** every job has a timeout, and pytest-timeout fails a hung test with every
+  thread's stack. A recovery prompt that hung headless test runs is skipped in tests.
+- **Packages:**
+  - DLRM and class-conditional diffusion packages failed verification.
+  - VAE, GAN, diffusion and Stable Diffusion LoRA packages were described as image
+    classifiers and had no `/generate`.
+  - Stable Diffusion LoRA runs could not be packaged at all.
+  - Flow packages were described as image models once flows accepted images.
+- **Downloads:** Torchvision downloads had no socket timeout, so a dead network hung the
+  run.
+- **Remote runs:**
+  - Starting an SSH run blocked until training ended.
+  - Bundle files had a 1970 timestamp, which Colab's results zip refused.
+  - The web Training panel missed a run's first log lines.
+- **Web:** download links (serving packages, run exports) carry the access token, so
+  they work when the server requires one.
+- **Large designs:** 1000 blocks validate in 20 ms (was 292 ms). The desktop canvas
+  opens 500 blocks in about 0.3 s (was 22 s).
+
+### Known limitations
+- A Modal run can't be followed again after the app restarts; its outputs stay in the
+  `aime-runs` volume.
+- Kaggle has no live log API, so a Kaggle run's curves arrive when the kernel finishes.
+
 ## 3.1.0
 
 3.1 finishes what 3.0 put off rather than opening new model areas. Every design now has a

@@ -108,7 +108,7 @@ class ExperimentService(QtCore.QObject):
             and self.pipeline.thread.is_alive()
 
     def start_pipeline(self, graph: Graph, project: str = "", base=None,  # noqa: ANN001
-                       resume_from: str = "") -> str | None:
+                       resume_from: str = "", on: str = "") -> str | None:
         from ai_made_easy.core.pipelines.runner import PipelineError, PipelineRunner, resume
 
         if self.pipeline_running():
@@ -116,7 +116,8 @@ class ExperimentService(QtCore.QObject):
             return None
         try:
             runner = resume(self.manager, self.pipelines, resume_from, base) if resume_from \
-                else PipelineRunner(self.manager, self.pipelines, graph, project, base)
+                else PipelineRunner(self.manager, self.pipelines, graph, project, base,
+                                    on="" if on == "local" else on)
         except (PipelineError, KeyError) as exc:
             self.log.error(f"could not start the pipeline: {exc}")
             return None

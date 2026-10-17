@@ -6,19 +6,22 @@ is served at ``/``. Projects are stored as JSON under ``$AIME_HOME/projects``;
 runs, sweeps and the model registry use the same stores as the desktop app.
 
 Access control: when ``AIME_WEB_TOKEN`` (or ``create_app(token=...)``) is set,
-every request needs ``Authorization: Bearer <token>`` (WebSockets:
-``?token=<token>``). Without it the server is meant for localhost only.
+every request needs ``Authorization: Bearer <token>``. WebSockets and GET requests
+(download links the browser opens directly) may pass ``?token=<token>`` instead.
+Without it the server is meant for localhost only.
 """
 from __future__ import annotations
 
 import asyncio
 import base64
 import json
+import logging
 import os
 import re
 import secrets
 import shutil
 import tempfile
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -41,9 +44,41 @@ from starlette.background import BackgroundTask
 from ai_made_easy import __version__
 from ai_made_easy.core import api
 from ai_made_easy.core.paths import subdir
+from ai_made_easy.core.runner.manager import max_upload_bytes
 
 STATIC = Path(__file__).parent / "static"
 _NAME = re.compile(r"^[\w][\w .-]{0,99}$")
+_STALE_POLLS = 5  # ~10 s without events from a run no process is running
+_CHUNK = 1 << 20
+log = logging.getLogger(__name__)
+
+
+def _too_large() -> HTTPException:
+    return HTTPException(413, f"upload larger than {max_upload_bytes() >> 20} MB "
+                              "(set AIME_MAX_UPLOAD_MB to change)")
+
+
+async def _save_body(request: Request, target: Path) -> int:
+    """Stream a raw request body to ``target`` without holding it in memory."""
+    limit, size = max_upload_bytes(), 0
+    with target.open("wb") as fh:
+        async for chunk in request.stream():
+            size += len(chunk)
+            if size > limit:
+                raise _too_large()
+            fh.write(chunk)
+    return size
+
+
+async def _save_upload(file: UploadFile, target: Path) -> int:
+    limit, size = max_upload_bytes(), 0
+    with target.open("wb") as fh:
+        while chunk := await file.read(_CHUNK):
+            size += len(chunk)
+            if size > limit:
+                raise _too_large()
+            fh.write(chunk)
+    return size
 
 
 def _graph_body(payload: dict) -> dict:
@@ -72,11 +107,17 @@ def create_app(*, token: str | None = None, projects_dir: str | Path | None = No
     token = (token if token is not None else os.environ.get("AIME_WEB_TOKEN")) or None
     projects = Path(projects_dir) if projects_dir else subdir("projects")
     projects.mkdir(parents=True, exist_ok=True)
+    try:  # runs a crashed server or app left "running" would be followed forever
+        api.manager().history.mark_interrupted()
+    except Exception as exc:  # noqa: BLE001 — never block the server from starting
+        log.warning("could not check for interrupted runs: %s", exc)
 
     def authorize(request: Request) -> None:
         if token is None:
             return
         supplied = request.headers.get("authorization", "").removeprefix("Bearer ").strip()
+        if not supplied and request.method == "GET":  # links: package and export downloads
+            supplied = request.query_params.get("token", "")
         if not secrets.compare_digest(supplied, token):
             raise HTTPException(401, "missing or invalid access token")
 
@@ -218,7 +259,7 @@ def create_app(*, token: str | None = None, projects_dir: str | Path | None = No
             graph = stamp({**graph, "name": name})
         except Exception as exc:  # noqa: BLE001 — refuse unreadable projects
             raise HTTPException(400, f"not a valid project: {exc}") from exc
-        tmp = file.with_suffix(".tmp")
+        tmp = file.with_name(f"{file.stem}.{uuid.uuid4().hex[:8]}.tmp")  # one per save
         tmp.write_text(json.dumps(graph, indent=1))
         tmp.replace(file)
         return {"saved": name}
@@ -237,11 +278,43 @@ def create_app(*, token: str | None = None, projects_dir: str | Path | None = No
         try:
             return api.start_training(_graph_body(payload), str(payload.get("framework", "auto")),
                                       str(payload.get("project", "")),
-                                      tags=payload.get("tags"))
+                                      tags=payload.get("tags"), on=payload.get("on") or None)
         except api.ApiError:
             raise
         except Exception as exc:  # noqa: BLE001 — e.g. codegen errors
             raise HTTPException(400, str(exc)) from exc
+
+    @app.post("/api/runs/import", dependencies=guard)
+    async def import_results(request: Request) -> dict:
+        """A Colab hand-off run's results zip, as the raw request body."""
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "results.zip"
+            size = await _save_body(request, path)
+            if not size:
+                raise HTTPException(400, "send the results .zip as the request body")
+            return await asyncio.to_thread(api.import_run_results, str(path))
+
+    @app.post("/api/runs/{run_id}/attach", dependencies=guard)
+    def attach(run_id: str) -> dict:
+        return api.attach_run(run_id)
+
+    # ---------------------------------------------------------------- backends
+    @app.get("/api/backends", dependencies=guard)
+    def list_backends() -> dict:
+        return api.list_backends()
+
+    @app.post("/api/backends", dependencies=guard)
+    def save_backend(payload: dict = Body(...)) -> dict:  # noqa: B008
+        return api.save_backend(str(payload.get("name", "")), str(payload.get("kind", "")),
+                                payload.get("options") or {})
+
+    @app.post("/api/backends/test", dependencies=guard)
+    def test_backend(payload: dict = Body(...)) -> dict:  # noqa: B008
+        return api.test_backend(str(payload.get("on") or "local"))
+
+    @app.delete("/api/backends/{name}", dependencies=guard)
+    def delete_backend(name: str) -> dict:
+        return api.delete_backend(name)
 
     @app.get("/api/runs", dependencies=guard)
     def runs(project: str | None = None, parent: str | None = None) -> dict:
@@ -258,6 +331,14 @@ def create_app(*, token: str | None = None, projects_dir: str | Path | None = No
     @app.get("/api/runs/{run_id}/samples", dependencies=guard)
     def run_samples(run_id: str) -> dict:
         return api.run_samples(run_id)
+
+    @app.post("/api/runs/{run_id}/diff", dependencies=guard)
+    def run_diff(run_id: str, payload: dict = Body(...)) -> dict:  # noqa: B008
+        return api.diff_run(run_id, _graph_body(payload))
+
+    @app.get("/api/runs/{run_id}/explain", dependencies=guard)
+    def run_explain(run_id: str) -> dict:
+        return api.run_explanation(run_id)
 
     @app.get("/api/runs/{run_id}/metrics", dependencies=guard)
     def metrics(run_id: str) -> dict:
@@ -294,15 +375,25 @@ def create_app(*, token: str | None = None, projects_dir: str | Path | None = No
             if rid == run_id:
                 loop.call_soon_threadsafe(queue.put_nowait, event)
 
+        # a run in progress replays its log lines so far (a remote run's first lines say
+        # where it went and what to do); a finished one replays epochs and its status
+        live = mgr.get(run_id) if mgr.is_live(run_id) else None
+        earlier = (list(live.logs[-300:]) if live is not None
+                   and live.state not in ("finished", "failed", "stopped") else [])
         mgr.subscribe(listener)
         try:
+            for line in earlier:
+                await ws.send_json({"type": "log", "line": line})
             for epoch in mgr.history.epochs(run_id):  # replay what happened so far
                 await ws.send_json({"type": "epoch", **epoch})
             if (samples := mgr.latest_samples(run_id)) is not None:
                 await ws.send_json(samples)
+            idle = 0
             while True:
                 record = mgr.history.get(run_id)
-                if record.status != "running" and queue.empty():
+                # nothing will change a run no process is running: report it and stop
+                stale = idle >= _STALE_POLLS and not mgr.is_live(run_id)
+                if (record.status != "running" or stale) and queue.empty():
                     await ws.send_json({"type": "status", "status": record.status,
                                         "final_metrics": record.final_metrics})
                     break
@@ -310,8 +401,10 @@ def create_app(*, token: str | None = None, projects_dir: str | Path | None = No
                     event = await asyncio.wait_for(queue.get(), timeout=2.0)
                 except TimeoutError:
                     if not mgr.is_live(run_id):
+                        idle += 1
                         await asyncio.sleep(0.3)  # let the history catch up
                     continue
+                idle = 0
                 await ws.send_json(event)
                 if event.get("type") == "done":
                     await asyncio.sleep(0.3)  # finalize writes the status after "done"
@@ -373,7 +466,8 @@ def create_app(*, token: str | None = None, projects_dir: str | Path | None = No
     # -------------------------------------------------------------- pipelines
     @app.post("/api/pipelines", dependencies=guard)
     def start_pipeline(payload: dict = Body(...)) -> dict:  # noqa: B008
-        return api.start_pipeline(_graph_body(payload), project=str(payload.get("project") or ""))
+        return api.start_pipeline(_graph_body(payload), project=str(payload.get("project") or ""),
+                                  on=str(payload.get("on") or ""))
 
     @app.get("/api/pipelines", dependencies=guard)
     def pipelines(project: str | None = None) -> dict:
@@ -426,12 +520,19 @@ def create_app(*, token: str | None = None, projects_dir: str | Path | None = No
         return {"graph": api.sweep_best_graph(sweep_id)}
 
     # -------------------------------------------------------------- deploy
-    def _formats(framework: str) -> list[dict]:
-        return api.deploy_formats().get(framework, [])
-
     @app.get("/api/runs/{run_id}/formats", dependencies=guard)
     def run_formats(run_id: str) -> dict:
-        return {"formats": _formats(api.manager().history.get(run_id).framework)}
+        api.manager().history.get(run_id)
+        return api.export_options(run_id)
+
+    @app.get("/api/models/{name}/{version}/formats", dependencies=guard)
+    def model_formats(name: str, version: str) -> dict:
+        return api.export_options(model=name, version=version)
+
+    @app.post("/api/export/formats", dependencies=guard)
+    def design_formats(payload: dict = Body(...)) -> dict:  # noqa: B008
+        return api.export_options(graph=_graph_body(payload),
+                                  framework=payload.get("framework") or None)
 
     def _package_response(build) -> FileResponse:  # noqa: ANN001
         work = Path(tempfile.mkdtemp(prefix="aime_package_"))
@@ -459,11 +560,87 @@ def create_app(*, token: str | None = None, projects_dir: str | Path | None = No
     @app.post("/api/models", dependencies=guard)
     def register(payload: dict = Body(...)) -> dict:  # noqa: B008
         return api.register_model(str(payload.get("run_id", "")), str(payload.get("name", "")),
-                                  str(payload.get("description", "")))
+                                  str(payload.get("description", "")),
+                                  also=list(payload.get("also") or []))
 
     @app.patch("/api/models/{name}/{version}", dependencies=guard)
     def set_stage(name: str, version: int, payload: dict = Body(...)) -> dict:  # noqa: B008
-        return api.set_model_stage(name, version, str(payload.get("stage", "")))
+        return api.set_model_stage(name, version, str(payload.get("stage", "")),
+                                   also=list(payload.get("also") or []))
+
+    @app.post("/api/models/{name}/{version}/mirror", dependencies=guard)
+    def mirror_model(name: str, version: str, payload: dict = Body(...)) -> dict:  # noqa: B008
+        return api.mirror_model(name, version, list(payload.get("to") or []))
+
+    # ------------------------------------------- tracking, the Hub, Kaggle (3.2)
+    @app.get("/api/tracking", dependencies=guard)
+    def tracking_status() -> dict:
+        return api.tracking_status()
+
+    @app.post("/api/tracking", dependencies=guard)
+    def tracking_for(payload: dict = Body(...)) -> dict:  # noqa: B008
+        return api.tracking_status(payload.get("graph") or None)
+
+    @app.get("/api/export/runs", dependencies=guard)
+    def export_runs(format: str = "csv", epochs: bool = False,  # noqa: A002
+                    project: str | None = None) -> FileResponse:
+        if format not in ("csv", "parquet"):
+            raise HTTPException(400, "format must be csv or parquet")
+        work = Path(tempfile.mkdtemp(prefix="aime_runs_"))
+        out = work / f"runs.{format}"
+        try:
+            api.export_runs(str(out), project=project, epochs=epochs)
+        except Exception:
+            shutil.rmtree(work, ignore_errors=True)
+            raise
+        return FileResponse(out, filename=f"{'epochs' if epochs else 'runs'}.{format}",
+                            background=BackgroundTask(shutil.rmtree, work, True))
+
+    @app.post("/api/data/upload", dependencies=guard)
+    async def data_upload(file: UploadFile = File(...)) -> dict:  # noqa: B008
+        """A data file dropped on the canvas: stored and detected for the wizard."""
+        work = Path(tempfile.mkdtemp(prefix="aime_data_"))
+        try:
+            target = work / "upload"
+            await _save_upload(file, target)
+            return await asyncio.to_thread(api.store_upload, str(target),
+                                           file.filename or "data")
+        finally:
+            shutil.rmtree(work, ignore_errors=True)
+
+    @app.post("/api/data/fetch", dependencies=guard)
+    async def data_fetch(payload: dict = Body(...)) -> dict:  # noqa: B008
+        return await asyncio.to_thread(api.fetch_dataset, str(payload.get("source") or ""),
+                                       force=bool(payload.get("force")))
+
+    def _hub_source(payload: dict) -> dict:
+        if payload.get("model"):
+            return {"model": str(payload["model"]),
+                    "version": payload.get("version") or "latest"}
+        return {"run_id": str(payload.get("run_id") or "")}
+
+    @app.post("/api/hub/push", dependencies=guard)
+    async def hub_push(payload: dict = Body(...)) -> dict:  # noqa: B008
+        return await asyncio.to_thread(lambda: api.push_to_hub(
+            str(payload.get("repo_id") or ""), private=payload.get("private", True) is not False,
+            **_hub_source(payload)))
+
+    @app.post("/api/hub/pull", dependencies=guard)
+    async def hub_pull(payload: dict = Body(...)) -> dict:  # noqa: B008
+        return await asyncio.to_thread(api.pull_from_hub, str(payload.get("repo_id") or ""),
+                                       str(payload.get("name") or ""))
+
+    @app.post("/api/hub/space", dependencies=guard)
+    async def hub_space(payload: dict = Body(...)) -> dict:  # noqa: B008
+        return await asyncio.to_thread(lambda: api.deploy_to_space(
+            str(payload.get("space_id") or ""), formats=list(payload.get("formats") or []),
+            private=payload.get("private", True) is not False, **_hub_source(payload)))
+
+    @app.post("/api/kaggle/submit", dependencies=guard)
+    async def kaggle_submit(payload: dict = Body(...)) -> dict:  # noqa: B008
+        return await asyncio.to_thread(lambda: api.submit_to_kaggle(
+            str(payload.get("competition") or ""), str(payload.get("file") or ""),
+            str(payload.get("message") or ""), confirm=payload.get("confirm") is True))
 
     @app.delete("/api/models/{name}/{version}", dependencies=guard)
     def delete_model(name: str, version: int) -> dict:
@@ -482,13 +659,20 @@ def create_app(*, token: str | None = None, projects_dir: str | Path | None = No
         work = Path(tempfile.mkdtemp(prefix="aime_upload_"))
         try:
             target = work / Path(file.filename or "model").name
-            target.write_bytes(await file.read())
+            await _save_upload(file, target)
             shape = [int(d) for d in re.split(r"[,x\s]+", input_shape.strip("()[] ")) if d] or None
             return await asyncio.to_thread(
                 api.import_model, kind, str(target), attr, shape, dtype,
                 json.loads(kwargs or "{}"))
         finally:
             shutil.rmtree(work, ignore_errors=True)
+
+    @app.post("/api/import/mlflow", dependencies=guard)
+    async def import_mlflow(payload: dict = Body(...)) -> dict:  # noqa: B008
+        raw = str(payload.get("input_shape") or "")
+        shape = [int(d) for d in re.split(r"[,x\s]+", raw.strip("()[] ")) if d] or None
+        return await asyncio.to_thread(api.open_mlflow_model, str(payload.get("uri") or ""),
+                                       shape)
 
     # ---------------------------------------------------------------- data
     @app.post("/api/data/profile", dependencies=guard)
@@ -545,8 +729,25 @@ def create_app(*, token: str | None = None, projects_dir: str | Path | None = No
     return app
 
 
+_TOKEN_Q = re.compile(r"([?&]token=)[^&\s\"]*")
+
+
+class RedactToken(logging.Filter):
+    """Keep ``?token=`` (download links, WebSockets) out of the access log."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if isinstance(record.args, tuple):
+            record.args = tuple(_TOKEN_Q.sub(r"\1***", a) if isinstance(a, str) else a
+                                for a in record.args)
+        record.msg = _TOKEN_Q.sub(r"\1***", str(record.msg))
+        return True
+
+
 def main(host: str = "127.0.0.1", port: int = 8765, open_browser: bool = False) -> None:
     import uvicorn
+
+    for name in ("uvicorn.access", "uvicorn.error"):
+        logging.getLogger(name).addFilter(RedactToken())
 
     if host not in ("127.0.0.1", "localhost", "::1") and not os.environ.get("AIME_WEB_TOKEN"):
         print("warning: serving on a public interface without AIME_WEB_TOKEN — anyone who can "

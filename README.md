@@ -14,6 +14,27 @@ boilerplate. It runs on the desktop or in the browser.
 
 ## Highlights
 
+- **Train anywhere:** this computer, any SSH host (rented GPU machines from RunPod,
+  Lambda, Vast.ai or Paperspace too), Kaggle, Colab, Modal or a Docker container. Pick
+  it in **Run on**; live curves, Stop, sweeps and pipelines work the same, and a dropped
+  connection picks up where it left off. Sign-in stays with each tool: AI Made Easy never
+  asks for a password, token or key ([docs/REMOTE.md](docs/REMOTE.md)).
+- **Export everywhere:** ONNX, TorchScript, Core ML, ExecuTorch and LiteRT, with int8
+  quantization calibrated on the run's own samples. Every export is checked against the
+  trained model before it is packaged. Detectors keep their post-processing (NMS) and
+  graph networks take graphs of any size. The project's budget device suggests the
+  format, and a design rule names why a design can't reach one
+  ([docs/EXPORT.md](docs/EXPORT.md); what every task serves and exports:
+  [docs/DEPLOY.md](docs/DEPLOY.md)).
+- **Work with your tools:** runs mirror to MLflow and Weights & Biases as they train,
+  on every backend; registered models go to MLflow's registry, W&B or the Hugging Face
+  Hub (as a model repo or a Docker Space); Kaggle and Hub datasets download and are
+  detected like a local folder; the run history exports to CSV / Parquet
+  ([docs/TOOLS.md](docs/TOOLS.md)).
+- **More models:** Glow image flows (exact likelihoods in bits per dimension), Open
+  Graph Benchmark datasets scored by their official evaluators, Atari games for
+  pixel-based RL ([docs/RL.md](docs/RL.md)), your own Gymnasium environments checked
+  while you design, and quantization-aware training for text models with embeddings.
 - **Pipelines:** chain Train, Cross-validate, Fine-tune, Distill, Prune, Quantize,
   quantization-aware training, Evaluate, Ensemble, Export and Register stages; every stage
   is a tracked run, and re-running a pipeline picks up where it stopped. Fine-tune with
@@ -24,15 +45,28 @@ boilerplate. It runs on the desktop or in the browser.
   and retrieval-augmented answering) and where your data is, detects its format, target
   and classes, and ranks
   ready-to-train recipes for your data size and hardware budget, each explaining why
-  every block is there. Or let **AutoML** try the recipes and tune them for you,
-  optionally trading accuracy against latency or model size on your target device: the
-  result is a Pareto front of models to choose from.
-- **544 blocks in 9 families** ([docs/FAMILIES.md](docs/FAMILIES.md) lists every
+  every block is there. Or let **AutoML** try the recipes and tune them for you, for
+  every family (networks, classic ML, graphical models, PyMC, Gaussian processes,
+  state-space models, flows), optionally trading accuracy against latency or model size
+  on your target device: the result is one Pareto front of networks and classic models
+  to choose from. Trials can train several at a time, on any backend.
+- **583 blocks in 9 families** ([docs/FAMILIES.md](docs/FAMILIES.md) lists every
   family, task, block and design rule) across every major library: `torch.nn` layers, Keras 3
   equivalents, torchvision / `keras.applications` / timm pretrained backbones,
   Hugging Face text and image encoders, scikit-learn, XGBoost, LightGBM and CatBoost,
   plus datasets, preprocessing, augmentation, losses, optimizers, schedulers
   and metrics.
+- **Modern network parts (3.3).** Rotary embeddings, grouped-query attention, SwiGLU,
+  Llama decoder blocks, Mixture of Experts, LoRA, DropPath, LayerScale, FiLM, ViT patch
+  embedding, ConvNeXt, Swin and Conformer blocks; Lion, LAMB and Lookahead optimizers;
+  ArcFace, CosFace, triplet and supervised contrastive losses for embeddings; SAM and
+  Schedule-Free AdamW; weight averaging (EMA, SWA); Integrated Gradients; target encoding
+  and SMOTE for classic models; Tiny Llama, Vision Transformer, ConvNeXt and ArcFace recipes.
+- **A canvas that keeps up (3.3).** Copy, paste and duplicate blocks between designs and
+  between the two apps, frame them in named groups, pin sticky notes, drop a CSV on the
+  window to start a project from it, see which features a model relies on, and compare
+  a run's design with the canvas. Both apps have a command palette (Ctrl/⌘ K), find
+  (Ctrl/⌘ F), a shortcuts sheet, a minimap and a short first-run tour.
 - **Design-time validation.** Shapes, ranks and dtypes are inferred live across
   branches and merges; every card shows its output shape. Incompatible wiring,
   parameter constraints and common architecture mistakes (double softmax with
@@ -86,8 +120,9 @@ boilerplate. It runs on the desktop or in the browser.
   imbalance are flagged in the Problems panel. Preview the exact
   train / validation / test split and the augmentation pipeline.
 - **Deploy.** Turn a trained run into a serving package: a FastAPI service
-  with the fitted preprocessing, a Dockerfile, and ONNX / TorchScript / Core ML
-  exports. Promote versions through a model registry.
+  with the fitted preprocessing, a Dockerfile, and ONNX / TorchScript / Core ML /
+  ExecuTorch / LiteRT exports, each checked against the model. Promote versions
+  through a model registry.
 - **Import.** Open existing PyTorch modules, ONNX files and Keras models as
   editable designs, verified numerically against the original.
 - **Exports.** PyTorch and Keras model files and training scripts,
@@ -122,7 +157,7 @@ Install only what you need with the optional extras:
 | `audio` | Hugging Face speech encoders (wav2vec 2.0, HuBERT, WavLM, Whisper) |
 | `text` | Hugging Face text encoders (DistilBERT, BERT, RoBERTa, MiniLM, ...) and tokenizers |
 | `probabilistic` | pgmpy, hmmlearn, PyMC, GPyTorch and statsmodels (graphical models, probabilistic programs, Gaussian processes, state-space models) |
-| `graph` | PyTorch Geometric (graph neural networks) |
+| `graph` | PyTorch Geometric (graph neural networks) and the Open Graph Benchmark |
 | `generative` | diffusers and peft (Stable Diffusion LoRA fine-tuning) |
 | `rl` | Gymnasium and stable-baselines3 (reinforcement learning) |
 | `rl-box2d` | The Box2D environments (LunarLander, BipedalWalker, CarRacing); wheels exist up to Python 3.12 |
@@ -133,6 +168,11 @@ Install only what you need with the optional extras:
 | `mcp-server` | Model Context Protocol server for AI agents |
 | `web` / `serve` | Browser UI (`aime web`) and serving packages (FastAPI, uvicorn) |
 | `export` | ONNX / onnxruntime / skl2onnx exports and verification |
+| `edge` | On-device exports: ExecuTorch (`.pte`) and the LiteRT interpreter |
+| `tracking` | Mirror runs to MLflow and Weights & Biases |
+| `hub` | The Hugging Face Hub: push runs and Spaces, load Hub datasets |
+| `kaggle` / `modal` | Train on Kaggle / Modal; Kaggle datasets and competitions |
+| `atari` | Atari games (ale-py, OpenCV); AI Made Easy ships no ROMs ([docs/RL.md](docs/RL.md)) |
 | `tuning` | Bayesian hyperparameter search (Optuna) |
 | `dev` | Test and lint tooling |
 
@@ -160,7 +200,8 @@ docker build -t ai-made-easy . && docker run -p 8765:8765 ai-made-easy
 ```
 
 The web version shares the engine, run history and model registry with the
-desktop app. Hosting, authentication and the REST API are covered in
+desktop app, and has the same tools: **Run on** and **Backends**, export formats,
+**Tools** (tracking, Kaggle / Hub datasets, run history) and each model's **Share** menu. Hosting, authentication and the REST API are covered in
 [docs/WEB.md](docs/WEB.md).
 
 ![Web designer](docs/images/web_designer.png)
@@ -168,6 +209,10 @@ desktop app. Hosting, authentication and the REST API are covered in
 | New from a task | Graphical model with its CPD table | A train → distill → quantize pipeline |
 |---|---|---|
 | ![Wizard](docs/images/web_wizard.png) | ![CPD editor](docs/images/web_probabilistic.png) | ![Pipeline](docs/images/web_pipeline.png) |
+
+| Command palette (Ctrl/⌘ K) | Groups and sticky notes on the canvas |
+|---|---|
+| ![Command palette](docs/images/web_palette.png) | ![Groups and notes](docs/images/web_canvas_groups.png) |
 
 ## Block library
 
@@ -197,7 +242,10 @@ aime validate project.json                     # design + data checks; exit 1 on
 aime gen project.json -f pytorch -o exports    # model file (pytorch | keras)
 aime train project.json -f keras -o exports    # training script (pytorch | keras | sklearn)
 aime run project.json                          # train headlessly, stream JSON events
+aime run project.json --on ssh:gpu-box         # … or on an SSH host, kaggle, colab, modal, container
+aime backends list | add NAME --kind ssh -s host=gpu-box | test NAME   # where runs train
 aime runs list | show ID | compare A B         # run history
+aime runs attach ID | import results.zip       # follow a remote run again; finish a Colab run
 aime sweep project.json -p opt.lr=log:1e-4:1e-1 -p d1.units=choice:32,64 -n 12
 aime new --task binary --data churn.csv -o churn.json   # best recipe for the data
 aime automl --task binary --data churn.csv -n 12 -o best.json   # search the recipes
@@ -207,6 +255,10 @@ aime pipeline run pipeline.json                # run a pipeline (resumes finishe
 aime data profile data.csv --target label      # dataset profile and findings
 aime data split project.json                   # samples per class in each split
 aime deploy RUN_ID -o serving --formats onnx   # serving package from a run
+aime deploy RUN_ID --list-formats              # export formats: available, suggested, why not
+aime hub push RUN_ID you/model                  # a private Hugging Face model repo
+aime data fetch kaggle-competition:titanic      # download, then detect like a local folder
+aime runs export -o runs.parquet                # the run history for notebooks
 aime serve serving                             # run it with uvicorn
 aime models list | register RUN NAME | stage NAME VERSION production
 aime import onnx model.onnx -o project.json    # also: pytorch (--attr, --shape), keras

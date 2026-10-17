@@ -66,6 +66,27 @@ export interface ProjectEdge {
   to: string;
 }
 
+export interface FeatureImportance {
+  run_id: string;
+  method?: string;
+  metric?: string;
+  baseline_loss?: number;
+  baseline?: string;
+  rows?: number;
+  features: { name: string; importance: number; std: number }[];
+}
+
+export interface DesignDiff {
+  same: boolean;
+  summary: string;
+  added: { id: string; type: string }[];
+  removed: { id: string; type: string }[];
+  retyped: { id: string; from: string; to: string }[];
+  changed: { id: string; type: string; param: string; from: unknown; to: unknown }[];
+  wired: { from: string; to: string }[];
+  unwired: { from: string; to: string }[];
+}
+
 export interface Project {
   name: string;
   nodes: ProjectNode[];
@@ -150,9 +171,33 @@ export interface RunRecord {
   trial: Record<string, unknown>;
   error: string;
   data_fingerprint: string;
+  backend?: string;   // "" = this computer; else ssh:<host>, kaggle, a saved backend, …
+  remote?: Record<string, unknown>;
   params?: Record<string, unknown>;
   graph?: Project;
   duration?: number | null;
+}
+
+export interface BackendInfo {
+  name: string;
+  kind: string;
+  remote: boolean;
+  live: boolean;      // false: curves arrive per poll / when the run reports back
+  options: Record<string, unknown>;
+}
+
+export interface BackendList {
+  backends: BackendInfo[];
+  kinds: string[];
+  options: Record<string, Record<string, string>>;   // kind -> option -> help
+}
+
+export interface BackendTest {
+  ok: boolean;
+  message: string;
+  backend: string;
+  kind: string;
+  accelerator: { gpu?: string; device?: string; memory_gb?: number | null };
 }
 
 export interface EpochEvent {
@@ -262,6 +307,13 @@ export interface SplitPreview {
   notes: string[];
 }
 
+export interface ModelMirror {
+  target: "mlflow" | "wandb";
+  name: string;
+  version: string;
+  uri: string;
+}
+
 export interface ModelVersion {
   name: string;
   version: number;
@@ -272,6 +324,20 @@ export interface ModelVersion {
   metrics: Record<string, number>;
   description: string;
   created_at: number;
+  mirrors?: ModelMirror[];   // where else it is registered (MLflow, W&B)
+}
+
+export interface TrackingStatus {
+  selected: string[];
+  env: string;
+  mlflow_uri: string;
+  trackers: { id: string; label: string; installed: boolean }[];
+}
+
+export interface FetchedDataset {
+  source: string;
+  path: string;
+  facts: DataFacts;
 }
 
 export interface RunSamples {
@@ -415,4 +481,15 @@ export interface SavedProject {
   modified: number;
   family: string | null;
   task: string | null;
+}
+
+/** An export format for a trained run: whether the design can use it and whether the
+ * project's budget device runs it. */
+export interface ExportFormat {
+  id: string;
+  label: string;
+  available?: boolean;
+  reason?: string;
+  suggested?: boolean;
+  device?: string;
 }

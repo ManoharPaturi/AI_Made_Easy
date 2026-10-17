@@ -23,6 +23,18 @@ What you get:
   overlaid curves, data fingerprints), sweeps, and serving packages for finished runs.
 - **Models** — the model registry: stages and serving-package downloads.
 
+Getting around (3.3):
+
+- **File** menu: New project, Open, recent projects, Save (Ctrl/⌘ S), Download, Import
+  model and Export canvas as PNG.
+- **Command palette** (Ctrl/⌘ K): type to find any command; `@` lists the blocks on the
+  canvas (also Ctrl/⌘ F) and Enter selects and centres one.
+- **Shortcuts** (`?`): copy / paste / duplicate (Ctrl/⌘ C, V, D), group (Ctrl/⌘ G),
+  select all (Ctrl/⌘ A), zoom (Ctrl/⌘ =, −, 0), undo / redo, pages (Alt+1…4).
+- Sticky notes and named groups on the canvas; drop a CSV or a zip of class folders on
+  the canvas to start a project from it.
+- A three-step tour on first start (the palette's "Show the tour again" brings it back).
+
 Projects saved from the browser live in `$AIME_HOME/projects` (default
 `~/.aime/projects`); *Download* exports the project JSON, which opens in the
 desktop app too.
@@ -69,6 +81,8 @@ The main groups:
 | `GET /api/runs/{id}/deploy`, `/api/models/...` | serving packages (zip), model registry |
 | `POST /api/import` | import ONNX / Keras / PyTorch models (multipart upload) |
 | `POST /api/data/profile`, `/issues`, `/split`, `/augment` | data workspace |
+| `POST /api/data/upload` | a dropped data file: stored, its facts detected for the wizard |
+| `GET /api/runs/{id}/explain`, `POST /api/runs/{id}/diff` | feature importance; what changed since a run |
 
 ## Develop the frontend
 

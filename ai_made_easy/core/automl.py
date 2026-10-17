@@ -40,10 +40,16 @@ TASK_METRICS = {
     "forecasting": ("mase", "min"), "node_classification": ("accuracy", "max"),
     "graph_classification": ("accuracy", "max"), "link_prediction": ("roc_auc", "max"),
     "recommendation": ("ndcg_at_10", "max"), "reinforcement_learning": ("mean_reward", "max"),
-    "density_estimation": ("nll", "min"), "vae_generation": ("val_loss", "min"),
+    "density_estimation": ("bits_per_dim", "min"), "vae_generation": ("val_loss", "min"),
     "gan_generation": ("val_loss", "min"), "diffusion_generation": ("val_loss", "min"),
     "language_modeling": ("val_loss", "min"), "sequence_to_sequence": ("val_loss", "min"),
-    "clustering": ("silhouette", "max"),
+    "clustering": ("silhouette", "max"), "anomaly_detection": ("roc_auc", "max"),
+    # probabilistic families: held-out fit (3.2)
+    "probabilistic_inference": ("test_log_likelihood", "max"),
+    "regime_detection": ("test_log_likelihood", "max"),
+    "bayesian_modeling": ("elpd_loo", "max"),        # PSIS-LOO expected log density
+    "gp_regression": ("nlpd", "min"),                # test negative log predictive density
+    "state_space_forecasting": ("mase", "min"),      # backtest on the held-out horizon
 }
 # knobs that set how long a trial trains: fixed by the search, never tuned
 LENGTH_KNOBS = ("epochs", "total_timesteps", "iterations", "draws", "max_iter",
@@ -55,6 +61,9 @@ OBJECTIVES = {
     "model_mb": "model size (MB, float32)",
 }
 DEFAULT_DEVICE = "cpu_laptop"
+# recipe families whose latency and size are costed (one Pareto front mixes them)
+COSTED = ("neural", "classic")
+HOST_REFERENCE = "cpu_laptop"   # measured classic latencies are scaled from this profile
 WARMUP_EPOCHS = 2
 POLL_SECONDS = 0.5
 
@@ -80,6 +89,8 @@ class AutoMLSpec:
     framework: str = "auto"
     objectives: list[str] = field(default_factory=list)  # [] = the metric only
     device: str = ""                              # costs on ("" = budget device or CPU)
+    on: str = ""                                  # where trials train (a backend)
+    concurrency: int = 1                          # trials training at once
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -111,6 +122,12 @@ class AutoMLSpec:
                               f"{', '.join(OBJECTIVES)}")
         if len(set(self.objectives)) != len(self.objectives):
             raise AutoMLError("each objective may be listed once")
+        from ai_made_easy.core.sweeps import check_concurrency
+
+        try:
+            check_concurrency(self.concurrency)
+        except SweepError as exc:
+            raise AutoMLError(str(exc)) from exc
         if self.target_device():
             from ai_made_easy.core import budget
 
@@ -141,11 +158,11 @@ def candidates(spec: AutoMLSpec) -> list:
                                  modality=spec.modality or None):
         if wanted and sug.recipe.id not in wanted:
             continue
-        if sug.ready and not (spec.objectives and sug.recipe.family != "neural"):
+        if sug.ready and not (spec.objectives and sug.recipe.family not in COSTED):
             out.append(sug.recipe)
     if not out and spec.objectives:
-        raise AutoMLError("the latency / size trade-off is estimated for neural networks "
-                          "only, and no neural recipe can train this task here: search "
+        raise AutoMLError("the latency / size trade-off is costed for neural networks and "
+                          "classic models, and neither can train this task here: search "
                           "without objectives")
     if not out:
         raise AutoMLError("no recipe can train this task on this data within the budget"
@@ -184,10 +201,12 @@ class AutoMLRunner(SweepRunner):
         self.spec = SweepSpec(dimensions=[], metric=metric, direction="min" if minimize
                               else "max", strategy="tpe" if spec.tune else "grid",
                               max_trials=max(int(spec.max_trials), 1), seed=spec.seed,
-                              framework=spec.framework, skip_over_budget=True)
+                              framework=spec.framework, skip_over_budget=True,
+                              on=spec.on, concurrency=spec.concurrency)
         self.manager, self.store, self.listener = manager, store, listener
         self._stop = threading.Event()
-        self._current_run: str | None = None
+        self._running: set[str] = set()
+        self._lock = threading.RLock()
         self._curves: dict[int, list[float]] = {}
         first = trial_design(spec.to_dict(), {"recipe": self.recipes[0].id})
         self.graph_dict = first.to_dict()
@@ -217,6 +236,28 @@ class AutoMLRunner(SweepRunner):
                           "model_mb": round(est.model_bytes() / 2**20, 3)}
         if latency is not None:
             row.objectives["latency_ms"] = round(latency, 4)
+
+    def _measured(self, row: TrialRow) -> None:
+        """Classic models measure their own costs (``costs.json``): the saved model's size
+        and the median time to predict one row, scaled from a laptop CPU to the target
+        device (a GPU target runs them on its host CPU, unscaled)."""
+        import json
+
+        from ai_made_easy.core import budget
+
+        file = self.manager.history.path(row.run_id) / "costs.json"
+        if not file.is_file():
+            return
+        costs = json.loads(file.read_text())
+        if "model_mb" in costs:
+            row.objectives["model_mb"] = round(float(costs["model_mb"]), 4)
+        if "predict_ms" in costs:
+            device = budget.get_device(self.automl.target_device())
+            scale = 1.0
+            if device.kind in ("cpu", "mobile", "edge"):
+                scale = budget.get_device(HOST_REFERENCE).tflops_fp32 / device.tflops_fp32
+            row.objectives["latency_ms"] = round(float(costs["predict_ms"]) * scale, 4)
+        row.message = row.message or "latency and size measured after training"
 
     def _values(self, row: dict | TrialRow) -> list[float] | None:
         """The trial's point in objective space: [metric, *costs] (None: incomplete)."""
@@ -254,6 +295,9 @@ class AutoMLRunner(SweepRunner):
         remaining = budget - len(baseline)
         if remaining <= 0 or not self.automl.tune:
             return
+        from ai_made_easy.core.sweeps import BARRIER
+
+        yield BARRIER, None   # TPE learns from the whole baseline round
         study = None
         try:
             import optuna

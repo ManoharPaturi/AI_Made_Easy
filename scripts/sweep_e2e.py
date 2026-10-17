@@ -37,7 +37,8 @@ RUN_TIMEOUT = 900.0
 # checkpoints too big for a smoke run even online (Stable Diffusion is several GB)
 HEAVY_WEIGHTS = {"gen.sd_lora"}
 # blocks that fetch data over the network when a run starts (offline sweeps skip them)
-NETWORK_DATA = {"data.torchvision", "data.huggingface"}
+NETWORK_DATA = {"data.torchvision", "data.huggingface", "data.ogb_nodes", "data.ogb_graphs",
+                "data.ogb_links"}
 
 
 @dataclass

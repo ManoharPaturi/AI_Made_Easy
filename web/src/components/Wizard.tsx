@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import { api } from "../api";
 import { useStore } from "../state";
 import type { DataFacts, DeviceProfile, RecipeSuggestion, WizardTask } from "../types";
+import { RunOnSelect, useRunOn } from "./Backends";
 import { Modal } from "./Modal";
 
 const STEPS = ["Task", "Data", "Budget", "Recipe"];
@@ -204,14 +205,15 @@ function RecipeStep({ rows, chosen, choose, knobs, setKnobs }: {
   );
 }
 
-export function NewProjectWizard({ onClose, onCreated, onAutoml }: {
+export function NewProjectWizard({ onClose, onCreated, onAutoml, initialFacts = null }: {
   onClose: () => void; onCreated: () => void; onAutoml: () => void;
+  initialFacts?: DataFacts | null;   // data fetched from Kaggle / the Hub (Tools)
 }) {
   const { load, setName, notify, name } = useStore();
   const [step, setStep] = useState(0);
   const [tasks, setTasks] = useState<WizardTask[]>([]);
   const [task, setTask] = useState<WizardTask | null>(null);
-  const [facts, setFacts] = useState<DataFacts | null>(null);
+  const [facts, setFacts] = useState<DataFacts | null>(initialFacts);
   const [modality, setModality] = useState("");
   const [budget, setBudget] = useState<Record<string, string>>({});
   const [rows, setRows] = useState<RecipeSuggestion[] | null>(null);
@@ -219,10 +221,20 @@ export function NewProjectWizard({ onClose, onCreated, onAutoml }: {
   const [knobs, setKnobs] = useState<Record<string, unknown>>({});
   const [trials, setTrials] = useState(12);
   const [tradeOff, setTradeOff] = useState("");
+  const [parallel, setParallel] = useState(1);
+  const [runOn] = useRunOn();
   const [epochs, setEpochs] = useState(0);
   useEffect(() => {
-    api.wizardTasks().then((r) => setTasks(r.tasks)).catch((e) => notify(String(e.message), true));
-  }, [notify]);
+    api.wizardTasks().then((r) => {
+      setTasks(r.tasks);
+      // data dropped on the canvas or fetched in Tools: pick a task it fits, show the data
+      const fit = initialFacts && r.tasks.find((t) => initialFacts.tasks.includes(t.id));
+      if (fit) {
+        setTask(fit);
+        setStep(1);
+      }
+    }).catch((e) => notify(String(e.message), true));
+  }, [notify, initialFacts]);
   const budgetValues = useMemo(() => Object.fromEntries(Object.entries(budget)
     .filter(([, v]) => v !== "" && v != null)
     .map(([k, v]) => [k, k === "device" ? v : Number(v)])), [budget]);
@@ -242,7 +254,7 @@ export function NewProjectWizard({ onClose, onCreated, onAutoml }: {
   const pickTask = (t: WizardTask) => {
     setTask(t);
     setModality(t.demo_modalities[0] ?? "");
-    setFacts(null);
+    setFacts((f) => (f && f.tasks.includes(t.id) ? f : null));   // keep data that fits
   };
   const create = async () => {
     const pick = rows?.find((r) => r.recipe.id === chosen);
@@ -265,7 +277,8 @@ export function NewProjectWizard({ onClose, onCreated, onAutoml }: {
     try {
       const r = await api.startAutoml({ task: task.id, facts: facts ?? {}, modality: facts ? "" : modality,
                                         budget: budgetValues, max_trials: trials, epochs,
-                                        objectives: tradeOff ? tradeOff.split(",") : [] }, name);
+                                        objectives: tradeOff ? tradeOff.split(",") : [],
+                                        on: runOn === "local" ? "" : runOn, concurrency: parallel }, name);
       const costs = r.objectives?.length ? ` against ${r.objectives.join(" and ")} on ${r.device}` : "";
       notify(`AutoML started: ${r.candidates.length} recipes, optimising ${r.metric}${costs}`);
       onAutoml();
@@ -289,12 +302,16 @@ export function NewProjectWizard({ onClose, onCreated, onAutoml }: {
                                                       title="0: each recipe's default"
                                                       onChange={(e) => setEpochs(Number(e.target.value))} /></label>
                  <select value={tradeOff} onChange={(e) => setTradeOff(e.target.value)} data-testid="automl-trade-off"
-                         title="Also minimise latency or size on the budget's device: AutoML finds the Pareto front (neural recipes only)">
+                         title="Also minimise latency or size on the budget's device: AutoML finds the Pareto front (neural and classic recipes)">
                    <option value="">metric only</option>
                    <option value="latency_ms">+ latency</option>
                    <option value="model_mb">+ model size</option>
                    <option value="latency_ms,model_mb">+ latency + size</option>
                  </select>
+                 <RunOnSelect testId="automl-run-on" />
+                 <label className="dim" title="Trials training at once (useful on remote backends)">at once{" "}
+                   <input type="number" min={1} max={16} value={parallel} style={{ width: 44 }}
+                          data-testid="automl-parallel" onChange={(e) => setParallel(Number(e.target.value))} /></label>
                  <button onClick={automl} data-testid="start-automl"
                          disabled={!rows?.some((r) => r.ready)}>Run AutoML</button>
                </span>)}

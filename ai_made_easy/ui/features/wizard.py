@@ -71,7 +71,14 @@ class NewProjectWizard(QtWidgets.QDialog):
             self.trade_off.addItem(label, objectives)
         self.trade_off.setToolTip("Also minimise the design's latency or size on the budget's "
                                   "device: AutoML then finds the Pareto front of trade-offs "
-                                  "(neural recipes only)")
+                                  "(neural and classic recipes; classic costs are measured "
+                                  "after training)")
+        from ai_made_easy.ui.features.backends import RunOnCombo
+
+        self.run_on = RunOnCombo()
+        self.run_on.setToolTip("Where AutoML's trials train")
+        self.parallel = QtWidgets.QSpinBox(minimum=1, maximum=16, value=1)
+        self.parallel.setToolTip("Trials training at once (useful on remote backends)")
         self.automl = QtWidgets.QPushButton("Run AutoML")
         self.automl.setToolTip("Train every recipe once, then tune recipes and settings; "
                                "weak trials stop early")
@@ -84,7 +91,8 @@ class NewProjectWizard(QtWidgets.QDialog):
         box = QtWidgets.QHBoxLayout(self._automl_box)
         box.setContentsMargins(0, 0, 0, 0)
         for widget in (QtWidgets.QLabel("trials"), self.trials, QtWidgets.QLabel("epochs"),
-                       self.epochs, self.trade_off, self.automl):
+                       self.epochs, self.trade_off, QtWidgets.QLabel("on"), self.run_on,
+                       QtWidgets.QLabel("at once"), self.parallel, self.automl):
             box.addWidget(widget)
         buttons.addWidget(self.back)
         buttons.addStretch(1)
@@ -173,7 +181,8 @@ class NewProjectWizard(QtWidgets.QDialog):
         form = QtWidgets.QFormLayout(self.own_box)
         row = QtWidgets.QHBoxLayout()
         self.path = QtWidgets.QLineEdit()
-        self.path.setPlaceholderText("a table file or a dataset folder")
+        self.path.setPlaceholderText("a table file, a dataset folder, or kaggle:owner/name, "
+                                     "kaggle-competition:name, hf:owner/repo")
         file_btn = QtWidgets.QPushButton("File…")
         file_btn.clicked.connect(self._browse_file)
         folder_btn = QtWidgets.QPushButton("Folder…")
@@ -432,7 +441,10 @@ class NewProjectWizard(QtWidgets.QDialog):
                             "modality": "" if self._facts else self.modality.currentText(),
                             "budget": self._budget(), "max_trials": self.trials.value(),
                             "epochs": self.epochs.value(),
-                            "objectives": list(self.trade_off.currentData() or [])}
+                            "objectives": list(self.trade_off.currentData() or []),
+                            "on": "" if self.run_on.selected() == "local" else
+                            self.run_on.selected(),
+                            "concurrency": self.parallel.value()}
         self.accept()
 
     # ------------------------------------------------------------------ navigation

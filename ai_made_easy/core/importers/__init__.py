@@ -11,7 +11,6 @@ from __future__ import annotations
 import json
 import os
 import subprocess
-import sys
 import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -79,9 +78,11 @@ def import_model(kind: str, *, source: str, attr: str = "", input_shape: list[in
     """Import ``source`` (a .py file / module for PyTorch, an .onnx file, a .keras file)."""
     if kind not in KINDS:
         raise ModelImportError(f"unknown model kind {kind!r}; one of {KINDS}")
-    if kind == "pytorch" and (not attr or not input_shape):
-        raise ModelImportError("PyTorch imports need the model class / factory name and the "
-                           "input shape (without the batch dimension)")
+    saved = kind == "pytorch" and source.endswith((".pt", ".pth"))
+    if kind == "pytorch" and (not (attr or saved) or not input_shape):
+        raise ModelImportError("PyTorch imports need the model class / factory name (or a "
+                               "saved .pt module) and the input shape (without the batch "
+                               "dimension)")
     request = {"source": source, "attr": attr, "input_shape": input_shape, "dtype": dtype,
                "kwargs": kwargs or {}, "weights_out": weights_out}
     package_root = str(Path(__file__).resolve().parents[3])
@@ -93,7 +94,9 @@ def import_model(kind: str, *, source: str, attr: str = "", input_shape: list[in
         req = Path(tmp) / "request.json"
         req.write_text(json.dumps(request))
         try:
-            proc = subprocess.run([python or sys.executable, "-m", _WORKERS[kind], str(req)],
+            from ai_made_easy.core.runner.manager import python_executable
+
+            proc = subprocess.run([python or python_executable(), "-m", _WORKERS[kind], str(req)],
                                   capture_output=True, text=True, timeout=timeout, env=env)
         except subprocess.TimeoutExpired as exc:
             raise ModelImportError(f"the import took longer than {timeout:.0f}s") from exc

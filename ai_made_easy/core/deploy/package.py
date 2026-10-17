@@ -10,7 +10,9 @@
     Dockerfile          CPU image running uvicorn as a non-root user
     README.md
     export_formats.py   verification + optional ONNX / TorchScript / Core ML /
-                        TFLite exports (run in the training Python environment)
+                        ExecuTorch / LiteRT exports, each checked against the model
+                        (run in the training Python environment)
+    exporters.py        the converters export_formats.py uses (exporters.py here)
 
 Pure Python; the verification step runs as a subprocess.
 """
@@ -20,22 +22,14 @@ import json
 import re
 import shutil
 import subprocess
-import sys
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from ai_made_easy.core.deploy import templates
+from ai_made_easy.core.deploy import exporters, templates
 
-FORMATS = {
-    "pytorch": ("onnx", "onnx_int8", "torchscript", "coreml"),
-    "keras": ("onnx", "saved_model", "tflite"),
-    "sklearn": ("onnx",),
-}
-FORMAT_LABELS = {
-    "onnx": "ONNX", "onnx_int8": "ONNX (int8 quantized)", "torchscript": "TorchScript",
-    "coreml": "Core ML", "saved_model": "TensorFlow SavedModel", "tflite": "TensorFlow Lite",
-}
+FORMATS = exporters.FORMATS
+FORMAT_LABELS = exporters.LABELS
 _SERVING_DROP = {"datasets", "torchaudio"}  # only needed to load training data
 _PIP_NAMES = {"pillow": "pillow", "scikit-learn": "scikit-learn", "keras>=3": "keras"}
 _INPUT_HELP = {
@@ -112,7 +106,7 @@ def _artifacts(run_dir: Path, framework: str) -> tuple[Path, list[Path]]:
                 f"the run has no {pattern} — it did not finish training, was trained with "
                 "k-fold cross-validation only, or predates AI Made Easy 2.0 (retrain it)")
         files.extend(found)
-    for optional in ("classes.json", "metrics.json"):
+    for optional in ("classes.json", "metrics.json", "calibration.npz"):
         if (run_dir / optional).exists():
             files.append(run_dir / optional)
     return script, files
@@ -148,7 +142,7 @@ def _describe(graph_dict: dict) -> dict:
                 "input_kind": kind, "input_help": _INPUT_HELP[kind], "response": task.serving}
     # image-in tasks (detection, segmentation); generated images are described below
     if task is not None and "image" in task.modalities and task.trainer_kind not in (
-            "supervised", "vae", "adversarial", "diffusion", "text_to_image"):
+            "supervised", "vae", "adversarial", "diffusion", "text_to_image", "flow"):
         from ai_made_easy.core.vision.tasks import dataset_of
 
         data = dataset_of(graph)
@@ -157,8 +151,9 @@ def _describe(graph_dict: dict) -> dict:
                "input_kind": "images", "input_help": _INPUT_HELP["images"],
                "response": task.serving}
         if task.trainer_kind == "detection":
-            out["export_note"] = ("detectors are served by the FastAPI package; ONNX / "
-                                  "TorchScript tracing of detection models is not supported")
+            out["export_note"] = ("ONNX / TorchScript exports take one image at the training "
+                                  "size [1, C, H, W] in [0, 1] and return padded detections "
+                                  "[1, D, 6]: x1, y1, x2, y2, score, label (score 0 = padding)")
         return out
     if task is not None and task.family == "ssm":
         from ai_made_easy.core.ssm.template import dataset_of as ssm_data
@@ -197,8 +192,10 @@ def _describe(graph_dict: dict) -> dict:
                 "dataset": data.type_id if data else "data.synthetic_graph",
                 "input_kind": "graph", "input_help": _INPUT_HELP["graph"],
                 "response": task.serving,
-                "export_note": "graph models are served by the FastAPI package; ONNX export "
-                               "of message-passing layers is not supported"}
+                "export_note": "the ONNX export takes node features x [N, F] and edges "
+                               "edge_index [2, E] (any N and E) and returns one row per node "
+                               "(per graph for graph classification; node embeddings for link "
+                               "prediction)"}
     if task is not None and task.trainer_kind == "recommendation":
         from ai_made_easy.core.recsys.tasks import dataset_of as rec_data
 
@@ -257,6 +254,28 @@ def _describe(graph_dict: dict) -> dict:
         kind = "arrays"
     return {"task": task, "modality": modality, "dataset": block, "input_kind": kind,
             "input_help": _INPUT_HELP[kind]}
+
+
+def _export_kind(graph_dict: dict) -> str:
+    from ai_made_easy.core.deploy.exportability import export_kind
+    from ai_made_easy.core.graph import Graph
+
+    try:
+        return export_kind(Graph.from_dict(graph_dict)) if graph_dict else "tensor"
+    except Exception:  # noqa: BLE001 — an old or partial design: one input tensor
+        return "tensor"
+
+
+def _blocked(graph_dict: dict, framework: str) -> dict[str, str]:
+    """format -> why the design can't be exported to it (skipped without trying)."""
+    from ai_made_easy.core.deploy.exportability import blockers
+    from ai_made_easy.core.graph import Graph
+
+    try:
+        graph = Graph.from_dict(graph_dict) if graph_dict else None
+    except Exception:  # noqa: BLE001
+        return {}
+    return {f: r for f, (r, _n) in blockers(graph, framework).items()} if graph else {}
 
 
 def _requirements(script_text: str, framework: str, env: dict, input_kind: str) -> list[str]:
@@ -336,6 +355,7 @@ def build_package(run_dir: Path | str, out_dir: Path | str, *, formats: tuple[st
     if record.get("status") not in (None, "finished"):
         raise DeployError(f"the run is {record.get('status')}; only finished runs can be deployed")
     framework = record.get("framework", "pytorch")
+    formats = tuple(dict.fromkeys(exporters.ALIASES.get(f, f) for f in formats))
     unknown = [f for f in formats if f not in FORMATS.get(framework, ())]
     if unknown:
         raise DeployError(f"{', '.join(unknown)} not available for {framework} models; "
@@ -382,8 +402,14 @@ def build_package(run_dir: Path | str, out_dir: Path | str, *, formats: tuple[st
     (out_dir / "Dockerfile").write_text(templates.DOCKERFILE.format(
         name=name, python=py_minor, env=keras_env))
     (out_dir / ".dockerignore").write_text(templates.DOCKERIGNORE)
+    graph_dict = record.get("graph") or {}
+    kind = _export_kind(graph_dict)
+    meta["export_kind"] = kind
+    blocked = _blocked(graph_dict, framework)
     (out_dir / "export_formats.py").write_text(templates.EXPORT_SCRIPT.format(
-        framework=framework, formats=tuple(formats)))
+        framework=framework, formats=tuple(f for f in formats if f not in blocked),
+        kind=kind))
+    shutil.copy2(Path(exporters.__file__), out_dir / "exporters.py")
 
     result = PackageResult(out_dir, meta)
     signature: dict = {}
@@ -393,7 +419,9 @@ def build_package(run_dir: Path | str, out_dir: Path | str, *, formats: tuple[st
         run_env = {**os.environ, "PYTHONWARNINGS": "ignore"}
         if framework == "keras":
             run_env["KERAS_BACKEND"] = meta["keras_backend"]
-        proc = subprocess.run([python or sys.executable, "export_formats.py"], cwd=out_dir,
+        from ai_made_easy.core.runner.manager import python_executable
+
+        proc = subprocess.run([python or python_executable(), "export_formats.py"], cwd=out_dir,
                               capture_output=True, text=True, timeout=timeout, env=run_env)
         result.log = proc.stdout + proc.stderr
         if "EXPORT-DONE" not in proc.stdout:
@@ -402,6 +430,9 @@ def build_package(run_dir: Path | str, out_dir: Path | str, *, formats: tuple[st
         signature = report.get("signature", {})
         result.formats = report.get("formats", {})
         result.verified = True
+    for fmt in formats:
+        if fmt in blocked:
+            result.formats[fmt] = {"ok": False, "error": blocked[fmt]}
     meta["signature"] = signature
     meta["exports"] = {k: v.get("file") for k, v in result.formats.items() if v.get("ok")}
     (out_dir / "metadata.json").write_text(json.dumps(meta, indent=1, default=str))

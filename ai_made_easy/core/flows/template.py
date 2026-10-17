@@ -1,18 +1,21 @@
 """Training scripts for normalizing flows (density estimation).
 
 The model maps data to standard-normal noise; training maximises the exact
-log-likelihood log N(z) + sum(log|det J|). Data is standardised first and every reported
-log-likelihood is converted back to the original units. A full-covariance Gaussian is
-the baseline. 2-D data gets a live picture each epoch (``samples: <png>`` lines): the
+log-likelihood log N(z) + sum(log|det J|). Tables are standardised first and every
+reported log-likelihood is converted back to the original units. Images (8-bit) are
+dequantised with uniform noise and reported in bits per dimension, as in the Glow paper;
+vector flows see them flattened. A full-covariance Gaussian is the baseline. 2-D data gets a live picture each epoch (``samples: <png>`` lines): the
 data, samples from the model and the learned density.
 """
 from __future__ import annotations
 
+import math
 from pathlib import Path
 
 from jinja2 import Environment, StrictUndefined
 
 from ai_made_easy.core.codegen import CodegenError, generate, sanitize_identifier
+from ai_made_easy.core.flows.blocks import IMAGE_DATA
 from ai_made_easy.core.flows.tasks import dataset_of
 from ai_made_easy.core.forecast.template import _picked, _strip_main
 from ai_made_easy.core.graph import Graph
@@ -45,8 +48,12 @@ import torch
 import torch.nn as nn
 
 DATASET = {{ dataset | repr }}
-INPUT_DIM = {{ input_dim }}
-INPUT_SHAPE = [INPUT_DIM]
+INPUT_SHAPE = {{ input_shape | repr }}
+OUTPUT_SHAPE = {{ output_shape | repr }}          # noise shape (after squeeze / split)
+INPUT_DIM = math.prod(INPUT_SHAPE)
+IMAGES = {{ images | repr }}                       # 8-bit images, dequantised
+IMAGE_SHAPE = {{ image_shape | repr }}             # [C, H, W] of the images
+TEMPERATURE = 0.7 if IMAGES else 1.0               # sampling temperature (Glow)
 EPOCHS = {{ trainer.epochs }}
 BATCH_SIZE = {{ batch_size }}
 SEED = {{ trainer.seed }}
@@ -99,7 +106,72 @@ def density_2d(kind: str, n: int, noise: float, seed: int) -> np.ndarray:
     return (x + rng.normal(0, noise, x.shape)).astype(np.float32)
 
 
+def density_images(kind: str, size: int, n: int, seed: int) -> np.ndarray:
+    """8-bit greyscale images [N, 1, size, size]: rectangles and discs, bars, or blobs."""
+    rng = np.random.default_rng(seed)
+    yy, xx = np.mgrid[0:size, 0:size] + 0.5
+    out = np.zeros((n, size, size), np.float32)
+    for i in range(n):
+        img = np.full((size, size), rng.uniform(0, 40))
+        for _ in range(rng.integers(1, 4)):
+            level = rng.uniform(120, 255)
+            if kind == "bars":
+                pos, width = rng.integers(0, size), rng.integers(1, max(2, size // 4))
+                band = (np.abs(xx - pos) < width) if rng.random() < 0.5 else \
+                    (np.abs(yy - pos) < width)
+                img = np.where(band, level, img)
+            elif kind == "blobs":
+                cx, cy = rng.uniform(0, size, 2)
+                r = rng.uniform(size / 8, size / 3)
+                img = np.maximum(img, level * np.exp(-((xx - cx) ** 2 + (yy - cy) ** 2)
+                                                     / (2 * r * r)))
+            elif rng.random() < 0.5:
+                x0, y0 = rng.integers(0, size - 2, 2)
+                w, h = rng.integers(2, max(3, size // 2), 2)
+                img[y0:y0 + h, x0:x0 + w] = level
+            else:
+                cx, cy = rng.uniform(1, size - 1, 2)
+                r = rng.uniform(1.5, size / 3)
+                img = np.where((xx - cx) ** 2 + (yy - cy) ** 2 < r * r, level, img)
+        out[i] = img
+    noise = rng.normal(0, 4, out.shape)
+    return np.clip(out + noise, 0, 255).astype(np.uint8)[:, None]
+
+
+def load_images(d: dict) -> np.ndarray:
+    """uint8 [N, C, H, W] at the Input's size."""
+    if d["block"] == "data.density_images":
+        return density_images(d["kind"], int(d["size"]), int(d["n_samples"]), int(d["seed"]))
+    from PIL import Image
+
+    channels, height, width = IMAGE_SHAPE
+    mode = "L" if channels == 1 else "RGB"
+    if d["block"] == "data.torchvision":
+        import torchvision
+
+        cls = getattr(torchvision.datasets, {"mnist": "MNIST", "fashion_mnist": "FashionMNIST",
+                                             "cifar10": "CIFAR10", "kmnist": "KMNIST"}
+                      .get(d["dataset"], "MNIST"))
+        ds = cls(str(Path(d.get("data_dir", "~/.aime/data")).expanduser()), train=True,
+                 download=bool(d.get("download", True)))
+        items = (ds[i][0] for i in range(len(ds)))
+    else:
+        root = Path(d["root"]).expanduser()
+        items = (Image.open(f) for f in sorted(root.rglob("*"))
+                 if f.suffix.lower() in (".png", ".jpg", ".jpeg", ".bmp", ".gif"))
+    arrays = []
+    for img in items:
+        img = img.convert(mode).resize((width, height))
+        arr = np.asarray(img, dtype=np.uint8)
+        arrays.append(arr[None] if channels == 1 else arr.transpose(2, 0, 1))
+    if not arrays:
+        raise SystemExit("no images found")
+    return np.stack(arrays)
+
+
 def load_points(d: dict) -> tuple[np.ndarray, list[str]]:
+    if IMAGES:
+        return load_images(d), []
     if d["block"] == "data.density_2d":
         return density_2d(d["kind"], int(d["n_samples"]), float(d["noise"]), int(d["seed"])), \
             ["x1", "x2"]
@@ -129,10 +201,28 @@ def flow_layers(model: nn.Module) -> list:
 
 
 def log_prob(model: nn.Module, x: torch.Tensor) -> torch.Tensor:
-    """log p(x) of standardised data: standard-normal base plus the log-determinants."""
-    z = model(x)
+    """log p(x) of the model's input: standard-normal base plus the log-determinants
+    (multi-scale splits add the log-density of the half they factor out)."""
+    z = model(x).flatten(1)
     logdet = sum(m.logdet for m in flow_layers(model))
     return -0.5 * (z ** 2).sum(-1) - 0.5 * z.shape[-1] * LOG_2PI + logdet
+
+
+def to_model(points: np.ndarray, rng: np.random.Generator) -> torch.Tensor:
+    """Images: 8-bit pixels + uniform noise, scaled to [-0.5, 0.5) (dequantisation);
+    tables: standardised."""
+    if IMAGES:
+        y = (points.astype(np.float32) + rng.random(points.shape, dtype=np.float32)) / 256.0
+        return torch.from_numpy(y.reshape(len(points), *INPUT_SHAPE) - 0.5)
+    return torch.from_numpy((points - STATE["mean"]) / STATE["std"]).float()
+
+
+def unit_correction() -> float:
+    """What turns log p(model input) into log p(data): 8-bit images lose log 256 per
+    dimension to the dequantisation's scaling; tables add the standardisation."""
+    if IMAGES:
+        return -INPUT_DIM * math.log(256.0)
+    return -float(np.log(STATE["std"]).sum())
 
 
 @torch.no_grad()
@@ -140,25 +230,44 @@ def sample(model: nn.Module, n: int, seed: int = 0) -> np.ndarray:
     """Points drawn from the model, in the original units."""
     device = next(model.parameters()).device
     g = torch.Generator(device="cpu").manual_seed(seed)
-    z = torch.randn(n, INPUT_DIM, generator=g).to(device)
+    torch.manual_seed(seed)                          # multi-scale splits draw too
+    z = torch.randn(n, *OUTPUT_SHAPE, generator=g).to(device) * TEMPERATURE
+    for layer in flow_layers(model):
+        if hasattr(layer, "temperature"):
+            layer.temperature = TEMPERATURE
     for layer in reversed(flow_layers(model)):
         z = layer.inverse(z)
+    if IMAGES:
+        pixels = ((z.cpu().numpy() + 0.5) * 256.0).clip(0, 255).astype(np.uint8)
+        return pixels.reshape(n, *IMAGE_SHAPE)
     return z.cpu().numpy() * STATE["std"] + STATE["mean"]
 
 
 @torch.no_grad()
 def log_density(model: nn.Module, points: np.ndarray, batch: int = 4096) -> np.ndarray:
-    """log p(x) in the original units (the standardisation's Jacobian included)."""
+    """log p(x) in the original units: tables include the standardisation's Jacobian,
+    images are 8-bit (one fixed dequantisation draw, so it is repeatable)."""
     model.eval()
     device = next(model.parameters()).device
-    xs = (np.asarray(points, dtype=np.float32) - STATE["mean"]) / STATE["std"]
-    out = [log_prob(model, torch.from_numpy(xs[i:i + batch]).to(device)).float().cpu().numpy()
-           for i in range(0, len(xs), batch)]
-    return np.concatenate(out) - float(np.log(STATE["std"]).sum())
+    rng = np.random.default_rng(SEED)
+    points = np.asarray(points) if IMAGES else np.asarray(points, dtype=np.float32)
+    out = [log_prob(model, to_model(points[i:i + batch], rng).to(device)).float().cpu().numpy()
+           for i in range(0, len(points), batch)]
+    return np.concatenate(out) + unit_correction()
 
 
 def gaussian_nll(train: np.ndarray, test: np.ndarray) -> float:
-    """Mean negative log-likelihood of a full-covariance Gaussian fitted to train."""
+    """Mean negative log-likelihood of a full-covariance Gaussian fitted to train (images:
+    on the dequantised pixels, in the same units as the flow)."""
+    if IMAGES:
+        rng = np.random.default_rng(SEED)
+        train = to_model(train, rng).flatten(1).numpy().astype(np.float64)
+        test = to_model(test, rng).flatten(1).numpy().astype(np.float64)
+        return _gaussian(train, test) + INPUT_DIM * math.log(256.0)
+    return _gaussian(train, test)
+
+
+def _gaussian(train: np.ndarray, test: np.ndarray) -> float:
     mean = train.mean(0)
     cov = np.cov(train, rowvar=False).reshape(train.shape[1], train.shape[1])
     cov += 1e-6 * np.eye(len(cov))
@@ -169,9 +278,38 @@ def gaussian_nll(train: np.ndarray, test: np.ndarray) -> float:
 
 
 # ======================================================================== pictures
+def image_picture(model: nn.Module, data: np.ndarray, path: Path, title: str,
+                  live: bool = False) -> None:
+    """Data images | samples from the flow, in two grids."""
+    from PIL import Image, ImageDraw
+
+    model.eval()
+    drawn = sample(model, 32, seed=SEED)
+    tile, cols, rows, pad = 3, 8, 4, 10
+    h, w = IMAGE_SHAPE[1] * tile, IMAGE_SHAPE[2] * tile
+    grid_w, grid_h = cols * (w + 2), rows * (h + 2)
+    img = Image.new("RGB", (2 * grid_w + 3 * pad, grid_h + 2 * pad + 36), (24, 26, 30))
+    draw = ImageDraw.Draw(img)
+    for k, images in enumerate((data[:32], drawn)):
+        ox = pad + k * (grid_w + pad)
+        draw.text((ox, 4), ("data", "samples from the flow")[k], fill=(200, 200, 200))
+        for i, arr in enumerate(images[:cols * rows]):
+            pic = Image.fromarray(arr[0] if arr.shape[0] == 1 else arr.transpose(1, 2, 0))
+            pic = pic.resize((w, h), Image.NEAREST).convert("RGB")
+            img.paste(pic, (ox + (i % cols) * (w + 2), pad + 18 + (i // cols) * (h + 2)))
+    draw.text((pad, grid_h + pad + 22), title, fill=(160, 160, 160))
+    path.parent.mkdir(parents=True, exist_ok=True)
+    img.save(path)
+    if live:
+        print(f"samples: {path}", flush=True)
+
+
 def density_picture(model: nn.Module, data: np.ndarray, path: Path, title: str,
                     live: bool = False) -> None:
     """Data | model samples | learned density over the first two dimensions."""
+    if IMAGES:
+        image_picture(model, data, path, title, live)
+        return
     from PIL import Image, ImageDraw
 
     size, pad = 240, 10
@@ -238,15 +376,15 @@ def train(model: nn.Module, train_x: np.ndarray, val_x: np.ndarray, device) -> n
 {% if scheduler_expr %}
     scheduler = {{ scheduler_expr }}
 {% endif %}
-    data = torch.from_numpy((train_x - STATE["mean"]) / STATE["std"]).float()
-    steps = max(1, math.ceil(len(data) / BATCH_SIZE))
+    rng = np.random.default_rng(SEED)
+    steps = max(1, math.ceil(len(train_x) / BATCH_SIZE))
     best, best_state, bad = math.inf, None, 0
     for epoch in range(1, EPOCHS + 1):
         model.train()
         started, total = time.time(), 0.0
-        order = torch.randperm(len(data))
-        for start in range(0, len(data), BATCH_SIZE):
-            xb = data[order[start:start + BATCH_SIZE]].to(device)
+        order = np.random.permutation(len(train_x))
+        for start in range(0, len(train_x), BATCH_SIZE):
+            xb = to_model(train_x[order[start:start + BATCH_SIZE]], rng).to(device)
             if len(xb) < 2:
                 continue
             loss = -log_prob(model, xb).mean()
@@ -269,7 +407,7 @@ def train(model: nn.Module, train_x: np.ndarray, val_x: np.ndarray, device) -> n
 {% elif scheduler_step == "metric" %}
         scheduler.step(val_nll)
 {% endif %}
-        train_nll = total / steps + float(np.log(STATE["std"]).sum())
+        train_nll = total / steps - unit_correction()
         print(f"epoch {epoch}/{EPOCHS} train_loss={train_nll:.4f} val_loss={val_nll:.4f} "
               f"val_nll_per_dim={val_nll / INPUT_DIM:.4f} "
               f"lr={optimizer.param_groups[0]['lr']:.3g} ({time.time() - started:.1f}s)",
@@ -313,7 +451,16 @@ def infer(raw: list) -> list[dict]:
         if isinstance(item, dict) and "sample" in item:
             n = max(1, min(int(item["sample"]), 10000))
             drawn = sample(_PREDICTOR, n, int(item.get("seed", 0)))
+            if IMAGES:
+                results.append({"samples": drawn.tolist()})
+                continue
             results.append({"samples": [[round(float(v), 6) for v in row] for row in drawn]})
+            continue
+        if IMAGES:
+            pixels = np.asarray(item, dtype=np.float64).reshape(1, *IMAGE_SHAPE)
+            logp = float(log_density(_PREDICTOR, pixels.clip(0, 255).astype(np.uint8))[0])
+            results.append({"log_density": logp,
+                            "bits_per_dim": -logp / INPUT_DIM / math.log(2)})
             continue
         if isinstance(item, dict):
             point = [float(item[c]) for c in STATE["columns"]]
@@ -333,14 +480,19 @@ def main() -> None:
     device = pick_device()
     print(f"device: {device}")
     points, columns = load_points(DATASET)
-    if points.shape[1] != INPUT_DIM:
-        raise SystemExit(f"the data has {points.shape[1]} columns but the Input holds "
-                         f"{INPUT_DIM} values")
+    width = int(np.prod(points.shape[1:]))
+    if width != INPUT_DIM:
+        raise SystemExit(f"the data has {width} values per sample but the Input holds "
+                         f"{INPUT_DIM}")
     parts = split(len(points), float(DATASET.get("val_fraction", 0.1)),
                   float(DATASET.get("test_fraction", 0.1)), SEED)
     train_x, val_x, test_x = (points[parts[k]] for k in ("train", "val", "test"))
-    STATE.update({"mean": train_x.mean(0).astype(np.float32),
-                  "std": (train_x.std(0) + 1e-6).astype(np.float32), "columns": columns})
+    if IMAGES:
+        STATE.update({"mean": np.zeros(1, np.float32), "std": np.ones(1, np.float32),
+                      "columns": columns})
+    else:
+        STATE.update({"mean": train_x.mean(0).astype(np.float32),
+                      "std": (train_x.std(0) + 1e-6).astype(np.float32), "columns": columns})
     print(f"points: train={len(train_x)} val={len(val_x)} test={len(test_x)} dims={INPUT_DIM}")
     model = build_model().to(device)
     print(f"parameters: {sum(p.numel() for p in model.parameters() if p.requires_grad):,}")
@@ -349,12 +501,15 @@ def main() -> None:
     nll = mean_nll(model, test_x)
     baseline = gaussian_nll(train_x, test_x)
     metrics = {"nll": nll, "nll_per_dim": nll / INPUT_DIM, "baseline_nll": baseline,
-               "nll_gain": baseline - nll}
+               "nll_gain": baseline - nll,
+               # nats -> bits per dimension (AutoML's metric; comparable across sizes)
+               "bits_per_dim": nll / INPUT_DIM / math.log(2)}
     torch.save(model.state_dict(), CHECKPOINT)
     with open(INFERENCE_FILE, "wb") as fh:
         pickle.dump(dict(STATE), fh)
     density_picture(model, test_x, SAMPLES_DIR / "density.png",
-                    f"test NLL {nll:.3f} (Gaussian {baseline:.3f})")
+                    f"test {nll / INPUT_DIM / math.log(2):.3f} bits/dim "
+                    f"(Gaussian {baseline / INPUT_DIM / math.log(2):.3f})")
     print(f"saved best weights to {CHECKPOINT}")
     print("test: " + " ".join(f"{k}={v:.4f}" for k, v in metrics.items()))
     Path("metrics.json").write_text(json.dumps(metrics, indent=1))
@@ -385,7 +540,10 @@ def _dataset(graph: Graph) -> dict:
 def _comment(dataset: dict) -> str:
     if dataset["block"] == "data.density_2d":
         return f"{dataset['n_samples']} points from the 2-D '{dataset['kind']}' distribution"
-    return str(dataset.get("path"))
+    if dataset["block"] == "data.density_images":
+        return (f"{dataset['n_samples']} generated {dataset['size']}×{dataset['size']} "
+                f"'{dataset['kind']}' images")
+    return str(dataset.get("path") or dataset.get("root") or dataset.get("dataset"))
 
 
 def context(graph: Graph, framework: str) -> dict:
@@ -413,11 +571,22 @@ def context(graph: Graph, framework: str) -> dict:
     model_code = generate(graph, "pytorch")
     name = sanitize_identifier(graph.name)
     extra = ("pandas",) if dataset["block"] == "data.csv" else ()
+    input_shape = [int(v) for v in shapes[chain[0].instance_id]]
+    output_shape = [int(v) for v in shapes[chain[-1].instance_id]]
+    images = dataset["block"] in IMAGE_DATA
+    image_shape = input_shape if len(input_shape) == 3 else []
+    if images and not image_shape:       # a vector flow on flattened images
+        side = int(dataset.get("size") or round(math.sqrt(input_shape[0])))
+        image_shape = [1, side, side] if dataset["block"] == "data.density_images" else \
+            [input_shape[0] // (side * side) or 1, side, side]
+    if images:
+        extra = (*extra, "pillow")
     return {
         "title": graph.name, "filename": f"{name}_train_pytorch.py", "name": name,
         "notes": notes, "requirements": own_loop_requirements(model_code, extra),
         "data_comment": _comment(dataset), "dataset": dataset,
-        "input_dim": int(shapes[chain[0].instance_id][0]), "trainer": trainer,
+        "input_shape": input_shape, "output_shape": output_shape, "images": images,
+        "image_shape": image_shape, "trainer": trainer,
         "batch_size": int(loader.get("batch_size") or 0) or int(trainer["batch_size"]),
         "model_code": _strip_main(model_code), "optimizer_expr": optimizer,
         "scheduler_expr": (cat.render(sched.type_id, cat.resolved(sched.type_id, sched_params),

@@ -186,7 +186,26 @@ def sample(model) -> dict:
             stats["divergences"] = int(np.asarray(trace["sample_stats"]["diverging"]).sum())
     posterior = trace["posterior"]
     stats["report"] = {n: np.asarray(posterior[n]) for n in REPORT if n in posterior}
+    stats["trace"] = trace
     return {n: np.asarray(posterior[n]) for n in free_names(model)}, stats
+
+
+def elpd_loo(model, trace) -> float | None:
+    """PSIS-LOO expected log pointwise predictive density (higher is better): how well
+    the model predicts each row it did not see, estimated from one posterior."""
+    try:
+        import arviz as az
+
+        with model:
+            pm.compute_log_likelihood(trace, progressbar=False)
+        result = az.loo(trace)
+        value = getattr(result, "elpd", None)
+        if value is None:   # ArviZ < 1.0
+            value = result["elpd_loo"]
+        return float(value)
+    except Exception as exc:  # noqa: BLE001 — diagnostics never fail a run
+        print(f"(no PSIS-LOO: {exc})", flush=True)
+        return None
 
 
 def points(draws: dict, limit: int = 400) -> list[dict]:
@@ -301,6 +320,10 @@ def main() -> None:
     for name, arr in draws.items():
         if arr[0, 0].size == 1:
             metrics[f"mean_{name}"] = float(np.asarray(arr).mean())
+    if OBSERVED and SAMPLER["method"] != "map":
+        elpd = elpd_loo(model, stats["trace"])
+        if elpd is not None:
+            metrics["elpd_loo"] = elpd
     if OBSERVED:
         metrics.update(check(train, predict(train, draws), "train"))
         if test is not None:

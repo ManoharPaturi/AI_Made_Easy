@@ -62,9 +62,15 @@ class Device:
     tflops_fp16: float
     bandwidth_gbs: float
     overhead_gb: float = 0.4   # framework / driver context
+    formats: tuple = ()        # export formats the device runs, best first
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "formats", tuple(self.formats or ()))
 
     def to_dict(self) -> dict:
-        return asdict(self)
+        out = asdict(self)
+        out["formats"] = list(self.formats)
+        return out
 
 
 def user_devices_path() -> Path:
@@ -158,6 +164,12 @@ class Estimate:
     optimizer_states: int = 2
     layers: list[LayerCost] = field(default_factory=list)
     device: Device | None = None
+    # structured designs (classic ML, PGMs, PyMC, GPs; core.budget_structured)
+    family: str = "neural"
+    value_bytes: int = 4            # bytes per stored value (float64 outside networks)
+    work_values: int = 0            # training workspace (data copies, kernel matrices, draws)
+    efficiency: float = COMPUTE_EFFICIENCY
+    assumed_data: str = ""          # why the size is a guess (no dataset size)
 
     # ---------------------------------------------------------- memory
     @property
@@ -165,12 +177,15 @@ class Estimate:
         return 2 if self.mixed_precision else 4
 
     def model_bytes(self) -> int:
-        return self.params * 4
+        return self.params * self.value_bytes
 
     def train_memory_bytes(self, batch_size: int | None = None,
                            mixed_precision: bool | None = None) -> int:
         batch = self.batch_size if batch_size is None else batch_size
         amp = self.mixed_precision if mixed_precision is None else mixed_precision
+        if self.family != "neural":
+            overhead = (self.device.overhead_gb if self.device else 0.0) * GB
+            return int(self.model_bytes() + self.work_values * 8 + overhead)
         weights = self.params * 4 + (self.params * 2 if amp else 0)  # fp16 copy under AMP
         grads = self.trainable_params * 4
         states = self.trainable_params * 4 * self.optimizer_states
@@ -188,7 +203,7 @@ class Estimate:
         if device is None:
             return None
         tflops = device.tflops_fp16 if self.mixed_precision else device.tflops_fp32
-        compute = self.flops / (tflops * 1e12 * COMPUTE_EFFICIENCY)
+        compute = self.flops / (tflops * 1e12 * self.efficiency)
         traffic = (self.model_bytes() + 2 * self.activations * 4) / (device.bandwidth_gbs * 1e9)
         launch = LAYER_LAUNCH_MS.get(device.kind, 0.01) * self.kernels / 1e3
         return (compute + traffic + launch) * 1e3
@@ -228,6 +243,7 @@ class Estimate:
             "latency_ms": _round(self.latency_ms()), "step_time_ms": _round(self.step_time_ms()),
             "device": device.to_dict() if device else None,
             "layers": [asdict(layer) for layer in self.layers],
+            "family": self.family, "assumed_data": self.assumed_data,
         }
 
 
@@ -281,7 +297,16 @@ def layer_flops(type_id: str, params: int, in_shapes: list[list[int]],
 
 
 def estimate(graph, device: str | Device | None = None) -> Estimate:  # noqa: ANN001
-    """Per-layer and total costs of a neural design under its trainer settings."""
+    """Per-layer and total costs of a design under its trainer settings (classic ML and
+    probabilistic designs: ``core.budget_structured``)."""
+    from ai_made_easy.core import budget_structured
+
+    if budget_structured.applies(graph):
+        est = budget_structured.estimate(graph)
+        if device is None:
+            device = budget_of(graph)["device"] or None
+        est.device = get_device(device) if isinstance(device, str) else device
+        return est
     shapes = graph.infer_shapes()
     est = Estimate()
     for node in graph.model_nodes():

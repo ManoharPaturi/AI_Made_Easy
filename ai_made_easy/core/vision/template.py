@@ -457,6 +457,23 @@ def save_overlays(kept: list) -> None:
 _PREDICTOR = None
 
 
+def save_calibration(train_loader: DataLoader, test_loader: DataLoader) -> None:
+    """A few training and test images (int8 calibration and checks for exports)."""
+    try:
+        def take(loader: DataLoader, limit: int) -> np.ndarray:
+            images = []
+            for batch, _targets in loader:
+                images.append(batch.cpu().numpy())
+                if sum(len(b) for b in images) >= limit:
+                    break
+            x = np.concatenate(images)
+            return x[: max(2, min(limit, int(4e6 // max(x[0].nbytes, 1))))]
+        np.savez_compressed("calibration.npz", x=take(train_loader, 32),
+                            x_eval=take(test_loader, 32))
+    except Exception as exc:  # noqa: BLE001 — exports fall back to random images
+        print(f"(no calibration sample: {exc})")
+
+
 def save_inference_state() -> None:
     with open(INFERENCE_FILE, "wb") as fh:
         pickle.dump({"task": TASK, "class_names": CLASS_NAMES, "input_shape": INPUT_SHAPE}, fh)
@@ -550,6 +567,7 @@ def main() -> None:
     model = fit(model, train_loader, val_loader, device)
     torch.save(model.state_dict(), CHECKPOINT)
     save_inference_state()
+    save_calibration(train_loader, test_loader)
     Path("classes.json").write_text(json.dumps(CLASS_NAMES))
     print(f"saved best weights to {CHECKPOINT}")
     metrics, kept = evaluate(model, test_loader, device, keep=8)
