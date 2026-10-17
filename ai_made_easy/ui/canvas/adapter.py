@@ -98,6 +98,12 @@ class CanvasController:
         # smart-mix wire guard: dtype-impossible wires are undone instantly
         self.guard_notifiers: list = []  # callables taking a friendly message
         self._graph.port_connected.connect(self._on_port_connected)
+        from ai_made_easy.ui.canvas.stand_ins import StandInWires
+
+        self.stand_ins = StandInWires(
+            self._graph.viewer().scene(),
+            lambda: [g for g in self._annotations("group") if g.folded],
+            self._graph.get_node_by_id)
 
     # ------------------------------------------------------- wire guard
 
@@ -357,6 +363,7 @@ class CanvasController:
             for n in members:   # wires once both ends are back
                 self._show_block(n, True)
             group.set_size(*folded["size"])
+        self.stand_ins.rebuild()
         self._graph.viewer().scene().update()
         return True
 
@@ -447,6 +454,7 @@ class CanvasController:
 
     def clear(self) -> None:
         self.meta = {}
+        self.stand_ins.clear()
         self._graph.clear_session()
         self._graph.clear_undo_stack()
 
