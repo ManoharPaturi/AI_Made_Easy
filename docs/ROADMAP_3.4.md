@@ -1,7 +1,7 @@
 # AI Made Easy 3.4 — plan and status
 
-*Status: in progress. Phases 1 and 2 (everything 3.3 moved here), 3 and 4 are done.
-Phases 3–6 follow a draft plan you haven't approved yet; change it at any point.*
+*Status: in progress. Phases 1–5 are done; Phase 6 (release 3.4.0) waits for your
+confirmation. Phases 3–6 follow a draft plan you haven't approved yet.*
 
 ## Phase 1 — what 3.3 deferred (`feat/v34-phase1`)
 - **SHAP values** (`eval.shap_values`, `explain` extra). Expected gradients
@@ -73,10 +73,33 @@ Phases 3–6 follow a draft plan you haven't approved yet; change it at any poin
   the metric losses don't exist yet. The data wizard doesn't detect a pairs table; you
   add the block yourself.
 
+## Phase 5 — bugs and polish (`feat/v34-phase5`)
+A read-only audit of 3.3 and 3.4's newest code found four bugs; each fix has a test.
+**Done.**
+- **Serving metric-learning models (from 3.3).**
+  - `infer()` passed an ArcFace / triplet / contrastive model's embedding to
+    `describe()` as if it were class logits, so served labels and probabilities were
+    wrong.
+  - The trained loss's state (class centres or averages) is now saved with the inference
+    state and rebuilt to score embeddings, and each result carries its embedding. Pair
+    models serve each item's embedding (or its score, for ranking).
+  - Runs trained before the fix have no saved scorer and say so; retrain them.
+- **Undo of a folded group (desktop).** Undoing the group's creation removed the card but
+  left its blocks hidden. The canvas now keeps the hidden blocks in step with the folded
+  groups it has after every change, so undo shows them and redo folds them again.
+- **A moved folded card (desktop).** Saving wrote the hidden blocks at their old
+  positions and reopening fitted the card around them, so the move was lost. The blocks
+  are now saved where the card will open them. The web's card can't be dragged, so it
+  isn't affected.
+- **Pairs and feature explanations.** Permutation importance, Integrated Gradients and
+  SHAP would have treated a pair's two items as two features; they are skipped with a
+  warning. Grad-CAM's sample count is capped at 12, the most a run's samples view shows.
+- **The Qt "shared QObject was deleted directly" message.** It appeared once, at the end
+  of a full local run, after the stand-in wires were added. It didn't come back when all
+  nine desktop test files were run together, or one at a time. The run exited cleanly.
+  It's left noted here rather than "fixed" without a cause.
+
 ## Planned (draft, not yet agreed)
-- **Phase 5 — bugs and polish:** a read-only bug survey with one test per fix, and a
-  check of the Qt "shared QObject was deleted directly" message at the end of the test
-  run.
 - **Phase 6 — release 3.4.0**, after you confirm.
 
 ## Still open
