@@ -139,6 +139,20 @@ DATASETS: list[DataBlock] = [
         (P("path", "str", "data.npz"), P("x_key", "str", "x"), P("y_key", "str", "y")),
         desc="Arrays stored in an .npz file (x: samples, y: targets).", modality=ARRAY),
     DataBlock(
+        "data.pairs", "Labelled Pairs", "Data",
+        (P("path", "str", "", help="Your table of pairs; empty = generated demo pairs "
+                                   "(8 features per item)"),
+         P("format", "enum", "csv", options=("csv", "tsv", "parquet")),
+         P("label_column", "str", "label",
+           help="1 / 0: same / different (Cosine Embedding) or a ranks above b (Margin "
+                "Ranking)"),
+         P("left_prefix", "str", "a_", help="Columns of the first item, e.g. a_height"),
+         P("right_prefix", "str", "b_", help="The same columns of the second item")),
+        desc="A table of pairs: each row holds two items (the a_ and b_ columns) and a "
+             "label. The model is the encoder; it embeds both items. Train it with Cosine "
+             "Embedding (same or different) or Margin Ranking (which ranks higher).",
+        modality=ARRAY),
+    DataBlock(
         "data.json", "JSON Records", "Data",
         (P("path", "str", "data.jsonl"), P("x_field", "str", "x"), P("y_field", "str", "y")),
         desc="JSON array or JSON Lines with feature and target fields.", modality=ARRAY),

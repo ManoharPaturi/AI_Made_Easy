@@ -1,6 +1,6 @@
 # AI Made Easy 3.4 — plan and status
 
-*Status: in progress. Phases 1 and 2 (everything 3.3 moved here) and Phase 3 are done.
+*Status: in progress. Phases 1 and 2 (everything 3.3 moved here), 3 and 4 are done.
 Phases 3–6 follow a draft plan you haven't approved yet; change it at any point.*
 
 ## Phase 1 — what 3.3 deferred (`feat/v34-phase1`)
@@ -51,9 +51,29 @@ Phases 3–6 follow a draft plan you haven't approved yet; change it at any poin
   time. The new block reuses that function, so the two can't drift, and the generated
   script defines it once.
 
+## Phase 4 — labelled pairs (`feat/v34-phase4`)
+- **`data.pairs` (Labelled Pairs):** each row is two items (the `a_*` and `b_*` columns of
+  a CSV, TSV or Parquet file) and a 0 / 1 label. With no path, it generates demo pairs.
+  **Done.**
+- **How it trains.**
+  - The generated script keeps the model class as the encoder and wraps it under the same
+    name, so everything that builds the model gets the pair version. For a pair
+    `(batch, 2, …)` the wrapper returns both embeddings; for a single item it returns that
+    item's embedding, which is what export and serving use.
+  - The two pair losses read explicit pairs when they get them. Cosine Embedding gives
+    `1 − cos` for same pairs and `max(0, cos − margin)` for different ones. Margin
+    Ranking is `nn.MarginRankingLoss` on the two items' scores, so its model ends in one
+    unit.
+  - Each loss also turns a pair into one logit, so the task is binary and the binary
+    metrics (accuracy, ROC-AUC, …) apply unchanged.
+  - Other losses, and ranking models with more than one output, are rejected with a
+    message.
+- **Recipe:** *Pairs — same or different (siamese)*. **Done.**
+- **Not included:** pairs of images (two image paths per row) and pairs in Keras, where
+  the metric losses don't exist yet. The data wizard doesn't detect a pairs table; you
+  add the block yourself.
+
 ## Planned (draft, not yet agreed)
-- **Phase 4 — labelled pairs:** a pairs dataset block and a siamese loop, so the pair
-  losses also train on explicit same / different pairs. Also a verification recipe.
 - **Phase 5 — bugs and polish:** a read-only bug survey with one test per fix, and a
   check of the Qt "shared QObject was deleted directly" message at the end of the test
   run.

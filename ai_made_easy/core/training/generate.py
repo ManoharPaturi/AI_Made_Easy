@@ -228,7 +228,11 @@ def _torch_ctx(graph: Graph, spec: TrainingSpec) -> dict:
         scheduler_expr=sched_expr, scheduler_step=sched_step,
         uses_functional=ctx["uses_functional"] or ctx["loss_helper"] == "FocalLoss",
         grad_cam_fn=GRAD_CAM_FN,
+        pairs=spec.pairs,
     )
+    if spec.pairs == "ranking" and spec.embed_dim != 1:
+        raise CodegenError("Margin Ranking on labelled pairs scores each item: end the "
+                           f"model with one output unit (it has {spec.embed_dim})")
     if ctx["two_views"] and not ctx["torchvision_pipeline"]:
         raise CodegenError(f"{cat.COMPONENTS[spec.loss['kind']].name} learns from two "
                            "augmented views of each image: use an image dataset")

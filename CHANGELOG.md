@@ -17,7 +17,17 @@
 - **Grad-CAM Heatmaps** (`eval.grad_cam`): after training, an image classifier saves
   heatmaps of where it looked for a few test predictions. The heatmaps are kept with the
   run and shown on the Experiments page in both apps; until now, Grad-CAM was only in the
-  desktop's one-image Inspect dialog. 588 blocks, 67 recipes.
+  desktop's one-image Inspect dialog.
+- **Labelled Pairs** (`data.pairs`): a table where each row is two items (the `a_` and
+  `b_` columns) and a label. The model is an encoder that embeds both items.
+  - Cosine Embedding learns whether a pair is the same or different.
+  - Margin Ranking learns which item ranks higher, from one score per item.
+  - Every binary metric applies to each pair's verdict. After training, the model embeds
+    (or scores) single items.
+  - The new **Pairs — same or different (siamese)** recipe trains on generated demo
+    pairs until you point it at your own table.
+
+  589 blocks, 68 recipes.
 
 ### Changed
 - On the desktop, wires into and out of a folded group now end on the card as dashed
