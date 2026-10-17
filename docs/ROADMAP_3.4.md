@@ -94,10 +94,15 @@ A read-only audit of 3.3 and 3.4's newest code found four bugs; each fix has a t
 - **Pairs and feature explanations.** Permutation importance, Integrated Gradients and
   SHAP would have treated a pair's two items as two features; they are skipped with a
   warning. Grad-CAM's sample count is capped at 12, the most a run's samples view shows.
-- **The Qt "shared QObject was deleted directly" message.** It appeared once, at the end
-  of a full local run, after the stand-in wires were added. It didn't come back when all
-  nine desktop test files were run together, or one at a time. The run exited cleanly.
-  It's left noted here rather than "fixed" without a cause.
+- **The Qt "shared QObject was deleted directly" message. Not fixed.** Since Phase 2,
+  full local runs (1799 and later 1814 tests) end with this one line, printed after
+  the summary as the process exits. Every test passes and the exit code is 0. It doesn't
+  appear when the nine desktop test files run on their own, together or one by one, so
+  it depends on the whole run's teardown.
+  - One guess, that `scene.changed` connected to plain Python callables leaves hidden
+    receivers behind, was tested by making the stand-in manager a QObject child of the
+    scene. The message stayed, so the change was dropped.
+  - It stays open.
 
 ## Planned (draft, not yet agreed)
 - **Phase 6 — release 3.4.0**, after you confirm.
