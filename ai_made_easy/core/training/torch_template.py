@@ -127,6 +127,26 @@ class {{ spec.class_name }}(nn.Module):
         {{ n.torch_expr }}
 {% endfor %}
         return {{ output_var }}
+{% if pairs %}
+
+
+_Encoder = {{ spec.class_name }}
+
+
+class {{ spec.class_name }}(nn.Module):
+    """Labelled pairs: the encoder above embeds both items, (batch, 2, ...) -> (batch, 2,
+    embedding). A single item (batch, ...) gets its embedding, which is what export and
+    serving use."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.encoder = _Encoder()
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        if x.ndim == len(INPUT_SHAPE) + 2:
+            return self.encoder(x.flatten(0, 1)).reshape(x.shape[0], 2, -1)
+        return self.encoder(x)
+{% endif %}
 '''
 
 TORCH_IMAGE_DATA = r'''
@@ -394,7 +414,9 @@ def pick_device() -> torch.device:
 
 def adapt(out: torch.Tensor, y: torch.Tensor):
     """Align output and target shapes for the loss."""
-{% if spec.task == "binary" %}
+{% if pairs %}
+    return out, y            # [batch, 2, embedding] and each pair's 0 / 1 label
+{% elif spec.task == "binary" %}
     return out.reshape(-1), y.float().reshape(-1)
 {% elif spec.task == "regression" %}
     if out.ndim == 2 and out.shape[1] == 1 and y.ndim == 1:

@@ -60,6 +60,13 @@ class TrainingSpec:
         return bool(self.loss and cat.COMPONENTS[self.loss["kind"]].meta.get("metric"))
 
     @property
+    def pairs(self) -> str | None:
+        """Labelled pairs (3.4): "same" (cosine embedding) or "ranking" (margin ranking)."""
+        if self.dataset.get("block") != "data.pairs" or not self.loss:
+            return None
+        return "ranking" if self.loss["kind"] == "train.loss_margin_ranking" else "same"
+
+    @property
     def embed_dim(self) -> int:
         return self.output_shape[0] if self.output_shape else 1
 
@@ -67,6 +74,8 @@ class TrainingSpec:
     def num_outputs(self) -> int:
         """Classes (classification) or targets: the model's output width, except for metric
         losses, whose ``classes`` parameter says how many classes there are."""
+        if self.pairs:
+            return 1                   # one score per pair
         if self.metric_loss:
             return int(self.loss["classes"])
         return self.output_shape[0] if self.output_shape else 1
@@ -135,6 +144,11 @@ def collect_spec(graph: Graph) -> TrainingSpec:
                  if loss else {"kind": default_loss, **cat.resolved(default_loss, {})})
     meta = cat.COMPONENTS[spec.loss["kind"]].meta
     spec.task = resolve_task(meta["task"], spec.num_outputs).id
+    if spec.dataset.get("block") == "data.pairs":
+        if spec.loss["kind"] not in cat.PAIR_LOSS_IDS:
+            raise CodegenError("Labelled Pairs trains with a pair loss: Cosine Embedding "
+                               "(same or different) or Margin Ranking (which ranks higher)")
+        spec.task = "binary"           # each pair: same or not / a above b or not
     if ds is None:
         spec.dataset = _default_dataset(spec)
         spec.warnings.append("no dataset block: training on synthetic data shaped like "
@@ -264,7 +278,10 @@ def dataset_comment(spec: TrainingSpec) -> str:
         return f"Torchvision {d['dataset']}"
     if block == "data.sklearn":
         return f"scikit-learn {d['dataset']}"
-    if block in ("data.csv", "data.text_csv", "data.timeseries_csv", "data.numpy", "data.json"):
+    if block == "data.pairs" and not d.get("path"):
+        return "Labelled Pairs: generated demo pairs"
+    if block in ("data.csv", "data.text_csv", "data.timeseries_csv", "data.numpy", "data.json",
+                 "data.pairs"):
         return f"{dcat.BLOCKS[block].name}: {d.get('path')}"
     if block in ("data.image_folder", "data.text_folder", "data.audio_folder"):
         return f"{dcat.BLOCKS[block].name}: {d.get('root')}"

@@ -133,6 +133,15 @@ def task_of(graph) -> Task | None:  # noqa: ANN001 — core.graph.Graph
     return resolve_task(cat.COMPONENTS[loss.type_id].meta["task"], outputs)
 
 
+def _pairs_task(graph) -> str | None:  # noqa: ANN001
+    """Labelled pairs (3.4) are a yes / no question about each pair, whatever the loss's
+    usual task."""
+    return "binary" if any(n.type_id == "data.pairs" for n in graph.nodes.values()) else None
+
+
+register_task_resolver(_pairs_task)
+
+
 # ------------------------------------------------------------- built-in tasks
 
 register_task(Task(

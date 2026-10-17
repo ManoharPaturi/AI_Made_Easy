@@ -363,3 +363,47 @@ register_recipe(Recipe(
     knobs=(Knob("n_neighbors", "int", 20, 2, 500, help="Neighbours compared"),
            CONTAMINATION),
     strengths="local anomalies that a global threshold misses"))
+
+
+# ------------------------------------------------------------------ labelled pairs (3.4)
+
+def _pairs(ctx: Context) -> Draft:
+    d = Draft("pairs_verification", "Pairs — same or different",
+              "One encoder embeds both items of each pair; Cosine Embedding learns to put "
+              "same items close together and different ones apart.")
+    d.add("data.pairs", "demo pairs of items with 8 features each: point it at your own "
+                        "table of a_* and b_* columns with a 0 / 1 label", nid="data")
+    width = int(ctx["width"])
+    d.chain(("core.input", {"shape": "8"}, "one item: its 8 features"),
+            ("core.dense", {"units": width}, "a fully-connected layer mixes the features"),
+            ("core.relu", {}, "ReLU lets the encoder learn non-linear patterns"),
+            ("core.dense", {"units": int(ctx["embedding"])},
+             f"the embedding: {int(ctx['embedding'])} numbers per item, compared by angle"),
+            ("core.output", {}, ""))
+    d.add("train.loss_cosine_embedding", "Cosine Embedding: same pairs pull together, "
+                                         "different pairs are pushed below the margin",
+          nid="loss", classes=2, margin=ctx["margin"])
+    d.add("train.adamw", "AdamW: Adam with decoupled weight decay", nid="optimizer",
+          lr=ctx["lr"])
+    d.add("train.trainer", "early stopping ends training when the validation loss stops "
+                           "improving", nid="trainer", epochs=ctx["epochs"] or 30,
+          batch_size=128, early_stopping_patience=5)
+    d.add("eval.accuracy", "how often the pair is called same / different correctly",
+          nid="accuracy")
+    d.add("eval.roc_auc", "ROC AUC: how well the similarity separates same from different",
+          nid="auc")
+    return d
+
+
+register_recipe(Recipe(
+    "pairs_verification", "Pairs — same or different (siamese)", ("binary",), "small",
+    "tabular", "Verification and duplicate detection: an encoder trained on labelled pairs; "
+               "afterwards it embeds single items, so new items can be compared.",
+    _pairs, demo_tasks=("binary",), priority=-0.5,
+    knobs=(Knob("lr", "float", 3e-3, 1e-5, 0.1, log=True, help="Optimizer learning rate"),
+           Knob("width", "int", 64, 8, 1024, help="Units in the hidden layer"),
+           Knob("embedding", "int", 32, 4, 512, help="Embedding size"),
+           Knob("margin", "float", 0.2, -0.5, 0.9, help="Cosine that different pairs "
+                                                       "are pushed below"),
+           EPOCHS(30)),
+    strengths="learns a similarity, not only a label"))
