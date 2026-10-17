@@ -1081,6 +1081,16 @@ EXPLAIN_SHAP = Component(
     meta={"requires": ("shap",), "extra": "explain"})
 
 
+EXPLAIN_GRADCAM = Component(
+    "eval.grad_cam", "Grad-CAM Heatmaps",
+    (P("n_samples", "int", 8, lo=1, hi=32, help="Test images explained"),
+     P("opacity", "float", 0.5, lo=0.1, hi=0.9, help="How strongly the heatmap is drawn")),
+    desc="After training, Grad-CAM (Selvaraju et al., 2017) on the last convolution: a "
+         "heatmap over each of a few test images showing where the model looked for its "
+         "prediction, saved with the run and shown in both apps. Image classifiers with "
+         "a Conv2d layer, PyTorch.")
+
+
 def _losses_by_id() -> dict[str, Component]:
     return {c.type_id: c for c in LOSSES}
 
@@ -1091,7 +1101,7 @@ SCHEDULER_IDS = tuple(c.type_id for c in SCHEDULERS)
 METRIC_IDS = tuple(c.type_id for c in METRICS)
 COMPONENTS: dict[str, Component] = {
     c.type_id: c for c in (*LOSSES, *OPTIMIZERS, *SCHEDULERS, *METRICS, TRAINER, KFOLD, PREDICT,
-                           EXPLAIN, EXPLAIN_IG, EXPLAIN_SHAP)
+                           EXPLAIN, EXPLAIN_IG, EXPLAIN_SHAP, EXPLAIN_GRADCAM)
 }
 
 _CATEGORY = {
@@ -1105,6 +1115,7 @@ _CATEGORY = {
     "eval.permutation_importance": ("Metrics", "evaluation"),
     "eval.integrated_gradients": ("Metrics", "evaluation"),
     "eval.shap_values": ("Metrics", "evaluation"),
+    "eval.grad_cam": ("Metrics", "evaluation"),
 }
 EXPLAIN_IDS = ("eval.permutation_importance", "eval.integrated_gradients", "eval.shap_values")
 EXPLAIN_METHODS = {"eval.permutation_importance": "permutation",
@@ -1113,7 +1124,7 @@ EXPLAIN_METHODS = {"eval.permutation_importance": "permutation",
 
 
 def _libraries(c: Component) -> str:
-    if c.type_id in EXPLAIN_IDS:
+    if c.type_id in (*EXPLAIN_IDS, "eval.grad_cam"):
         return "PyTorch"
     if c.type_id in METRIC_IDS or c.type_id in ("train.trainer", "train.kfold", "eval.predict"):
         return "PyTorch · Keras"

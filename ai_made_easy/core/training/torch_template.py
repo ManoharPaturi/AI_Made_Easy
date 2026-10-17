@@ -742,6 +742,52 @@ def preview_predictions(model: nn.Module, loader: DataLoader, device: torch.devi
         print(f"  #{i}: actual {np.round(targets[i], 4)} -> predicted {np.round(scores[i], 4)}")
 {% endif %}
 {% endif %}
+{% if spec.gradcam %}
+
+{{ grad_cam_fn }}
+def _heat(cam: np.ndarray) -> np.ndarray:
+    """A blue-to-red colour map for a [0, 1] heatmap (H, W) -> (H, W, 3)."""
+    return np.stack([np.clip(1.5 - np.abs(4 * cam - k), 0, 1) for k in (3, 2, 1)], axis=-1)
+
+
+def save_grad_cams(model: nn.Module, loader: DataLoader, device: torch.device) -> None:
+    """Grad-CAM heatmaps of the first test images on the last convolution, drawn over each
+    image (left: the image, right: where the model looked) into eval_samples/."""
+    from PIL import Image
+
+    convs = [m for m in model.modules() if isinstance(m, nn.Conv2d)]
+    if not convs:
+        print("(Grad-CAM needs a Conv2d layer: no heatmaps drawn)")
+        return
+    model.eval()
+    out_dir = Path("eval_samples")
+    out_dir.mkdir(exist_ok=True)
+    name = lambda c: str(CLASS_NAMES[c]) if CLASS_NAMES and c < len(CLASS_NAMES) else str(c)
+    count = min({{ spec.gradcam.n_samples }}, len(loader.dataset))
+    for i in range(count):
+        x, y = loader.dataset[i]
+        x = x.unsqueeze(0).float().to(device)
+        with torch.no_grad():
+            scores = model(x)
+        picked = int(scores.argmax(1)[0]) if scores.shape[1] > 1 else 0
+        cam = grad_cam(model, x, convs[-1], picked)
+        img = x[0].float().cpu().numpy()
+        img = (img - img.min()) / (img.max() - img.min() + 1e-9)
+        img = np.repeat(img, 3, axis=0) if img.shape[0] == 1 else img[:3]
+        img = np.transpose(img, (1, 2, 0))
+        mixed = (1 - {{ spec.gradcam.opacity }}) * img + {{ spec.gradcam.opacity }} * _heat(cam)
+        pair = (np.concatenate([img, mixed], axis=1) * 255).astype("uint8")
+        side = max(128, pair.shape[0])
+        picture = Image.fromarray(pair).resize((side * 2 * pair.shape[1] // (2 * pair.shape[0]), side))
+{% if spec.task == "binary" %}
+        guess = int(torch.sigmoid(scores)[0, 0] > 0.5)
+{% else %}
+        guess = picked
+{% endif %}
+        true = int(y) if not torch.is_tensor(y) or y.ndim == 0 else int(y.reshape(-1)[0])
+        picture.save(out_dir / f"gradcam_{i:02d}_{name(true)}_as_{name(guess)}.png")
+    print(f"saved {count} Grad-CAM heatmaps to eval_samples/")
+{% endif %}
 '''
 
 TORCH_MAIN = r'''
@@ -838,6 +884,12 @@ def main() -> None:
                          device{{ ", background_loader=train_loader" if spec.explain.method == "shap" else "" }})
     except Exception as exc:  # noqa: BLE001 — an explanation is optional
         print(f"(could not explain the features: {exc})")
+{% endif %}
+{% if spec.gradcam %}
+    try:
+        save_grad_cams(model, test_loader if len(test_loader.dataset) else val_loader, device)
+    except Exception as exc:  # noqa: BLE001 — heatmaps are optional
+        print(f"(could not draw Grad-CAM heatmaps: {exc})")
 {% endif %}
 {% if spec.is_classification %}
     try:
