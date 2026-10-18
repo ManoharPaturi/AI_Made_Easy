@@ -364,3 +364,8 @@ button.danger-fill:hover:not(:disabled) { background: var(--error); filter: brig
 /* keyboard focus is always visible */
 button:focus-visible, .block-item:focus-visible, [role=button]:focus-visible, select:focus-visible {
   outline: 2px solid var(--accent); outline-offset: 1px; }
+
+/* collapsed groups (3.4): one card in place of the blocks */
+.canvas-group.collapsed { border-style: solid; pointer-events: all; display: flex;
+                          flex-direction: column; justify-content: center; }
+.canvas-group .group-summary { font-size: 11px; padding: 0 10px 4px 30px; }

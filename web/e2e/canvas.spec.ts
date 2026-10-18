@@ -75,6 +75,25 @@ test("group blocks, rename the group, ungroup", async ({ page }) => {
   await expect(frame).toHaveCount(0);
 });
 
+test("a group folds into one card and opens again (3.4)", async ({ page }) => {
+  const count = await page.locator(".block-node").count();
+  await selectTwo(page);
+  await page.getByTestId("group").click();
+  const frame = page.getByTestId("group-group1");
+  await frame.getByRole("button", { name: "Collapse Group" }).click();
+  await expect(frame).toContainText("2 blocks folded");
+  await expect(page.locator(".block-node:visible")).toHaveCount(count - 2);
+  // wires to the hidden blocks end on the card
+  await expect(page.locator(".react-flow__edge[data-id*='~']")).not.toHaveCount(0);
+  await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem("aime.autosave")
+    ?? "{}").meta?.groups?.[0]?.collapsed)).toBe(true);
+  await page.reload();                                 // folded groups stay folded
+  await expect(page.getByTestId("group-group1")).toContainText("2 blocks folded");
+  await page.getByTestId("group-group1").getByRole("button", { name: "Expand Group" }).click();
+  await expect(page.locator(".block-node:visible")).toHaveCount(count);
+  await expect(page.locator(".react-flow__edge[data-id*='~']")).toHaveCount(0);
+});
+
 test("sticky notes are saved with the design", async ({ page }) => {
   await page.getByTestId("add-note").click();
   await page.getByTestId("note-text-note1").fill("Try a wider first layer");

@@ -52,7 +52,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
-          pip install -e ".[dev,classic,umap,imbalance,keras,mcp-server,serve,export,tuning]" pandas
+          pip install -e ".[dev,classic,umap,imbalance,explain,keras,mcp-server,serve,export,tuning]" pandas
       - name: Test
         run: pytest -q -p no:cacheprovider
       - name: Every sample and recipe validates and generates code

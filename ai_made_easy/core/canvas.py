@@ -10,7 +10,8 @@ keeps only the wires between pasted blocks.
 ``meta.groups``); code generation ignores them:
 
 - note: ``{"id", "text", "position": [x, y], "size": [w, h]}``
-- group: ``{"id", "title", "nodes": [block ids], "color"}``
+- group: ``{"id", "title", "nodes": [block ids], "color"}``, plus ``"collapsed": true``
+  while it is folded into one card (3.4)
 
 Pure Python, Qt-free. ``web/src/canvas.ts`` mirrors these functions.
 """
@@ -190,3 +191,21 @@ def strip(design: dict) -> dict:
     meta.pop("notes", None)
     meta.pop("groups", None)
     return out
+
+
+def set_collapsed(meta: dict, group_id: str, collapsed: bool) -> bool:
+    """Fold a group into one card or open it; returns whether the group exists."""
+    for group in meta.get("groups", []):
+        if group.get("id") == group_id:
+            if collapsed:
+                group["collapsed"] = True
+            else:
+                group.pop("collapsed", None)
+            return True
+    return False
+
+
+def hidden_by(meta: dict | None) -> dict[str, str]:
+    """Block id -> id of the collapsed group hiding it."""
+    return {n: g["id"] for g in (meta or {}).get("groups", []) if g.get("collapsed")
+            for n in g.get("nodes", [])}

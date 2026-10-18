@@ -120,6 +120,9 @@ export function App() {
       if (!groupSelection()) notify("Select the blocks to group first", true);
     }),
     "edit.ungroup": () => onCanvas(() => canvas.current?.ungroupSelection()),
+    "edit.collapse_group": () => onCanvas(() => {
+      if (!canvas.current?.toggleGroups()) notify("Add a group first: select blocks, Ctrl/⌘ G", true);
+    }),
     "edit.note": () => onCanvas(() => canvas.current?.addNote()),
     "edit.find": () => onCanvas(() => setPalette("find")),
     "view.auto_layout": () => onCanvas(arrange),

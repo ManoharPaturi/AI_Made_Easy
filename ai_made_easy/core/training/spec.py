@@ -207,8 +207,7 @@ def collect_spec(graph: Graph) -> TrainingSpec:
         name = cat.COMPONENTS[ex.type_id].name
         if spec.modality in ("tabular", "array") and len(spec.input_shape) == 1 \
                 and spec.input_dtype.startswith("float"):
-            spec.explain = {"method": "permutation" if ex.type_id ==
-                            "eval.permutation_importance" else "integrated_gradients",
+            spec.explain = {"method": cat.EXPLAIN_METHODS[ex.type_id],
                             **cat.resolved(ex.type_id, ex.params)}
         else:
             spec.warnings.append(f"{name} explains tables and feature vectors "

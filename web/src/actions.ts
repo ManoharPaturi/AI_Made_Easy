@@ -30,6 +30,8 @@ export const ACTIONS: ActionDef[] = [
   { id: "edit.delete", label: "Delete selection", group: "Edit", keys: "Delete" },
   { id: "edit.group", label: "Group selected blocks", group: "Edit", keys: "Mod+G", hint: "frame" },
   { id: "edit.ungroup", label: "Ungroup", group: "Edit", keys: "Mod+Shift+U" },
+  { id: "edit.collapse_group", label: "Collapse / expand groups", group: "Edit",
+    hint: "fold card hide" },
   { id: "edit.note", label: "Add a sticky note", group: "Edit", hint: "comment annotation" },
 
   { id: "edit.find", label: "Find a block on the canvas…", group: "Canvas", keys: "Mod+F",

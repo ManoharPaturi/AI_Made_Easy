@@ -226,8 +226,9 @@ class ExperimentsPage(QtWidgets.QWidget):
                 rows, method = data.get("features", [])[:20], data.get("method", "")
             except Exception:  # noqa: BLE001 — a missing run folder: nothing to show
                 rows = []
-        self.explain_label.setText("Feature attribution (integrated gradients)"
-                                   if method == "integrated_gradients" else "Feature importance")
+        self.explain_label.setText({"integrated_gradients": "Feature attribution "
+                                                            "(integrated gradients)",
+                                    "shap": "SHAP values"}.get(method, "Feature importance"))
         self.explain_table.setRowCount(len(rows))
         for i, f in enumerate(rows):
             self.explain_table.setItem(i, 0, _Item(str(f["name"])))
