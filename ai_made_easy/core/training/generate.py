@@ -64,7 +64,8 @@ def _requirements(spec: TrainingSpec, framework: str, torchvision: bool) -> str:
         reqs.append("torchvision")
     if block in ("data.csv", "data.text_csv", "data.timeseries_csv"):
         reqs.append("pandas")
-    if block == "data.image_folder" or (spec.is_classification and torchvision):
+    if block == "data.image_folder" or (spec.is_classification and torchvision) \
+            or (spec.gradcam and framework == "pytorch"):
         reqs.append("pillow")
     if block == "data.sklearn":
         reqs.append("scikit-learn")
@@ -226,6 +227,7 @@ def _torch_ctx(graph: Graph, spec: TrainingSpec) -> dict:
         schedule_free=bool(cat.COMPONENTS[spec.optimizer["kind"]].meta.get("schedule_free")),
         scheduler_expr=sched_expr, scheduler_step=sched_step,
         uses_functional=ctx["uses_functional"] or ctx["loss_helper"] == "FocalLoss",
+        grad_cam_fn=GRAD_CAM_FN,
     )
     if ctx["two_views"] and not ctx["torchvision_pipeline"]:
         raise CodegenError(f"{cat.COMPONENTS[spec.loss['kind']].name} learns from two "
@@ -465,8 +467,7 @@ def _supervised(graph: Graph, spec: TrainingSpec, framework: str) -> str:
 register_trainer("supervised", _supervised)
 
 
-INSPECT_MAIN = r'''
-
+GRAD_CAM_FN = r'''
 def grad_cam(model: nn.Module, x: torch.Tensor, layer: nn.Module, class_idx: int) -> np.ndarray:
     """Grad-CAM heatmap for one input on the given convolution layer."""
     stored = {}
@@ -488,11 +489,18 @@ def grad_cam(model: nn.Module, x: torch.Tensor, layer: nn.Module, class_idx: int
             cam = torch.nn.functional.interpolate(cam, size=x.shape[2:], mode="bilinear",
                                                   align_corners=False)
         cam = cam[0, 0]
-        return ((cam - cam.min()) / (cam.max() - cam.min() + 1e-9)).detach().numpy()
+        return ((cam - cam.min()) / (cam.max() - cam.min() + 1e-9)).detach().cpu().numpy()
     finally:
         handle.remove()
 
 
+'''
+
+
+INSPECT_MAIN = r'''
+
+{% if not spec.gradcam %}
+{{ grad_cam_fn }}{% endif %}
 def feature_grid(maps: torch.Tensor, count: int = 16) -> np.ndarray:
     maps = maps[0][:count]
     maps = torch.nn.functional.interpolate(maps.unsqueeze(1), size=(40, 40), mode="bilinear",

@@ -42,6 +42,7 @@ class TrainingSpec:
     kfold: dict[str, Any] | None = None
     predict: dict[str, Any] | None = None
     explain: dict[str, Any] | None = None      # permutation importance after training
+    gradcam: dict[str, Any] | None = None      # Grad-CAM heatmaps of test images (3.4)
     warnings: list[str] = field(default_factory=list)
 
     # ---------------------------------------------------------- derived
@@ -212,6 +213,17 @@ def collect_spec(graph: Graph) -> TrainingSpec:
         else:
             spec.warnings.append(f"{name} explains tables and feature vectors "
                                  "([F] float inputs); it is skipped for this design")
+
+    gc = pick(("eval.grad_cam",), "Grad-CAM")
+    if gc is not None:
+        if spec.modality != "image" or len(spec.input_shape) != 3:
+            spec.warnings.append("Grad-CAM Heatmaps explains image models; it is skipped "
+                                 "for this design")
+        elif not spec.is_classification or spec.metric_loss:
+            spec.warnings.append("Grad-CAM Heatmaps explains a classifier's predicted "
+                                 "class; it is skipped for this design")
+        else:
+            spec.gradcam = cat.resolved("eval.grad_cam", gc.params)
 
     # ------------------------------------------------------------ metrics
     for node in graph.nodes.values():

@@ -13,8 +13,11 @@
   augmentations of every image, and the **SimCLR (self-supervised)** recipe trains an
   encoder with it. Labels only measure the result.
 - **Cosine Embedding and Margin Ranking losses** for embeddings. The pairs come from the
-  class labels in each batch, so they work with any dataset that has classes. 587 blocks,
-  67 recipes.
+  class labels in each batch, so they work with any dataset that has classes.
+- **Grad-CAM Heatmaps** (`eval.grad_cam`): after training, an image classifier saves
+  heatmaps of where it looked for a few test predictions. The heatmaps are kept with the
+  run and shown on the Experiments page in both apps; until now, Grad-CAM was only in the
+  desktop's one-image Inspect dialog. 588 blocks, 67 recipes.
 
 ### Changed
 - On the desktop, wires into and out of a folded group now end on the card as dashed

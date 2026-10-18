@@ -281,3 +281,95 @@ def test_desktop_folded_groups_draw_stand_ins_for_wires_that_cross_them(desk):
     assert [i.path().boundingRect() for i in items] != before
     assert canvas.set_group_collapsed(group, False)
     assert canvas.stand_ins.items == [] and all(i.scene() is None for i in items)
+
+
+# ------------------------------------------------------------------ Grad-CAM
+
+def _cnn_graph(root: Path, extra=()):
+    return chain("gradcam", "3, 16, 16", [
+        ("core.conv2d", {"out_channels": 8, "kernel_size": 3, "padding": 1}),
+        ("core.relu", {}), ("core.global_avgpool2d", {}), ("core.dense", {"units": 2})], [
+        ("data.image_folder", {"root": str(root)}),
+        ("prep.resize", {"height": 16, "width": 16}),
+        ("train.adam", {"lr": 0.01}), ("eval.accuracy", {}),
+        ("train.trainer", {**TRAINER[1], "epochs": 2, "batch_size": 16}), *extra])
+
+
+def test_grad_cam_saves_heatmaps_with_the_run(tmp_path, monkeypatch):
+    pytest.importorskip("torchvision")
+    Image = pytest.importorskip("PIL.Image")
+    graph = _cnn_graph(write_images(tmp_path), [("eval.grad_cam", {"n_samples": 3})])
+    assert get_registry().get("eval.grad_cam").library == "PyTorch"
+    code = _run(graph, tmp_path, monkeypatch)
+    assert code.count("def grad_cam(") == 1 and "save_grad_cams(model" in code
+    pictures = sorted((tmp_path / "eval_samples").glob("gradcam_*.png"))
+    assert len(pictures) == 3
+    with Image.open(pictures[0]) as im:
+        assert im.size[0] == 2 * im.size[1] and im.size[1] >= 128   # image | heatmap
+    assert "_as_" in pictures[0].stem
+
+
+def test_grad_cam_is_skipped_where_it_cannot_explain():
+    from ai_made_easy.core.codegen.training_gen import collect_spec
+
+    table = chain("gradcam_table", "6", [("core.dense", {"units": 2})],
+                  [("data.synthetic", {"n_features": 6, "n_classes": 2}),
+                   ("train.adam", {}), TRAINER, ("eval.grad_cam", {})])
+    spec = collect_spec(table)
+    assert spec.gradcam is None and any("image models" in w for w in spec.warnings)
+    assert "save_grad_cams" not in generate_training(table, "pytorch")
+
+
+def test_inspect_script_keeps_one_grad_cam(tmp_path):
+    from ai_made_easy.core.codegen.training_gen import generate_inspect
+
+    for extra in ((), [("eval.grad_cam", {})]):
+        code = generate_inspect(_cnn_graph(tmp_path, extra))
+        assert code.count("def grad_cam(") == 1
+        compile(code, "inspect", "exec")
+
+
+def _run_with_cams(names):
+    from ai_made_easy.core import api
+    from tests.conftest import tiny_classifier_dict
+
+    h = api.manager().history
+    rec = h.create(tiny_classifier_dict())
+    folder = h.path(rec.run_id) / "eval_samples"
+    folder.mkdir(parents=True)
+    png = bytes.fromhex("89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c489"
+                        "0000000d49444154789c6360000002000154a24f5d0000000049454e44ae426082")
+    for name in names:
+        (folder / f"{name}.png").write_bytes(png)
+    return rec.run_id
+
+
+def test_desktop_experiments_show_a_runs_grad_cams(desk):
+    _ctx, _win, app = desk
+    from ai_made_easy.ui.features.experiments import ExperimentsPage
+
+    run_id = _run_with_cams(["gradcam_00_cat_as_dog", "gradcam_01_dog_as_dog"])
+    page = ExperimentsPage()
+    page._show_grad_cams(run_id)
+    assert page.cam_gallery.count() == 2 and not page.cam_label.isHidden()
+    assert page.cam_gallery.item(0).text() == "cat → dog"
+    page._show_grad_cams(None)
+    assert page.cam_gallery.count() == 0 and page.cam_label.isHidden()
+
+
+@pytest.fixture()
+def client(isolated_home, tmp_path):
+    pytest.importorskip("fastapi")
+    from fastapi.testclient import TestClient
+
+    from ai_made_easy.server.app import create_app
+
+    with TestClient(create_app(token="", projects_dir=tmp_path / "projects")) as c:
+        yield c
+
+
+def test_web_run_samples_carry_the_grad_cams(client):
+    run_id = _run_with_cams(["gradcam_00_cat_as_dog"])
+    got = client.get(f"/api/runs/{run_id}/samples").json()
+    assert [s["name"] for s in got["samples"]] == ["gradcam_00_cat_as_dog"]
+    assert got["samples"][0]["data_url"].startswith("data:image/png;base64,")

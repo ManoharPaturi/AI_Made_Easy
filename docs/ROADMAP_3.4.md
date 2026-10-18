@@ -1,7 +1,7 @@
 # AI Made Easy 3.4 — plan and status
 
-*Status: in progress. Phases 1 and 2 (everything 3.3 moved here) are done; the rest of
-3.4 is still to be planned with you.*
+*Status: in progress. Phases 1 and 2 (everything 3.3 moved here) and Phase 3 are done.
+Phases 3–6 follow a draft plan you haven't approved yet; change it at any point.*
 
 ## Phase 1 — what 3.3 deferred (`feat/v34-phase1`)
 - **SHAP values** (`eval.shap_values`, `explain` extra). Expected gradients
@@ -39,6 +39,25 @@
   the design and its code don't change. This replaces the proxy ports the plan had; the
   result looks the same and the canvas library isn't touched. **Done.**
 
+## Phase 3 — explaining image models (`feat/v34-phase3`)
+- **Grad-CAM Heatmaps** (`eval.grad_cam`). After training, the last convolution's
+  Grad-CAM is drawn over the first test images: each picture shows the image, then the
+  heatmap over it, and its file name gives the true and the predicted class. The pictures
+  go to the run's `eval_samples/`, so the web shows them with the run's samples and the
+  desktop shows them on the Experiments page. **Done.**
+- Designs that aren't image classifiers skip it with a warning. Metric losses are skipped
+  too, because their model outputs an embedding, not class scores.
+- **Finding:** the desktop already had Grad-CAM in the Inspect dialog, for one image at a
+  time. The new block reuses that function, so the two can't drift, and the generated
+  script defines it once.
+
+## Planned (draft, not yet agreed)
+- **Phase 4 — labelled pairs:** a pairs dataset block and a siamese loop, so the pair
+  losses also train on explicit same / different pairs. Also a verification recipe.
+- **Phase 5 — bugs and polish:** a read-only bug survey with one test per fix, and a
+  check of the Qt "shared QObject was deleted directly" message at the end of the test
+  run.
+- **Phase 6 — release 3.4.0**, after you confirm.
+
 ## Still open
-- A dataset block of explicit labelled pairs (see the deviation above).
 - The next round of 3.4 features, to be agreed.
