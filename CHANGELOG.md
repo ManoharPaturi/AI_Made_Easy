@@ -33,6 +33,18 @@
 - On the desktop, wires into and out of a folded group now end on the card as dashed
   stand-ins and follow it when it moves, as they do on the web.
 
+### Fixed
+- **Serving a metric-learning model** (ArcFace, CosFace, triplet, supervised contrastive,
+  SimCLR) read its embedding as class scores, so served labels were wrong. The trained
+  loss's class centres are now saved with the model and score each embedding, and each
+  result also includes the embedding. Retrain older runs to serve them.
+- Desktop: undoing the creation of a folded group left its blocks hidden. Undo now shows
+  them again, and redo folds them away again.
+- Desktop: a folded card that was moved, saved and reopened jumped back to where it was
+  folded. It now opens where you left it.
+- Feature explanations are skipped, with a warning, for labelled pairs; they explain
+  single rows. Grad-CAM shows at most 12 images, the most a run displays.
+
 ## 3.3.0
 
 More blocks, a canvas that keeps up, and a more polished web app. 583 blocks, 66 recipes.

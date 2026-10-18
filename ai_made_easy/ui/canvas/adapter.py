@@ -104,6 +104,11 @@ class CanvasController:
             self._graph.viewer().scene(),
             lambda: [g for g in self._annotations("group") if g.folded],
             self._graph.get_node_by_id)
+        # blocks hidden by folded groups (3.4): kept in step with the groups on the canvas,
+        # so a card removed by undo gives its blocks back and a redone one hides them again
+        self._fold_hidden: set[str] = set()
+        self._fold_seen = False     # nothing to check until a group has been folded
+        self._graph.viewer().scene().changed.connect(self._reconcile_folds)
 
     # ------------------------------------------------------- wire guard
 
@@ -238,6 +243,13 @@ class CanvasController:
     def to_ir(self, name: str = "untitled") -> Graph:
         reg = get_registry()
         g = Graph(name=name, meta=self._annotated_meta())
+        moved = {}   # blocks of folded groups: where they open, wherever the card went
+        for group in self._annotations("group"):
+            if group.folded:
+                dx = group.x_pos() - group.folded["at"][0]
+                dy = group.y_pos() - group.folded["at"][1]
+                for nid, (x, y) in group.folded["positions"].items():
+                    moved[nid] = (x + dx, y + dy)
         for node in self._graph.all_nodes():
             type_id = NODE_TYPE_TO_BLOCK.get(node.type_)
             if type_id is None:
@@ -246,7 +258,7 @@ class CanvasController:
             for spec in reg.get(type_id).params:
                 params[spec.name] = node.get_property(prop_name(spec.name))
             g.add_node(NodeInstance(node.id, type_id, params,
-                                    (node.x_pos(), node.y_pos())))
+                                    moved.get(node.id, (node.x_pos(), node.y_pos()))))
         for node in self._graph.all_nodes():
             if node.type_ not in NODE_TYPE_TO_BLOCK:
                 continue
@@ -335,6 +347,28 @@ class CanvasController:
                 ends = (pipe.input_port, pipe.output_port)
                 pipe.setVisible(all(e is not None and e.node.isVisible() for e in ends))
 
+    def _reconcile_folds(self, *_args) -> None:
+        folded = [g for g in self._annotations("group") if g.folded] \
+            if self._fold_hidden or self._fold_seen else []
+        want = {nid for g in folded for nid in g.folded["members"]}
+        if want == self._fold_hidden and all(
+                not n.view.isVisible() for n in map(self._graph.get_node_by_id, want) if n):
+            return
+        for nid in self._fold_hidden - want:     # its card went away: show the blocks
+            node = self._graph.get_node_by_id(nid)
+            if node is not None:
+                self._show_block(node, True)
+        for nid in want:                          # a card came back: hide them again
+            node = self._graph.get_node_by_id(nid)
+            if node is not None and node.view.isVisible():
+                self._show_block(node, False)
+        for nid in self._fold_hidden - want:      # wires once both ends are back
+            node = self._graph.get_node_by_id(nid)
+            if node is not None:
+                self._show_block(node, True)
+        self._fold_hidden = want
+        self.stand_ins.rebuild()
+
     def set_group_collapsed(self, group, collapsed: bool) -> bool:  # noqa: ANN001
         """Fold a group into one card (its blocks and their wires hide) or open it again;
         the blocks keep their places relative to the card, wherever it was moved."""
@@ -349,6 +383,8 @@ class CanvasController:
                             "size": tuple(group.size()), "at": tuple(group.pos())}
             for n in members:
                 self._show_block(n, False)
+            self._fold_hidden |= {n.id for n in members}
+            self._fold_seen = True
             group.set_size(*group.FOLDED_SIZE)
         else:
             folded, group.folded = group.folded, None
@@ -362,6 +398,7 @@ class CanvasController:
                 self._show_block(n, True)
             for n in members:   # wires once both ends are back
                 self._show_block(n, True)
+            self._fold_hidden -= set(folded["members"])
             group.set_size(*folded["size"])
         self.stand_ins.rebuild()
         self._graph.viewer().scene().update()
@@ -455,6 +492,7 @@ class CanvasController:
     def clear(self) -> None:
         self.meta = {}
         self.stand_ins.clear()
+        self._fold_hidden = set()
         self._graph.clear_session()
         self._graph.clear_undo_stack()
 

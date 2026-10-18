@@ -1103,7 +1103,8 @@ EXPLAIN_SHAP = Component(
 
 EXPLAIN_GRADCAM = Component(
     "eval.grad_cam", "Grad-CAM Heatmaps",
-    (P("n_samples", "int", 8, lo=1, hi=32, help="Test images explained"),
+    (P("n_samples", "int", 8, lo=1, hi=12, help="Test images explained (up to 12, "
+                                                       "the most a run shows)"),
      P("opacity", "float", 0.5, lo=0.1, hi=0.9, help="How strongly the heatmap is drawn")),
     desc="After training, Grad-CAM (Selvaraju et al., 2017) on the last convolution: a "
          "heatmap over each of a few test images showing where the model looked for its "
