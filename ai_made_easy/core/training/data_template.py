@@ -12,7 +12,7 @@ DATA_TEMPLATE = r'''
 INFERENCE_STATE: dict = {}  # fitted preprocessing, saved with the model for serving
 
 
-{% if d.block == "data.csv" or d.block == "data.text_csv" or d.block == "data.timeseries_csv" %}
+{% if d.block in ("data.csv", "data.text_csv", "data.timeseries_csv", "data.pairs") %}
 def read_table(path: str, fmt: str) -> "pd.DataFrame":
     import pandas as pd
 
@@ -127,6 +127,40 @@ def load_raw():
 {% else %}
     return frame, y.astype(np.float32), None
 {% endif %}
+{% elif d.block == "data.pairs" and not d.path %}
+    # demo pairs: 8 features per item, 2000 pairs
+    rng = np.random.default_rng(0)
+    n = 2000
+{% if pairs == "ranking" %}
+    w = rng.normal(size=8)
+    a, b = rng.normal(size=(n, 8)), rng.normal(size=(n, 8))
+    y = (a @ w > b @ w).astype(np.int64)            # 1: a ranks above b
+    names = ["b ranks higher", "a ranks higher"]
+{% else %}
+    centres = rng.normal(scale=2.0, size=(10, 8))   # 10 kinds of item
+    ka = rng.integers(0, 10, n)
+    kb = np.where(rng.random(n) < 0.5, ka, rng.integers(0, 10, n))
+    a = centres[ka] + rng.normal(scale=0.7, size=(n, 8))
+    b = centres[kb] + rng.normal(scale=0.7, size=(n, 8))
+    y = (ka == kb).astype(np.int64)                 # 1: the same kind
+    names = ["different", "same"]
+{% endif %}
+    return np.stack([a, b], axis=1).astype(np.float32), y, names
+{% elif d.block == "data.pairs" %}
+    frame = read_table({{ d.path | repr }}, {{ d.format | repr }})
+    label, lp, rp = {{ d.label_column | repr }}, {{ d.left_prefix | repr }}, {{ d.right_prefix | repr }}
+    if label not in frame.columns:
+        raise SystemExit(f"label column {label!r} not found; columns: {list(frame.columns)}")
+    left = [c for c in frame.columns if str(c).startswith(lp)]
+    right = [rp + str(c)[len(lp):] for c in left]
+    missing = [c for c in right if c not in frame.columns]
+    if not left or missing:
+        raise SystemExit(f"pairs need matching {lp}* and {rp}* columns; missing: {missing or lp + '*'}")
+    x = np.stack([frame[left].to_numpy(np.float32), frame[right].to_numpy(np.float32)], axis=1)
+    y = frame[label].to_numpy()
+    if not set(np.unique(y).tolist()) <= {-1, 0, 1}:
+        raise SystemExit(f"{label} must be 1 or 0 (or -1) for each pair")
+    return x, (y > 0).astype(np.int64), {{ ["b ranks higher", "a ranks higher"] if pairs == "ranking" else ["different", "same"] }}
 {% elif d.block == "data.numpy" %}
     archive = np.load({{ d.path | repr }})
     x, y = archive[{{ d.x_key | repr }}], archive[{{ d.y_key | repr }}]
@@ -590,9 +624,15 @@ def make_arrays() -> dict[str, tuple[np.ndarray, np.ndarray]]:
         xs = feats[k]
         if xs.ndim == 2 and len(INPUT_SHAPE) > 1 and xs.shape[1] == int(np.prod(INPUT_SHAPE)):
             xs = xs.reshape(len(xs), *INPUT_SHAPE)
+{% if pairs %}
+        if xs.shape[1:] != (2, *INPUT_SHAPE):   # each sample is a pair of items
+            raise SystemExit(f"each pair's items have shape {xs.shape[2:]} but the model "
+                             f"expects {tuple(INPUT_SHAPE)}")
+{% else %}
         if xs.shape[1:] != tuple(INPUT_SHAPE):
             raise SystemExit(f"data samples have shape {xs.shape[1:]} but the model expects "
                              f"{tuple(INPUT_SHAPE)}")
+{% endif %}
         out[k] = (xs, targets[k].astype({{ y_dtype }}))
     return out
 {% endif %}

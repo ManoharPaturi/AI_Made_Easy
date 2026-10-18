@@ -373,3 +373,83 @@ def test_web_run_samples_carry_the_grad_cams(client):
     got = client.get(f"/api/runs/{run_id}/samples").json()
     assert [s["name"] for s in got["samples"]] == ["gradcam_00_cat_as_dog"]
     assert got["samples"][0]["data_url"].startswith("data:image/png;base64,")
+
+
+# ------------------------------------------------------------------ labelled pairs
+
+def _pairs_csv(path: Path, kind: str, n: int = 400) -> Path:
+    import numpy as np
+
+    rng = np.random.default_rng(0)
+    if kind == "same":
+        centres = rng.normal(scale=3.0, size=(3, 4))
+        ca, cb = rng.integers(0, 3, n), rng.integers(0, 3, n)
+        cb = np.where(rng.random(n) < 0.5, ca, cb)               # about half are the same
+        a = centres[ca] + rng.normal(scale=0.5, size=(n, 4))
+        b = centres[cb] + rng.normal(scale=0.5, size=(n, 4))
+        label = (ca == cb).astype(int)
+    else:
+        w = np.array([1.0, -2.0, 0.5, 0.0])
+        a, b = rng.normal(size=(n, 4)), rng.normal(size=(n, 4))
+        label = (a @ w > b @ w).astype(int)
+    cols = [f"f{i}" for i in range(4)]
+    rows = ["," .join([*(f"a_{c}" for c in cols), *(f"b_{c}" for c in cols), "label"])]
+    rows += [",".join([*map(str, a[i]), *map(str, b[i]), str(label[i])]) for i in range(n)]
+    path.write_text("\n".join(rows))
+    return path
+
+
+@pytest.mark.parametrize("loss,units", [("train.loss_cosine_embedding", 8),
+                                        ("train.loss_margin_ranking", 1)])
+def test_labelled_pairs_train_an_encoder(loss, units, tmp_path, monkeypatch, capsys):
+    pytest.importorskip("torch")
+    pytest.importorskip("pandas")
+    kind = "ranking" if "ranking" in loss else "same"
+    csv = _pairs_csv(tmp_path / "pairs.csv", kind)
+    graph = chain(f"pairs_{kind}", "4", [("core.dense", {"units": 16}), ("core.relu", {}),
+                                         ("core.dense", {"units": units})],
+                  [("data.pairs", {"path": str(csv)}), (loss, {"classes": 2}),
+                   ("train.adam", {"lr": 0.01}), ("eval.accuracy", {}),
+                   ("train.trainer", {**TRAINER[1], "epochs": 15})])
+    assert not [i for i in graph.validate() if i.severity == "error"], graph.validate()
+    code = _run(graph, tmp_path, monkeypatch)
+    assert "_Encoder = " in code and "x.flatten(0, 1)" in code
+    out = capsys.readouterr().out
+    accuracy = float(out.split("test:")[-1].split("accuracy=")[1].split()[0])
+    assert accuracy > 0.8, out[-1500:]
+    classes = json.loads((tmp_path / "classes.json").read_text())
+    assert classes == (["b ranks higher", "a ranks higher"] if kind == "ranking"
+                       else ["different", "same"])
+
+
+def test_labelled_pairs_need_a_pair_loss_and_ranking_needs_one_score(tmp_path):
+    csv = tmp_path / "pairs.csv"
+    base = [("data.pairs", {"path": str(csv)}), ("train.adam", {}), TRAINER]
+    wrong = chain("pairs_ce", "4", [("core.dense", {"units": 2})],
+                  [*base, ("train.loss_cross_entropy", {})])
+    with pytest.raises(CodegenError, match="pair loss"):
+        generate_training(wrong, "pytorch")
+    wide = chain("pairs_rank", "4", [("core.dense", {"units": 3})],
+                 [*base, ("train.loss_margin_ranking", {"classes": 2})])
+    with pytest.raises(CodegenError, match="one output unit"):
+        generate_training(wide, "pytorch")
+
+
+def test_other_designs_have_no_pair_wrapper():
+    code = generate_training(chain("plain", "6", [("core.dense", {"units": 3})],
+                                   [PAIR_DATA, ("train.adam", {}), TRAINER]), "pytorch")
+    assert "_Encoder" not in code
+
+
+def test_pairs_recipe_trains_on_its_demo_pairs(tmp_path, monkeypatch, capsys):
+    pytest.importorskip("torch")
+    from ai_made_easy.core.recipes import build
+
+    graph = build("pairs_verification", task="binary")
+    assert not [i for i in graph.validate() if i.severity == "error"], graph.validate()
+    trainer = next(n for n in graph.nodes.values() if n.type_id == "train.trainer")
+    trainer.params.update(epochs=8, device="cpu")
+    code = _run(graph, tmp_path, monkeypatch)
+    assert "demo pairs" in code
+    out = capsys.readouterr().out.split("test:")[-1]
+    assert float(out.split("accuracy=")[1].split()[0]) > 0.8, out

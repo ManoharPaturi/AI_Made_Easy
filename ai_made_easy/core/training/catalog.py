@@ -240,6 +240,7 @@ LOSSES += [
         meta={**_METRIC_META, "torch_helper": "MarginRankingPairsLoss"}),
 ]
 METRIC_LOSS_IDS = tuple(c.type_id for c in LOSSES if c.meta.get("metric"))
+PAIR_LOSS_IDS = ("train.loss_cosine_embedding", "train.loss_margin_ranking")
 
 
 # ================================================================= optimizers
@@ -573,14 +574,23 @@ class SupConLoss(ClassPrototypes):
 class CosineEmbeddingPairsLoss(ClassPrototypes):
     """CosineEmbeddingLoss over every pair in the batch: 1 - cos for same-class pairs,
     max(0, cos - margin) for the others. Each kind is averaged on its own, so a batch with
-    few same-class pairs still learns from them."""
+    few same-class pairs still learns from them. Labelled pairs use their own labels."""
 
     def __init__(self, embed_dim: int, num_classes: int, margin: float = 0.2) -> None:
         super().__init__(embed_dim, num_classes)
         self.margin = margin
 
+    def scores(self, emb: torch.Tensor) -> torch.Tensor:
+        if emb.ndim == 3:   # labelled pairs: a logit that says "same"
+            cos = nn.functional.cosine_similarity(emb[:, 0].float(), emb[:, 1].float(), dim=1)
+            return 10.0 * (cos - (1 + self.margin) / 2)[:, None]
+        return super().scores(emb)
+
     def forward(self, emb: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
         target = target.long().reshape(-1)
+        if emb.ndim == 3:   # labelled pairs [batch, 2, embedding]: 1 = same, 0 = different
+            cos = nn.functional.cosine_similarity(emb[:, 0].float(), emb[:, 1].float(), dim=1)
+            return torch.where(target > 0, 1 - cos, torch.relu(cos - self.margin)).mean()
         e = nn.functional.normalize(emb.float(), dim=1)
         if self.training:
             self.update(e, target)
@@ -599,14 +609,24 @@ class CosineEmbeddingPairsLoss(ClassPrototypes):
 
 class MarginRankingPairsLoss(ClassPrototypes):
     """MarginRankingLoss on cosine similarity: around each example, every same-class
-    neighbour should be more similar than every other-class one by the margin."""
+    neighbour should be more similar than every other-class one by the margin. On labelled
+    pairs, it ranks the items' scores the way the labels say."""
 
     def __init__(self, embed_dim: int, num_classes: int, margin: float = 0.2) -> None:
         super().__init__(embed_dim, num_classes)
         self.margin = margin
 
+    def scores(self, emb: torch.Tensor) -> torch.Tensor:
+        if emb.ndim == 3:   # labelled pairs: a logit that says "a ranks higher"
+            return (emb[:, 0, :1] - emb[:, 1, :1]).float()
+        return super().scores(emb)
+
     def forward(self, emb: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
         target = target.long().reshape(-1)
+        if emb.ndim == 3:   # labelled pairs: each item's score; 1 = a ranks above b
+            sign = target.float() * 2 - 1
+            return nn.functional.margin_ranking_loss(
+                emb[:, 0, 0].float(), emb[:, 1, 0].float(), sign, margin=self.margin)
         e = nn.functional.normalize(emb.float(), dim=1)
         if self.training:
             self.update(e, target)
