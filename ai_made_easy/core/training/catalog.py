@@ -217,6 +217,28 @@ LOSSES += [
              "embedding (accuracy of the nearest class average). Images, with augmentation.",
         meta={**_METRIC_META, "torch_helper": "NTXentLoss", "views": 2}),
 ]
+# Pair losses (3.4): pairs come from the labels in each batch, so they work with any dataset
+# that has classes, with no separate pairs file.
+LOSSES += [
+    Component(
+        "train.loss_cosine_embedding", "Cosine Embedding (pairs)",
+        (_CLASSES, P("margin", "float", 0.2, lo=-1.0, hi=1.0,
+                     help="Different-class pairs are pushed below this cosine")),
+        torch=lambda p: f"CosineEmbeddingPairsLoss(EMBED_DIM, NUM_CLASSES, margin={p['margin']})",
+        desc="Every pair of examples in the batch: same class pulls the cosine towards 1, "
+             "different classes push it below the margin (torch's CosineEmbeddingLoss on "
+             "pairs made from the labels). Verification and duplicate detection.",
+        meta={**_METRIC_META, "torch_helper": "CosineEmbeddingPairsLoss"}),
+    Component(
+        "train.loss_margin_ranking", "Margin Ranking (pairs)",
+        (_CLASSES, P("margin", "float", 0.2, lo=0.0, hi=2.0,
+                     help="How much more similar a same-class example must be")),
+        torch=lambda p: f"MarginRankingPairsLoss(EMBED_DIM, NUM_CLASSES, margin={p['margin']})",
+        desc="Ranks a same-class example above an other-class one, by a margin of cosine "
+             "similarity, for every such pair around each example in the batch (torch's "
+             "MarginRankingLoss on pairs made from the labels). Retrieval and search.",
+        meta={**_METRIC_META, "torch_helper": "MarginRankingPairsLoss"}),
+]
 METRIC_LOSS_IDS = tuple(c.type_id for c in LOSSES if c.meta.get("metric"))
 
 
@@ -545,6 +567,59 @@ class SupConLoss(ClassPrototypes):
             return (sim.masked_fill(eye, 0) * 0).sum()
         mean_pos = log_prob.masked_fill(~positive, 0).sum(1)[anchors] / count[anchors]
         return -mean_pos.mean()
+''',
+    "CosineEmbeddingPairsLoss": _PROTOTYPES + '''
+
+class CosineEmbeddingPairsLoss(ClassPrototypes):
+    """CosineEmbeddingLoss over every pair in the batch: 1 - cos for same-class pairs,
+    max(0, cos - margin) for the others. Each kind is averaged on its own, so a batch with
+    few same-class pairs still learns from them."""
+
+    def __init__(self, embed_dim: int, num_classes: int, margin: float = 0.2) -> None:
+        super().__init__(embed_dim, num_classes)
+        self.margin = margin
+
+    def forward(self, emb: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        target = target.long().reshape(-1)
+        e = nn.functional.normalize(emb.float(), dim=1)
+        if self.training:
+            self.update(e, target)
+        cos = e @ e.t()
+        eye = torch.eye(len(e), dtype=torch.bool, device=e.device)
+        same = (target[:, None] == target[None, :]) & ~eye
+        other = target[:, None] != target[None, :]
+        loss = (cos * 0).sum()
+        if same.any():
+            loss = loss + (1 - cos[same]).mean()
+        if other.any():
+            loss = loss + torch.relu(cos[other] - self.margin).mean()
+        return loss
+''',
+    "MarginRankingPairsLoss": _PROTOTYPES + '''
+
+class MarginRankingPairsLoss(ClassPrototypes):
+    """MarginRankingLoss on cosine similarity: around each example, every same-class
+    neighbour should be more similar than every other-class one by the margin."""
+
+    def __init__(self, embed_dim: int, num_classes: int, margin: float = 0.2) -> None:
+        super().__init__(embed_dim, num_classes)
+        self.margin = margin
+
+    def forward(self, emb: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        target = target.long().reshape(-1)
+        e = nn.functional.normalize(emb.float(), dim=1)
+        if self.training:
+            self.update(e, target)
+        cos = e @ e.t()
+        eye = torch.eye(len(e), dtype=torch.bool, device=e.device)
+        same = (target[:, None] == target[None, :]) & ~eye
+        other = target[:, None] != target[None, :]
+        # [anchor, positive, negative]: the positive should win by the margin
+        gap = torch.relu(self.margin - cos[:, :, None] + cos[:, None, :])
+        valid = same[:, :, None] & other[:, None, :]
+        if not valid.any():
+            return (cos * 0).sum()
+        return gap[valid].mean()
 ''',
     "ScheduleFreeAdamW": '''\
 class ScheduleFreeAdamW(torch.optim.Optimizer):
