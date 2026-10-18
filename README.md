@@ -50,7 +50,7 @@ boilerplate. It runs on the desktop or in the browser.
   state-space models, flows), optionally trading accuracy against latency or model size
   on your target device: the result is one Pareto front of networks and classic models
   to choose from. Trials can train several at a time, on any backend.
-- **583 blocks in 9 families** ([docs/FAMILIES.md](docs/FAMILIES.md) lists every
+- **589 blocks in 9 families** ([docs/FAMILIES.md](docs/FAMILIES.md) lists every
   family, task, block and design rule) across every major library: `torch.nn` layers, Keras 3
   equivalents, torchvision / `keras.applications` / timm pretrained backbones,
   Hugging Face text and image encoders, scikit-learn, XGBoost, LightGBM and CatBoost,
@@ -62,6 +62,12 @@ boilerplate. It runs on the desktop or in the browser.
   ArcFace, CosFace, triplet and supervised contrastive losses for embeddings; SAM and
   Schedule-Free AdamW; weight averaging (EMA, SWA); Integrated Gradients; target encoding
   and SMOTE for classic models; Tiny Llama, Vision Transformer, ConvNeXt and ArcFace recipes.
+- **Explain, embed and compare (3.4).** Grad-CAM heatmaps of where an image model
+  looked, saved with each run; SHAP values beside permutation importance and Integrated
+  Gradients; SimCLR self-supervised pretraining; Cosine Embedding and Margin Ranking
+  losses, on pairs from the class labels or on a table of labelled pairs (siamese
+  training, with a *Pairs — same or different* recipe). Groups fold into one card in
+  both apps.
 - **A canvas that keeps up (3.3).** Copy, paste and duplicate blocks between designs and
   between the two apps, frame them in named groups, pin sticky notes, drop a CSV on the
   window to start a project from it, see which features a model relies on, and compare

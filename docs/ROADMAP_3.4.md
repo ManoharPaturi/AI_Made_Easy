@@ -1,7 +1,7 @@
 # AI Made Easy 3.4 — plan and status
 
-*Status: in progress. Phases 1–5 are done; Phase 6 (release 3.4.0) waits for your
-confirmation. Phases 3–6 follow a draft plan you haven't approved yet.*
+*Status: ready for 3.4.0. Phases 1–6 are done. The tag and release wait for your
+confirmation; Phases 3–6 followed a draft plan you haven't approved yet.*
 
 ## Phase 1 — what 3.3 deferred (`feat/v34-phase1`)
 - **SHAP values** (`eval.shap_values`, `explain` extra). Expected gradients
@@ -107,8 +107,13 @@ A read-only audit of 3.3 and 3.4's newest code found four bugs; each fix has a t
     effect, not one feature's.
   - It stays open.
 
-## Planned (draft, not yet agreed)
-- **Phase 6 — release 3.4.0**, after you confirm.
+## Phase 6 — release 3.4.0 (`feat/v34-phase6`)
+- The version is 3.4.0 everywhere (the same files as 3.3), with the CHANGELOG, README
+  and this document updated, and FAMILIES.md and DEPLOY.md regenerated. There's a new
+  screenshot of a folded group on the desktop
+  ([desktop_folded_group.png](images/desktop_folded_group.png)). No new extras: `shap` joined `explain` in
+  Phase 1, and the Docker image and CI already install it.
+- The tag and release follow your confirmation.
 
 ## Still open
 - The next round of 3.4 features, to be agreed.
