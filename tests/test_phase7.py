@@ -214,9 +214,9 @@ def test_canvas_exports_png():
         "QtCore.QTimer.singleShot(10000, app.quit)\n"
         "app.exec()\n"
     )
-    result = subprocess.run([sys.executable, "-c", code], cwd=str(SAMPLES.parent),
+    result = subprocess.run([sys.executable, "-c", code], cwd=str(SAMPLES.parent.parent),
                             capture_output=True, text=True, timeout=120,
-                            env={**os.environ, "PYTHONPATH": str(SAMPLES.parent)})
+                            env={**os.environ, "PYTHONPATH": str(SAMPLES.parent.parent)})
     assert result.returncode == 0, result.stderr[-500:]
     out = Path("/tmp/aime_canvas_export_test.png")
     assert out.exists() and out.stat().st_size > 10_000  # real image, not blank

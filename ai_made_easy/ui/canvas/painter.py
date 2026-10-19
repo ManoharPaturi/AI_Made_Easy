@@ -13,6 +13,7 @@ import weakref
 from OdenGraphQt.qgraphics.node_base import NodeItem
 from OdenGraphQt.qgraphics.pipe import PipeItem
 from OdenGraphQt.qgraphics.port import PortItem
+import shiboken6
 from PySide6 import QtCore, QtGui
 
 NODE_WIDTH = 196.0
@@ -248,8 +249,7 @@ class WireFlowAnimator(QtCore.QObject):
 
     def _tick(self) -> None:
         _flow["phase"] = (_flow["phase"] + 1.6) % 14.0
-        for pipe in list(_pipes):
-            pipe.update()
+        _repaint_pipes()
 
     def set_running(self, on: bool) -> None:
         _flow["on"] = on
@@ -257,8 +257,15 @@ class WireFlowAnimator(QtCore.QObject):
             self._timer.start()
         else:
             self._timer.stop()
-            for pipe in list(_pipes):
-                pipe.update()
+            _repaint_pipes()
+
+
+def _repaint_pipes() -> None:
+    for pipe in list(_pipes):
+        if shiboken6.isValid(pipe):
+            pipe.update()
+        else:   # its canvas was closed: the wrapper outlived the wire
+            _pipes.discard(pipe)
 
 
 def _flow_pipe_paint(self, painter, option, widget) -> None:  # noqa: ANN001
