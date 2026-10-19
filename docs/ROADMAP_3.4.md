@@ -94,18 +94,19 @@ A read-only audit of 3.3 and 3.4's newest code found four bugs; each fix has a t
 - **Pairs and feature explanations.** Permutation importance, Integrated Gradients and
   SHAP would have treated a pair's two items as two features; they are skipped with a
   warning. Grad-CAM's sample count is capped at 12, the most a run's samples view shows.
-- **The Qt "shared QObject was deleted directly" message. Not fixed.** Since Phase 2,
-  full local runs (1799 and later 1814 tests) end with this one line, printed after
-  the summary as the process exits. Every test passes and the exit code is 0. It doesn't
-  appear when the nine desktop test files run on their own, together or one by one, so
-  it depends on the whole run's teardown.
-  - One guess, that `scene.changed` connected to plain Python callables leaves hidden
-    receivers behind, was tested by making the stand-in manager a QObject child of the
-    scene. The message stayed, so the change was dropped.
-  - The 26 test files that use Qt, run in two groups (233 and 256 tests), don't print it
-    either. It needs most of the suite in one process, so it's an interpreter-teardown
-    effect, not one feature's.
-  - It stays open.
+- **The Qt "shared QObject was deleted directly" message. Fixed after 3.4.0.** Full
+  local runs ended with this line as the process exited. The cause was windows that
+  were never deleted: the test fixtures called `deleteLater()`, but tests run no event
+  loop, so 37 complete windows stayed alive until interpreter exit tore them down in no
+  particular order. Each window's AppContext also had no Qt parent, so its timers
+  (validation, autosave) and the device probe kept driving deleted widgets.
+  - The context now lives and dies with its window (`attach_window` makes the window
+    its parent), closing the window stops autosave, and a late device probe is ignored.
+  - The wire animation skips and forgets wires whose canvas was closed.
+  - Tests: every test's queued deletions run when it finishes, and any app window
+    still open is closed at the end of the session.
+  - Also found: `test_canvas_exports_png` put the package folder, not the repository
+    root, on its subprocess's `PYTHONPATH`, so it could import a stale installed copy.
 
 ## Phase 6 — release 3.4.0 (`feat/v34-phase6`)
 - The version is 3.4.0 everywhere (the same files as 3.3), with the CHANGELOG, README

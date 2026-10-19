@@ -211,6 +211,9 @@ class AppContext(FileActions, ExportActions, RunActions, DataActions, QtCore.QOb
     def attach_window(self, window: QtWidgets.QMainWindow) -> None:
         """Called by the Workbench once its chrome exists."""
         self.window = window
+        # The context lives and dies with its window: its services and timers (validation,
+        # autosave) drive the window's widgets, so they must not outlive them.
+        self.setParent(window)
         self.status_message.connect(lambda m: window.statusBar().showMessage(m, 6000))
         self.status_message.connect(window.toasts.toast)
         theme = QtCore.QSettings(_SETTINGS).value("theme", self.theme.active())

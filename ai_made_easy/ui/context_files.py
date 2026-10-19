@@ -114,7 +114,10 @@ class FileActions:
                           else "CPU")
             except Exception:  # noqa: BLE001
                 device = "CPU"
-            self._device_found.emit(device, "")
+            try:
+                self._device_found.emit(device, "")
+            except RuntimeError:   # the window (and this context) closed during the probe
+                pass
 
         threading.Thread(target=probe, name="aime-device", daemon=True).start()
 

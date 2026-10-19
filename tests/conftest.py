@@ -108,3 +108,41 @@ def _no_recovery_prompt(monkeypatch):
     except ImportError:  # no Qt in this environment
         return
     monkeypatch.setattr(AppContext, "_offer_recovery", lambda self: None)
+
+
+def _flush_qt_deletes() -> None:
+    """Run the deletions queued by ``deleteLater()``. Without an event loop Qt never
+    gets to them, so every test's window would stay alive until Python exits."""
+    if "PySide6.QtWidgets" not in sys.modules:
+        return
+    from PySide6 import QtCore, QtWidgets
+
+    if QtWidgets.QApplication.instance() is not None:
+        QtCore.QCoreApplication.sendPostedEvents(None, QtCore.QEvent.Type.DeferredDelete)
+
+
+@pytest.fixture(autouse=True)
+def _delete_closed_windows():
+    yield
+    _flush_qt_deletes()
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _close_windows_at_exit():
+    """Close any app window still open while Python is fully running, so its services
+    and timers stop before interpreter exit tears Qt down in no particular order.
+    Closing only: by now Python may have collected parts of old widgets (pyqtgraph's
+    layout items), and forcing a C++ delete through them crashes."""
+    yield
+    if "PySide6.QtWidgets" not in sys.modules:
+        return
+    from PySide6 import QtWidgets
+
+    app = QtWidgets.QApplication.instance()
+    if app is None:
+        return
+    for window in app.topLevelWidgets():
+        ctx = getattr(window, "ctx", None)
+        if ctx is not None:
+            ctx.project_store.mark_clean()   # no "save changes?" prompt
+            window.close()

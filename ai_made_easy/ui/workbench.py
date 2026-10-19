@@ -206,6 +206,8 @@ class Workbench(QtWidgets.QMainWindow):
             event.ignore()
             return
         self._save_state()
+        if timer := getattr(self.ctx, "_autosave_timer", None):
+            timer.stop()
         self.ctx.data_service.shutdown()
         super().closeEvent(event)
 
