@@ -112,6 +112,8 @@ CONTEXTS: dict[str, tuple] = {
     "flow.squeeze": ([4, 8, 8], "float32", [], [("flow.conv_coupling", {})]),
     "flow.split": ([4, 8, 8], "float32", [("flow.conv_coupling", {})],
                    [("flow.conv_coupling", {})]),
+    # Fold reads the columns an Unfold makes (3.5)
+    "core.fold": ([4, 8, 8], "float32", [("core.unfold", {"kernel_size": 3})], []),
     # the YOLO-style head reads features from a backbone
     "vision.yolo_head": ([3, 64, 64], "float32",
                          [("core.conv2d", {"out_channels": 8, "kernel_size": 3, "stride": 2,
