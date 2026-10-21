@@ -493,3 +493,14 @@ export interface ExportFormat {
   suggested?: boolean;
   device?: string;
 }
+
+/** What a finished run takes, to build its Try it form (3.5). */
+export interface TryForm {
+  run_id: string;
+  task: string | null;
+  modality: string | null;
+  input_kind: string;
+  input_help: string;
+  example: unknown[] | null;
+  signature: { input_shape?: number[]; classes?: string[] | null; columns?: string[] | null };
+}

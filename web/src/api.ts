@@ -5,7 +5,7 @@ import type {
   AutoMLStarted, DataFacts, Explanation, RecipeInfo, RecipeSuggestion, WizardTask,
   BlockDef, BudgetReport, TableLayout, RunSamples, DataProfile, DeviceProfile, FamilyInfo, TaskInfo, ModelVersion, Project, RunEvent, RunRecord, SplitPreview, Summary,
   SweepParam, SweepRecord, Validation, ExportFormat, FetchedDataset, TrackingStatus,
-  FeatureImportance, DesignDiff,
+  FeatureImportance, DesignDiff, TryForm,
 } from "./types";
 
 export class ApiError extends Error {}
@@ -100,6 +100,10 @@ export const api = {
   runExplain: (id: string) => get<FeatureImportance>(`/runs/${id}/explain`),
   runDiff: (id: string, graph: Project) => post<DesignDiff>(`/runs/${id}/diff`, { graph }),
   runSamples: (id: string) => get<RunSamples>(`/runs/${id}/samples`),
+  tryForm: (id: string) => get<TryForm>(`/runs/${id}/try`),
+  tryRun: (id: string, inputs: unknown[]) =>
+    post<{ predictions: Record<string, unknown>[]; latency_ms: number }>(`/runs/${id}/try`,
+                                                                          { inputs }),
   metrics: (id: string) => get<{ epochs: { epoch: number; metrics: Record<string, number> }[] }>(
     `/runs/${id}/metrics`),
   stopRun: (id: string) => post<Record<string, unknown>>(`/runs/${id}/stop`),

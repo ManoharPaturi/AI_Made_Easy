@@ -1038,3 +1038,43 @@ def augmentation_preview(graph: dict | Graph, out_dir: str, images: int = 4,
                         images=images, variants=variants)
     except PreviewError as exc:
         raise ApiError(str(exc)) from exc
+
+
+# ------------------------------------------------------------------ try a model (3.5)
+
+_try = None
+
+
+def try_service():
+    """The loaded predictors of recently tried runs (lazy: nothing loads until a try)."""
+    global _try
+    if _try is None:
+        import atexit
+
+        from ai_made_easy.core.tryit import TryService
+
+        _try = TryService()
+        atexit.register(_try.close)   # no predictor outlives the app or server
+    return _try
+
+
+def try_describe(run_id: str) -> dict:
+    """What a finished run takes, to build a form: the input kind and help, an example, and
+    the signature (input shape, classes, table columns). Loads the run's predictor."""
+    from ai_made_easy.core import tryit
+
+    try:
+        return tryit.describe(try_service(), manager().history, run_id)
+    except tryit.TryError as exc:
+        raise ApiError(str(exc)) from exc
+
+
+def try_run(run_id: str, inputs: list) -> dict:
+    """Predictions of a finished run for ``inputs`` (the same requests as its model server:
+    rows, texts, base64 images, WAV files...), computed on this machine."""
+    from ai_made_easy.core import tryit
+
+    try:
+        return tryit.predict(try_service(), manager().history, run_id, inputs)
+    except tryit.TryError as exc:
+        raise ApiError(str(exc)) from exc

@@ -64,6 +64,11 @@ class ExportActions:
                      python=python_executable(),
                      subtitle=f"Source: run {run_id} ({rec.name})").exec()
 
+    def _try_run(self, run_id: str) -> None:
+        from ai_made_easy.ui.features.try_dialog import TryDialog
+
+        TryDialog(self.window, self.experiment_service.history, run_id).exec()
+
     def _deploy_model(self, name: str, version: int) -> None:
         from ai_made_easy.ui.features.deploy import DeployDialog
 
