@@ -371,6 +371,10 @@ button:focus-visible, .block-item:focus-visible, [role=button]:focus-visible, se
 .canvas-group.collapsed { border-style: solid; pointer-events: all; display: flex;
                           flex-direction: column; justify-content: center; }
 .canvas-group .group-summary { font-size: 11px; padding: 0 10px 4px 30px; }
+/* a folded card can be dragged (its blocks move with it); wires that end inside it are
+   drawn as dashed stand-ins, as on the desktop */
+.canvas-group.collapsed { cursor: grab; }
+.react-flow__edge.stand-in .react-flow__edge-path { stroke-dasharray: 6 4; }
 /* Try it (3.5): a run's predictions on your own input */
 .try-result { margin: 8px 0; }
 .try-bar { display: grid; grid-template-columns: minmax(80px, 160px) 1fr 56px; gap: 8px;

@@ -94,6 +94,58 @@ test("a group folds into one card and opens again (3.4)", async ({ page }) => {
   await expect(page.locator(".react-flow__edge[data-id*='~']")).toHaveCount(0);
 });
 
+/** Saved positions of the given block ids, from the autosave. */
+async function savedPositions(page: Page, ids: string[]): Promise<number[][]> {
+  return page.evaluate(async (want) => {
+    await new Promise((r) => setTimeout(r, 900));
+    const design = JSON.parse(localStorage.getItem("aime.autosave") ?? "{}");
+    return want.map((id: string) => design.nodes.find((n: { id: string }) => n.id === id).position);
+  }, ids);
+}
+
+test("a folded card drags with its blocks, wires stay dashed stand-ins (3.5)", async ({ page }) => {
+  await selectTwo(page);
+  await page.getByTestId("group").click();
+  const frame = page.getByTestId("group-group1");
+  await frame.getByRole("button", { name: "Collapse Group" }).click();
+  const members = () => page.evaluate((): string[] => JSON.parse(
+    localStorage.getItem("aime.autosave") ?? "{}").meta?.groups?.[0]?.nodes ?? []);
+  await expect.poll(members).toHaveLength(2);          // the autosave lands after a moment
+  const ids = await members();
+  const before = await savedPositions(page, ids);
+  await expect(page.locator(".react-flow__edge.stand-in").first()).toBeVisible();
+  const dash = await page.locator(".react-flow__edge.stand-in .react-flow__edge-path").first()
+    .evaluate((el) => getComputedStyle(el).strokeDasharray);
+  expect(dash).not.toBe("none");
+
+  const start = (await frame.boundingBox())!;
+  const box = (await frame.locator(".group-summary").boundingBox())!;
+  const zoom = await page.evaluate(() => {
+    const t = getComputedStyle(document.querySelector(".react-flow__viewport")!).transform;
+    return new DOMMatrix(t).a;
+  });
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width / 2 + 100, box.y + box.height / 2 + 40, { steps: 8 });
+  await page.mouse.move(box.x + box.width / 2 + 200, box.y + box.height / 2 + 80, { steps: 8 });
+  await page.mouse.up();
+  const after = await savedPositions(page, ids);
+  const card = (await frame.boundingBox())!;
+  expect(card.x - start.x).toBeGreaterThan(150);
+  for (let i = 0; i < ids.length; i++) {   // every hidden block moved as far as the card did
+    expect(Math.abs(after[i][0] - before[i][0] - (card.x - start.x) / zoom)).toBeLessThan(3);
+    expect(Math.abs(after[i][1] - before[i][1] - (card.y - start.y) / zoom)).toBeLessThan(3);
+  }
+  await page.locator(".react-flow__pane").click({ position: { x: 5, y: 5 } });
+  await page.keyboard.press("ControlOrMeta+z");        // one undo puts the card back
+  expect((await savedPositions(page, ids))[0][0]).toBeCloseTo(before[0][0], 0);
+  await page.keyboard.press("ControlOrMeta+Shift+z");  // and redo moves it again
+  expect((await savedPositions(page, ids))[0][0]).toBeCloseTo(after[0][0], 0);
+  await page.reload();                                 // reopens where it was dropped
+  await expect(page.getByTestId("group-group1")).toContainText("2 blocks folded");
+  expect(await savedPositions(page, ids)).toEqual(after);
+});
+
 test("sticky notes are saved with the design", async ({ page }) => {
   await page.getByTestId("add-note").click();
   await page.getByTestId("note-text-note1").fill("Try a wider first layer");
