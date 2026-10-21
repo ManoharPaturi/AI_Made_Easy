@@ -7,6 +7,11 @@ on:
     - cron: "17 3 * * *"
   workflow_dispatch:
 
+# every job runs the whole suite, slow tests included (a plain local `pytest` leaves
+# out tests/slow_tests.txt)
+env:
+  AIME_TESTS: all
+
 jobs:
   full:
     runs-on: ubuntu-latest

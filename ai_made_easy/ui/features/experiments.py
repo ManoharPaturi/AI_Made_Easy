@@ -49,6 +49,16 @@ def _readonly_table(columns: list[str]) -> QtWidgets.QTableWidget:
     return table
 
 
+# pictures an explanation block saves in eval_samples/: <kind>_<n>[_<true>_as_<guess>].png
+_PICTURE_KINDS = {
+    "gradcam": ("Grad-CAM: where the model looked (red = most)",
+                "the image, then the heatmap over it"),
+    "attention": ("Attention: what the last attention layer attended to (red = most)",
+                  "the input, then the attention over it (or the attention matrix)"),
+    "saliency": ("Audio saliency: which sounds moved the prediction (red = most)",
+                 "the spectrogram or waveform, then the saliency over it"),
+}
+
 class _Item(QtWidgets.QTableWidgetItem):
     """Sorts numerically when both cells hold numbers."""
 
@@ -261,16 +271,23 @@ class ExperimentsPage(QtWidgets.QWidget):
 
             try:
                 folder = api.manager().history.path(run_id) / "eval_samples"
-                pictures = sorted(folder.glob("gradcam_*.png"))
+                pictures = sorted(p for kind in _PICTURE_KINDS for p in folder.glob(f"{kind}_*.png"))
             except Exception:  # noqa: BLE001 — a missing run folder: nothing to show
                 pictures = []
+            kinds = []
             for path in pictures:
-                true, _, guess = path.stem.split("_", 2)[2].partition("_as_")
-                item = QtWidgets.QListWidgetItem(QtGui.QIcon(QtGui.QPixmap(str(path))),
-                                                 f"{true} → {guess}")
-                item.setToolTip(f"true class {true}, predicted {guess}: the image, then "
-                                "the heatmap over it")
+                kind, _, rest = path.stem.partition("_")
+                rest = rest.partition("_")[2]   # drop the sample number
+                true, _, guess = rest.partition("_as_")
+                text = f"{true} → {guess}" if guess else path.stem
+                item = QtWidgets.QListWidgetItem(QtGui.QIcon(QtGui.QPixmap(str(path))), text)
+                item.setToolTip((f"true class {true}, predicted {guess}: " if guess else "")
+                                + _PICTURE_KINDS[kind][1])
                 self.cam_gallery.addItem(item)
+                if kind not in kinds:
+                    kinds.append(kind)
+            if kinds:
+                self.cam_label.setText(" · ".join(_PICTURE_KINDS[k][0] for k in kinds))
         shown = self.cam_gallery.count() > 0
         self.cam_label.setVisible(shown)
         self.cam_gallery.setVisible(shown)
