@@ -21,9 +21,15 @@ SUPPORTED_DATA = ("data.csv", "data.sklearn", "data.synthetic", "data.numpy", "d
 TABLE_PREP = ("prep.drop_columns", "prep.impute", "prep.one_hot", "prep.ordinal_encode",
               "prep.log_transform", "prep.clip_outliers", "prep.normalize", "prep.robust_scale",
               "prep.minmax", "prep.variance_filter")
-FEATURE_ORDER = ("ml.polynomial", "ml.spline", "ml.power_transform", "ml.quantile_transform",
-                 "ml.kbins", "ml.select_k_best", "ml.pca", "ml.truncated_svd", "ml.kernel_pca",
-                 "ml.fast_ica", "ml.nystroem", "ml.isomap", "ml.umap")
+FEATURE_ORDER = ("ml.max_abs_scale", "ml.normalizer", "ml.binarizer", "ml.variance_threshold",
+                 "ml.polynomial", "ml.spline", "ml.power_transform", "ml.quantile_transform",
+                 "ml.kbins", "ml.select_k_best", "ml.select_percentile", "ml.select_fpr",
+                 "ml.select_fdr", "ml.select_fwe", "ml.pca", "ml.incremental_pca",
+                 "ml.sparse_pca", "ml.factor_analysis", "ml.nmf", "ml.lda_topics",
+                 "ml.feature_agglomeration", "ml.truncated_svd", "ml.kernel_pca", "ml.fast_ica",
+                 "ml.gaussian_projection", "ml.sparse_projection", "ml.nystroem",
+                 "ml.rbf_sampler", "ml.skewed_chi2_sampler", "ml.additive_chi2_sampler",
+                 "ml.polynomial_sketch", "ml.isomap", "ml.lle", "ml.umap")
 NN_PREFIXES = ("core.", "arch.", "llm.")
 
 
@@ -192,6 +198,13 @@ def classic_issues(graph: Graph) -> list[ValidationIssue]:
             "error", f"{est.name} needs non-negative features, but the pipeline can produce "
                      "negative values (standardization / PCA / power transform). Use Min-Max "
                      "scaling or remove the step.", anchor))
+    for tr, _ in spec.features:
+        if tr.type_id in ml.NONNEGATIVE_TRANSFORMERS and (
+                {"prep.normalize", "prep.robust_scale"} & set(spec.steps)
+                or "prep.minmax" not in spec.steps):
+            issues.append(ValidationIssue(
+                "warning", f"{tr.name} needs non-negative features: add Min-Max scaling (and "
+                           "no standardization) before it", anchor))
     if est.task == ml.CLUSTERING and spec.dataset["block"] in ("data.text_csv",):
         pass
     if spec.search:
@@ -211,7 +224,7 @@ def classic_issues(graph: Graph) -> list[ValidationIssue]:
         issues.append(ValidationIssue("error", "n_neighbors must be smaller than the number of "
                                                "samples", anchor))
     for tr, params in spec.features:
-        if tr.type_id == "ml.select_k_best":
+        if tr.type_id in ml.UNIVARIATE_SELECTORS:
             sf = params["score_func"]
             if (est.task == ml.REGRESSION) != sf.endswith("regression"):
                 if sf != "chi2" or est.task == ml.REGRESSION:
@@ -239,7 +252,7 @@ def _imports(spec: ClassicSpec) -> list[str]:
     for tr, _ in [*spec.features, *([spec.encoder] if spec.encoder else []),
                   *([spec.sampler] if spec.sampler else [])]:
         need(tr.module, tr.cls)
-        if tr.type_id == "ml.select_k_best":
+        if tr.type_id in ml.UNIVARIATE_SELECTORS:
             need("sklearn.feature_selection", _score_func(tr, _))
     if spec.vectorizer:
         need(spec.vectorizer[0].module, spec.vectorizer[0].cls)
@@ -319,7 +332,12 @@ def _numeric_steps(spec: ClassicSpec) -> list[str]:
         out.append('("robust", RobustScaler())')
     if "prep.minmax" in s:
         m = s["prep.minmax"]
-        out.append(f'("minmax", MinMaxScaler(feature_range=({m["range_min"]}, {m["range_max"]})))')
+        # test rows outside the training range would go below 0 for a transformer that
+        # needs non-negative features (NMF, LDA, chi²): clip them to the range there
+        clip = ", clip=True" if any(t.type_id in ml.NONNEGATIVE_TRANSFORMERS
+                                    for t, _ in spec.features) else ""
+        out.append(f'("minmax", MinMaxScaler(feature_range=({m["range_min"]}, '
+                   f'{m["range_max"]}){clip}))')
     return out
 
 
