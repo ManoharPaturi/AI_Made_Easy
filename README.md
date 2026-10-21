@@ -50,7 +50,7 @@ boilerplate. It runs on the desktop or in the browser.
   state-space models, flows), optionally trading accuracy against latency or model size
   on your target device: the result is one Pareto front of networks and classic models
   to choose from. Trials can train several at a time, on any backend.
-- **589 blocks in 9 families** ([docs/FAMILIES.md](docs/FAMILIES.md) lists every
+- **675 blocks in 9 families** ([docs/FAMILIES.md](docs/FAMILIES.md) lists every
   family, task, block and design rule) across every major library: `torch.nn` layers, Keras 3
   equivalents, torchvision / `keras.applications` / timm pretrained backbones,
   Hugging Face text and image encoders, scikit-learn, XGBoost, LightGBM and CatBoost,
@@ -62,6 +62,15 @@ boilerplate. It runs on the desktop or in the browser.
   ArcFace, CosFace, triplet and supervised contrastive losses for embeddings; SAM and
   Schedule-Free AdamW; weight averaging (EMA, SWA); Integrated Gradients; target encoding
   and SMOTE for classic models; Tiny Llama, Vision Transformer, ConvNeXt and ArcFace recipes.
+- **Try it, and see what it attended to (3.5).** Run a finished model on your own input
+  from the Experiments page: a form built from what it takes (table fields, text, an
+  image or a WAV clip), answered on your machine. Attention maps of transformer models
+  and saliency maps of audio classifiers are saved with each run. 86 more blocks:
+  `torch.nn` layers such as the full encoder-decoder Transformer, ConvLSTM2D, EmbeddingBag
+  and spectral normalization; Keras losses; the Muon optimizer; and 56 more scikit-learn
+  estimators and transformers.
+
+  ![Try it: a finished run's prediction on your own input](docs/images/web_try_it.png)
 - **Explain, embed and compare (3.4).** Grad-CAM heatmaps of where an image model
   looked, saved with each run; SHAP values beside permutation importance and Integrated
   Gradients; SimCLR self-supervised pretraining; Cosine Embedding and Margin Ranking
@@ -296,7 +305,8 @@ environment with the frameworks installed (`$AIME_PYTHON`, or `python3` on the
 ```bash
 pip install -e ".[all,dev]"
 ruff check ai_made_easy scripts tests
-pytest                                  # ~1,400 tests, includes real training runs
+pytest                                  # ~1,700 tests on four workers, about three minutes
+AIME_TESTS=all pytest                   # also the ~300 slow ones (real training), as CI does
 cd web && npm ci && npm run build && npx playwright test   # web UI
 UPDATE_GOLDEN=1 pytest tests/test_golden.py
 python scripts/build_examples.py        # regenerate example projects
