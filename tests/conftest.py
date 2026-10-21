@@ -15,6 +15,42 @@ os.environ.setdefault("AIME_HOME", tempfile.mkdtemp(prefix="aime_test_home_"))
 
 import pytest  # noqa: E402
 
+_SLOW_LIST = os.path.join(os.path.dirname(__file__), "slow_tests.txt")
+
+
+def pytest_addoption(parser):
+    parser.addoption("--run-slow", action="store_true",
+                     help="also run the slow tests (tests/slow_tests.txt), as AIME_TESTS=all")
+
+
+def pytest_configure(config):
+    config.addinivalue_line("markers", "slow: takes 10 s or more; a plain pytest leaves it "
+                                       "out (AIME_TESTS=all or --run-slow runs it, as CI does)")
+
+
+def pytest_collection_modifyitems(config, items):
+    """Leave the slow tests out of a plain run; CI sets AIME_TESTS=all. A test named on the
+    command line (file.py::test) always runs."""
+    try:
+        with open(_SLOW_LIST) as fh:
+            slow = {ln.strip() for ln in fh if ln.strip() and not ln.startswith("#")}
+    except OSError:
+        slow = set()
+    run_all = config.getoption("--run-slow") or os.environ.get("AIME_TESTS") == "all"
+    named = [a.replace(os.sep, "/") for a in config.args if "::" in a]
+    keep, drop = [], []
+    for item in items:
+        if item.nodeid in slow or item.get_closest_marker("slow"):
+            item.add_marker(pytest.mark.slow)
+            if not run_all and not any(item.nodeid.endswith(n) or n.endswith(item.nodeid)
+                                       for n in named):
+                drop.append(item)
+                continue
+        keep.append(item)
+    if drop:
+        config.hook.pytest_deselected(items=drop)
+        items[:] = keep
+
 
 def tiny_classifier_dict(epochs: int = 2, lr: float = 0.05, units: int = 8,
                          name: str = "tiny") -> dict:
