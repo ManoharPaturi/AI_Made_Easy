@@ -11,6 +11,17 @@ python scripts/verify_codegen.py --coverage
 cd web && npm run build && npx playwright test
 ```
 
+`pytest` runs on four workers (`-n0` for one process, to debug) and leaves out the
+slow tests listed in `tests/slow_tests.txt`: real training runs, subprocesses and
+sweeps, about three minutes in all. `AIME_TESTS=all pytest` (or `--run-slow`) runs the
+whole suite, as CI does on every pull request; a slow test named on the command line
+always runs. After adding slow tests, refresh the list from a timed run:
+
+```bash
+AIME_TESTS=all pytest --durations=0 --durations-min=1 > durations.log
+python scripts/find_slow_tests.py durations.log
+```
+
 ## Adding a block
 
 A block is one `BlockDefinition` in the registry. The palette, the inspector, the web
