@@ -138,6 +138,18 @@ export function DiffModal({ runId, onClose }: { runId: string; onClose: () => vo
   );
 }
 
+/** Pictures an explanation block saves with a run: <kind>_<n>[_<true>_as_<guess>].png */
+const PICTURE_KINDS: Record<string, { title: string; caption: string }> = {
+  gradcam: { title: "Grad-CAM heatmaps",
+             caption: "Grad-CAM: each test image, then where the model looked for its prediction (red = most)." },
+  attention: { title: "Attention maps",
+               caption: "Attention: what the last attention layer attended to, over the image or as a matrix "
+                 + "(row: a position, columns: where it looked; red = most)." },
+  saliency: { title: "Audio saliency",
+              caption: "Audio saliency: each clip's spectrogram (or waveform), then which parts moved the "
+                + "prediction (red = most)." },
+};
+
 export function RunSamplesView({ runId }: { runId: string }) {
   const [data, setData] = useState<RunSamples | null>(null);
   useEffect(() => {
@@ -147,17 +159,19 @@ export function RunSamplesView({ runId }: { runId: string }) {
   const texts = data?.texts ?? [];
   if (!data || (!data.samples.length && !texts.length)) return null;
   const offset = data.per_class.length === data.classes.length + 1 ? 1 : 0;
-  const cams = data.samples.length > 0 && data.samples.every((s) => s.name.startsWith("gradcam_"));
+  const kinds = [...new Set(data.samples.map((s) => s.name.split("_")[0]))];
+  const cams = data.samples.length > 0 && kinds.every((k) => k in PICTURE_KINDS);
   const caption = cams
-    ? "Grad-CAM: each test image, then where the model looked for its prediction (red = most). "
-      + "Captions read true class → predicted class."
+    ? kinds.map((k) => PICTURE_KINDS[k].caption).join(" ")
+      + " Captions read true class → predicted class."
     : data.per_class_metric === "AP"
     ? "Green: ground truth · red: prediction with its score."
     : data.per_class_metric === "IoU" ? "Each sample: true mask (left) and prediction (right)."
       : "What the trained model produced on held-out data or from noise.";
   return (
     <div data-testid="run-samples">
-      <h3>{cams ? "Grad-CAM heatmaps" : data.per_class_metric ? "Test predictions" : "Samples"}</h3>
+      <h3>{cams ? kinds.map((k) => PICTURE_KINDS[k].title).join(" · ")
+        : data.per_class_metric ? "Test predictions" : "Samples"}</h3>
       <p className="muted">{caption}</p>
       {data.per_class.length > 0 && (
         <table style={{ maxWidth: 420 }}>
@@ -168,9 +182,11 @@ export function RunSamplesView({ runId }: { runId: string }) {
         </table>)}
       <div className="sample-grid">
         {data.samples.map((s) => {
-          const label = cams ? s.name.split("_").slice(2).join("_").replace("_as_", " → ") : s.name;
+          const label = cams ? (s.name.split("_").slice(2).join("_").replace("_as_", " → ")
+                                || s.name) : s.name;
+          const kind = PICTURE_KINDS[s.name.split("_")[0]];
           return cams
-            ? <figure key={s.name} className="cam"><img src={s.data_url} alt={`Grad-CAM ${label}`} />
+            ? <figure key={s.name} className="cam"><img src={s.data_url} alt={`${kind.title} ${label}`} />
                 <figcaption className="muted">{label}</figcaption></figure>
             : <img key={s.name} src={s.data_url} alt={s.name} title={s.name} />;
         })}

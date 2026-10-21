@@ -19,6 +19,15 @@ from ai_made_easy.core.training import catalog as cat
 from ai_made_easy.core.training import data_catalog as dcat
 
 
+# blocks whose forward pass runs scaled dot-product attention (Attention Maps records it)
+ATTENTION_BLOCKS = frozenset({
+    "core.multihead_attention", "core.cross_attention", "core.gqa_attention",
+    "core.llama_block", "core.transformer_encoder", "core.transformer_decoder",
+    "forecast.patchtst", "forecast.tft", "forecast.transformer", "gen.causal_transformer",
+    "gen.gpt", "gen.seq2seq_transformer", "seq.conformer", "tab.ft_transformer",
+    "tab.tab_transformer", "vision.swin_block"})
+
+
 @dataclass
 class TrainingSpec:
     name: str = "untitled"
@@ -43,6 +52,8 @@ class TrainingSpec:
     predict: dict[str, Any] | None = None
     explain: dict[str, Any] | None = None      # permutation importance after training
     gradcam: dict[str, Any] | None = None      # Grad-CAM heatmaps of test images (3.4)
+    attention: dict[str, Any] | None = None    # attention maps of test samples (3.5)
+    saliency: dict[str, Any] | None = None     # gradient saliency of test audio clips (3.5)
     warnings: list[str] = field(default_factory=list)
 
     # ---------------------------------------------------------- derived
@@ -241,6 +252,28 @@ def collect_spec(graph: Graph) -> TrainingSpec:
                                  "class; it is skipped for this design")
         else:
             spec.gradcam = cat.resolved("eval.grad_cam", gc.params)
+
+    am = pick(("eval.attention_maps",), "Attention Maps")
+    if am is not None:
+        if not any(n.type_id in ATTENTION_BLOCKS for n in graph.nodes.values()):
+            spec.warnings.append("Attention Maps needs an attention or transformer block; it "
+                                 "is skipped for this design")
+        elif spec.pairs:
+            spec.warnings.append("Attention Maps explains single samples; it is skipped for "
+                                 "labelled pairs")
+        else:
+            spec.attention = cat.resolved("eval.attention_maps", am.params)
+
+    sal = pick(("eval.audio_saliency",), "Audio Saliency")
+    if sal is not None:
+        if spec.modality != "audio" or len(spec.input_shape) not in (2, 3):
+            spec.warnings.append("Audio Saliency explains audio models; it is skipped for "
+                                 "this design")
+        elif not spec.is_classification or spec.metric_loss:
+            spec.warnings.append("Audio Saliency explains a classifier's predicted class; it "
+                                 "is skipped for this design")
+        else:
+            spec.saliency = cat.resolved("eval.audio_saliency", sal.params)
 
     # ------------------------------------------------------------ metrics
     for node in graph.nodes.values():

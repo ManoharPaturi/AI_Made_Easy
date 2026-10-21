@@ -1240,6 +1240,32 @@ EXPLAIN_GRADCAM = Component(
          "a Conv2d layer, PyTorch.")
 
 
+EXPLAIN_ATTENTION = Component(
+    "eval.attention_maps", "Attention Maps",
+    (P("n_samples", "int", 6, lo=1, hi=12, help="Test samples explained (up to 12, "
+                                                      "the most a run shows)"),
+     P("opacity", "float", 0.5, lo=0.1, hi=0.9, help="How strongly the map is drawn over "
+                                                      "an image")),
+    desc="After training, the attention weights of the model's last attention layer on a "
+         "few test samples, saved with the run and shown in both apps: for a vision "
+         "transformer, how much each image patch is attended to, drawn over the image; for "
+         "text and sequences, the attention matrix (row: a position, columns: where it "
+         "looked). Models with attention or transformer blocks, PyTorch.")
+
+
+EXPLAIN_SALIENCY = Component(
+    "eval.audio_saliency", "Audio Saliency",
+    (P("n_samples", "int", 6, lo=1, hi=12, help="Test clips explained (up to 12, "
+                                                      "the most a run shows)"),
+     P("opacity", "float", 0.5, lo=0.1, hi=0.9, help="How strongly the map is drawn")),
+    desc="After training, gradient saliency (Simonyan et al., 2014) for a few test clips: "
+         "how much each time-frequency point of the spectrogram (or each moment of a raw "
+         "waveform) moves the predicted class, drawn over the input and saved with the run. "
+         "Audio classifiers, PyTorch.")
+
+PICTURE_EXPLAIN_IDS = ("eval.grad_cam", "eval.attention_maps", "eval.audio_saliency")
+
+
 def _losses_by_id() -> dict[str, Component]:
     return {c.type_id: c for c in LOSSES}
 
@@ -1250,7 +1276,8 @@ SCHEDULER_IDS = tuple(c.type_id for c in SCHEDULERS)
 METRIC_IDS = tuple(c.type_id for c in METRICS)
 COMPONENTS: dict[str, Component] = {
     c.type_id: c for c in (*LOSSES, *OPTIMIZERS, *SCHEDULERS, *METRICS, TRAINER, KFOLD, PREDICT,
-                           EXPLAIN, EXPLAIN_IG, EXPLAIN_SHAP, EXPLAIN_GRADCAM)
+                           EXPLAIN, EXPLAIN_IG, EXPLAIN_SHAP, EXPLAIN_GRADCAM,
+                           EXPLAIN_ATTENTION, EXPLAIN_SALIENCY)
 }
 
 _CATEGORY = {
@@ -1265,6 +1292,8 @@ _CATEGORY = {
     "eval.integrated_gradients": ("Metrics", "evaluation"),
     "eval.shap_values": ("Metrics", "evaluation"),
     "eval.grad_cam": ("Metrics", "evaluation"),
+    "eval.attention_maps": ("Metrics", "evaluation"),
+    "eval.audio_saliency": ("Metrics", "evaluation"),
 }
 EXPLAIN_IDS = ("eval.permutation_importance", "eval.integrated_gradients", "eval.shap_values")
 EXPLAIN_METHODS = {"eval.permutation_importance": "permutation",
@@ -1273,7 +1302,7 @@ EXPLAIN_METHODS = {"eval.permutation_importance": "permutation",
 
 
 def _libraries(c: Component) -> str:
-    if c.type_id in (*EXPLAIN_IDS, "eval.grad_cam"):
+    if c.type_id in (*EXPLAIN_IDS, *PICTURE_EXPLAIN_IDS):
         return "PyTorch"
     if c.type_id in METRIC_IDS or c.type_id in ("train.trainer", "train.kfold", "eval.predict"):
         return "PyTorch · Keras"
