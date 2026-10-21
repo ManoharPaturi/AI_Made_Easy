@@ -65,7 +65,7 @@ def _requirements(spec: TrainingSpec, framework: str, torchvision: bool) -> str:
     if block in ("data.csv", "data.text_csv", "data.timeseries_csv"):
         reqs.append("pandas")
     if block == "data.image_folder" or (spec.is_classification and torchvision) \
-            or (spec.gradcam and framework == "pytorch"):
+            or ((spec.gradcam or spec.attention or spec.saliency) and framework == "pytorch"):
         reqs.append("pillow")
     if block == "data.sklearn":
         reqs.append("scikit-learn")

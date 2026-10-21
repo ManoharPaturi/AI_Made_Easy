@@ -810,6 +810,174 @@ def save_grad_cams(model: nn.Module, loader: DataLoader, device: torch.device) -
         picture.save(out_dir / f"gradcam_{i:02d}_{name(true)}_as_{name(guess)}.png")
     print(f"saved {count} Grad-CAM heatmaps to eval_samples/")
 {% endif %}
+{% if (spec.attention or spec.saliency) and not spec.gradcam %}
+
+
+def _heat(cam: np.ndarray) -> np.ndarray:
+    """A blue-to-red colour map for a [0, 1] heatmap (H, W) -> (H, W, 3)."""
+    return np.stack([np.clip(1.5 - np.abs(4 * cam - k), 0, 1) for k in (3, 2, 1)], axis=-1)
+{% endif %}
+{% if spec.attention or spec.saliency %}
+
+
+def _explained_name(i: int, kind: str, scores: torch.Tensor, y) -> str:
+    """eval_samples/<kind>_<i>[_<true>_as_<predicted>].png"""
+{% if spec.is_classification %}
+    name = lambda c: str(CLASS_NAMES[c]) if CLASS_NAMES and c < len(CLASS_NAMES) else str(c)
+{% if spec.task == "binary" %}
+    guess = int(torch.sigmoid(scores.reshape(-1)[:1])[0] > 0.5)
+{% else %}
+    guess = int(scores.reshape(scores.shape[0], -1).argmax(1)[0])
+{% endif %}
+    true = int(y) if not torch.is_tensor(y) or y.ndim == 0 else int(y.reshape(-1)[0])
+    return f"{kind}_{i:02d}_{name(true)}_as_{name(guess)}.png"
+{% else %}
+    return f"{kind}_{i:02d}.png"
+{% endif %}
+
+
+def _save_pair(left: np.ndarray, right: np.ndarray, path: Path) -> None:
+    """Two (H, W, 3) [0, 1] pictures side by side, at least 128 px high and each at least
+    as wide as it is high (a short clip's spectrogram is stretched in time)."""
+    from PIL import Image
+
+    pair = (np.concatenate([left, right], axis=1).clip(0, 1) * 255).astype("uint8")
+    side = max(128, pair.shape[0])
+    width = max(side * pair.shape[1] // pair.shape[0], 2 * side)
+    Image.fromarray(pair).resize((width, side), Image.NEAREST).save(path)
+
+
+def _unit(a: np.ndarray) -> np.ndarray:
+    return (a - a.min()) / (a.max() - a.min() + 1e-9)
+{% endif %}
+{% if spec.attention %}
+
+
+class AttentionRecorder:
+    """While active, scaled dot-product attention runs as softmax(QK^T)V so its weights can
+    be kept: this covers nn.MultiheadAttention, nn.Transformer layers (their fused fast
+    path is switched off meanwhile) and blocks that call F.scaled_dot_product_attention."""
+
+    def __init__(self) -> None:
+        self.maps: list[torch.Tensor] = []
+
+    def __enter__(self) -> "AttentionRecorder":
+        import torch.nn.functional as functional
+
+        self._functional, self._sdpa = functional, functional.scaled_dot_product_attention
+        mha = getattr(torch.backends, "mha", None)
+        self._fast = mha.get_fastpath_enabled() if mha else None
+        if mha:
+            mha.set_fastpath_enabled(False)
+        maps = self.maps
+
+        def attention(q, k, v, attn_mask=None, dropout_p=0.0, is_causal=False, scale=None,
+                      enable_gqa=False):
+            if q.dim() == 4 and k.shape[1] != q.shape[1]:   # grouped-query attention
+                k = k.repeat_interleave(q.shape[1] // k.shape[1], dim=1)
+                v = v.repeat_interleave(q.shape[1] // v.shape[1], dim=1)
+            scores = q @ k.transpose(-2, -1) * (scale or 1.0 / math.sqrt(q.shape[-1]))
+            if is_causal:
+                keep = torch.ones(q.shape[-2], k.shape[-2], dtype=torch.bool,
+                                  device=q.device).tril()
+                scores = scores.masked_fill(~keep, float("-inf"))
+            if attn_mask is not None:
+                scores = (scores.masked_fill(~attn_mask, float("-inf"))
+                          if attn_mask.dtype == torch.bool else scores + attn_mask)
+            weights = scores.softmax(-1)
+            maps.append(weights.detach().float().cpu())
+            return weights @ v
+
+        functional.scaled_dot_product_attention = attention
+        return self
+
+    def __exit__(self, *exc) -> None:
+        self._functional.scaled_dot_product_attention = self._sdpa
+        if self._fast is not None:
+            torch.backends.mha.set_fastpath_enabled(self._fast)
+
+
+def save_attention_maps(model: nn.Module, loader: DataLoader, device: torch.device) -> None:
+    """The last attention layer's weights on the first test samples, into eval_samples/:
+    over the image for patch tokens (a vision transformer), else the attention matrix."""
+    model.eval()
+    out_dir = Path("eval_samples")
+    out_dir.mkdir(exist_ok=True)
+    count, saved = min({{ spec.attention.n_samples }}, len(loader.dataset)), 0
+    for i in range(count):
+        x, y = loader.dataset[i]
+        x = x.unsqueeze(0).to(device)
+        with torch.no_grad(), AttentionRecorder() as rec:
+            scores = model(x)
+        if not rec.maps:
+            print("(no attention layer ran: no attention maps drawn)")
+            return
+        w = rec.maps[-1]
+        w = w.reshape(-1, *w.shape[-2:]).mean(0).numpy()   # heads averaged: (queries, keys)
+        keys = w.shape[1]
+        grid = next((g for g, start in ((math.isqrt(keys - 1), 1), (math.isqrt(keys), 0))
+                     if g > 1 and g * g + start == keys), 0)
+{% if spec.modality == "image" %}
+        if grid and x.dim() == 4:
+            start = keys - grid * grid
+            # from the class token where there is one, else what each patch receives
+            got = w[0, start:] if start else w.mean(0)
+            img = _unit(x[0].float().cpu().numpy())
+            img = np.repeat(img, 3, axis=0) if img.shape[0] == 1 else img[:3]
+            img = np.transpose(img, (1, 2, 0))
+            heat = _unit(got.reshape(grid, grid))
+            heat = np.kron(heat, np.ones((-(-img.shape[0] // grid), -(-img.shape[1] // grid))))
+            heat = heat[:img.shape[0], :img.shape[1]]
+            mixed = ((1 - {{ spec.attention.opacity }}) * img
+                     + {{ spec.attention.opacity }} * _heat(heat))
+            _save_pair(img, mixed, out_dir / _explained_name(i, "attention", scores, y))
+            saved += 1
+            continue
+{% endif %}
+        matrix = _heat(_unit(w))
+        _save_pair(matrix, matrix, out_dir / _explained_name(i, "attention", scores, y))
+        saved += 1
+    print(f"saved {saved} attention maps to eval_samples/")
+{% endif %}
+{% if spec.saliency %}
+
+
+def save_audio_saliency(model: nn.Module, loader: DataLoader, device: torch.device) -> None:
+    """Gradient saliency of the predicted class for the first test clips, into
+    eval_samples/: the spectrogram (low frequencies at the bottom), then the map over it;
+    for raw waveforms, the waveform with its saliency underneath."""
+    model.eval()
+    out_dir = Path("eval_samples")
+    out_dir.mkdir(exist_ok=True)
+    count = min({{ spec.saliency.n_samples }}, len(loader.dataset))
+    alpha = {{ spec.saliency.opacity }}
+    for i in range(count):
+        x, y = loader.dataset[i]
+        x = x.unsqueeze(0).float().to(device).requires_grad_(True)
+        scores = model(x)
+        picked = int(scores.argmax(1)[0]) if scores.shape[1] > 1 else 0
+        model.zero_grad()
+        scores[0, picked].backward()
+        grad = x.grad.detach().abs()[0].mean(0).cpu().numpy()
+        clip = x.detach()[0].mean(0).cpu().numpy()
+        if clip.ndim == 2:                                 # (frequency, time)
+            spec_img = np.repeat(_unit(clip[::-1])[..., None], 3, axis=-1)
+            heat = _unit(grad[::-1])
+            left, right = spec_img, (1 - alpha) * spec_img + alpha * _heat(heat)
+        else:                                              # a waveform (samples,)
+            width = min(512, clip.shape[0])
+            cols = np.array_split(np.arange(clip.shape[0]), width)
+            amp = _unit(np.array([np.abs(clip[c]).max() for c in cols]))
+            sal = _unit(np.array([grad[c].mean() for c in cols]))
+            rows = np.abs(np.arange(96)[:, None] - 48) <= amp[None, :] * 46
+            wave = np.repeat(np.where(rows, 0.25, 0.95)[..., None], 3, axis=-1)
+            strip = np.repeat(_heat(sal)[None], 24, axis=0)
+            left = np.concatenate([wave, np.ones((24, width, 3))], axis=0)
+            right = np.concatenate([(1 - alpha) * wave + alpha * _heat(np.repeat(
+                sal[None], 96, axis=0)) * rows[..., None], strip], axis=0)
+        _save_pair(left, right, out_dir / _explained_name(i, "saliency", scores.detach(), y))
+    print(f"saved {count} audio saliency maps to eval_samples/")
+{% endif %}
 '''
 
 TORCH_MAIN = r'''
@@ -916,6 +1084,20 @@ def main() -> None:
         save_grad_cams(model, test_loader if len(test_loader.dataset) else val_loader, device)
     except Exception as exc:  # noqa: BLE001 — heatmaps are optional
         print(f"(could not draw Grad-CAM heatmaps: {exc})")
+{% endif %}
+{% if spec.attention %}
+    try:
+        save_attention_maps(model, test_loader if len(test_loader.dataset) else val_loader,
+                            device)
+    except Exception as exc:  # noqa: BLE001 — maps are optional
+        print(f"(could not draw attention maps: {exc})")
+{% endif %}
+{% if spec.saliency %}
+    try:
+        save_audio_saliency(model, test_loader if len(test_loader.dataset) else val_loader,
+                            device)
+    except Exception as exc:  # noqa: BLE001 — maps are optional
+        print(f"(could not draw audio saliency: {exc})")
 {% endif %}
 {% if spec.is_classification %}
     try:
