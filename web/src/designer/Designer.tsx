@@ -47,7 +47,7 @@ function Canvas({ onDataFile }: { onDataFile?: (file: File) => void }) {
       if (g.collapsed) {   // one card in place of its blocks; their wires end on it
         frames.push({ id: `group:${g.id}`, type: "aimeGroup", position: { x: b.x, y: b.y + 22 },
                       data: { group: g }, style: { width: COLLAPSED[0], height: COLLAPSED[1] },
-                      width: COLLAPSED[0], height: COLLAPSED[1], draggable: false,
+                      width: COLLAPSED[0], height: COLLAPSED[1], draggable: true,
                       selectable: false });
         continue;
       }
@@ -69,6 +69,21 @@ function Canvas({ onDataFile }: { onDataFile?: (file: File) => void }) {
     return [...frames, ...blocks, ...sticky] as Node[];
   }, [nodes, groups, notes, marked, meta]);
 
+  // a folded card moves its hidden blocks: the card is drawn where they are, so it follows
+  const dragFolded = useCallback((gid: string, c: NodeChange & { type: "position" }) => {
+    const group = groups.find((g) => g.id === gid);
+    const positions = new Map(nodes.map((n) => [n.id, n.position]));
+    const b = group && groupBounds(group, positions);
+    if (!group || !b || !c.position) return [];
+    const dx = c.position.x - b.x, dy = c.position.y - (b.y + 22);
+    if (!dx && !dy) return [];
+    return group.nodes.filter((n) => positions.has(n)).map((n) => {
+      const p = positions.get(n)!;
+      return { type: "position", id: n, position: { x: p.x + dx, y: p.y + dy },
+               dragging: c.dragging } as NodeChange<FlowNode>;
+    });
+  }, [groups, nodes]);
+
   const handleNodes = useCallback((changes: NodeChange[]) => {
     const blocks: NodeChange<FlowNode>[] = [];
     for (const c of changes) {
@@ -88,12 +103,13 @@ function Canvas({ onDataFile }: { onDataFile?: (file: File) => void }) {
         }
       } else if (id.startsWith("group:")) {
         if (c.type === "remove") ungroup(id.slice(6));
+        else if (c.type === "position" && c.position) blocks.push(...dragFolded(id.slice(6), c));
       } else {
         blocks.push(c as NodeChange<FlowNode>);
       }
     }
     if (blocks.length) onNodesChange(blocks);
-  }, [onNodesChange, updateNote, removeNote, ungroup]);
+  }, [onNodesChange, updateNote, removeNote, ungroup, dragFolded]);
 
   // fit the view whenever a project is opened or re-arranged
   useEffect(() => {
@@ -284,7 +300,9 @@ function Canvas({ onDataFile }: { onDataFile?: (file: File) => void }) {
       const key = `${source}>${target}`;
       if (seen.has(key)) continue;                  // one wire per pair of ends
       seen.add(key);
+      // a dashed stand-in, as on the desktop: the real wire ends on a block inside the card
       out.push({ ...e, id: `${e.id}~${key}`, source, target, selectable: false, deletable: false,
+                 className: "stand-in",
                  sourceHandle: from ? null : e.sourceHandle, targetHandle: to ? null : e.targetHandle,
                  label: shape ? shapeLabel(shape) : undefined });
     }
