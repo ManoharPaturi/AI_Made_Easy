@@ -696,7 +696,7 @@ TRANSFORMERS += [
                 (P("norm", "enum", "l2", options=("l2", "l1", "max")),),
                 desc="Scales every row to unit length (for cosine-like comparisons)."),
     Transformer("ml.binarizer", "Binarizer", "Binarizer", "sklearn.preprocessing",
-                (P("threshold", "float", 0.0),),
+                (P("threshold", "float", 0.0, lo=-1e6, hi=1e6),),
                 desc="Turns each value into 1 above the threshold, else 0."),
     Transformer("ml.variance_threshold", "Variance Threshold", "VarianceThreshold",
                 "sklearn.feature_selection", (P("threshold", "float", 0.0, lo=0.0),),

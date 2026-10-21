@@ -106,7 +106,7 @@ for _rank in (1, 2, 3):
     reg.register(nn_block(
         f"core.constant_pad{_rank}d", f"ConstantPad{_rank}D", "Resizing", family="resize",
         params=(P("padding", "int", 1, lo=0, help="Padding on every side"),
-                P("value", "float", 0.0, help="The value padded in")),
+                P("value", "float", 0.0, lo=-1e6, hi=1e6, help="The value padded in")),
         shape=_constant_pad_shape(_rank), layout="cl",
         torch=f"nn.ConstantPad{_rank}d(padding={{padding}}, value={{value}})",
         keras_expr=lambda c: (f"pad_constant({c['i0']}, padding={int(c['padding'])}, "
@@ -336,7 +336,7 @@ def _unflatten_shape(in_shapes, params):
 
 reg.register(nn_block(
     "core.unflatten", "Unflatten", "Tensor Ops", family="tensor",
-    params=(P("dim", "int", 0, help="The axis to split (0 = the first sample axis)"),
+    params=(P("dim", "int", 0, lo=-8, hi=8, help="The axis to split (0 = the first sample axis)"),
             P("sizes", "str", "4, 8", help="Its new sizes; their product must match")),
     shape=_unflatten_shape, layout="ir",
     torch_expr=lambda c: (f"{c['i0']}.unflatten({int(c['dim']) % c['in_rank'] + 1}, "
