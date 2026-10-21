@@ -1,5 +1,18 @@
 # Changelog
 
+## 3.4.1
+
+A fix release.
+
+### Fixed
+- Desktop: a window's services and timers (validation, autosave) no longer outlive
+  the window. They kept updating its widgets after it closed; the context now closes
+  with its window, and closing stops autosave.
+- Desktop: the running-wire animation no longer touches wires of a closed canvas.
+- Tests: windows are deleted when each test ends, which removes the "shared QObject
+  was deleted directly" message at the end of full runs; the canvas-PNG test runs its
+  subprocess against the checkout, not an installed copy.
+
 ## 3.4.0
 
 Explain image models, learn from pairs, and fold groups away. 589 blocks, 68 recipes.
