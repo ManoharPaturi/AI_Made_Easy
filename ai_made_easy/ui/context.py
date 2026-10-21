@@ -176,6 +176,7 @@ class AppContext(FileActions, ExportActions, RunActions, DataActions, QtCore.QOb
         ep.apply_best_requested.connect(self._apply_best_sweep)
         ep.register_requested.connect(self._register_run)
         ep.deploy_run_requested.connect(self._deploy_run)
+        ep.try_run_requested.connect(self._try_run)
         ep.model_deploy_requested.connect(self._deploy_model)
         ep.model_stage_requested.connect(self._set_model_stage)
         ep.model_delete_requested.connect(self._delete_model)

@@ -340,6 +340,15 @@ def create_app(*, token: str | None = None, projects_dir: str | Path | None = No
     def run_explain(run_id: str) -> dict:
         return api.run_explanation(run_id)
 
+    @app.get("/api/runs/{run_id}/try", dependencies=guard)
+    def try_describe(run_id: str) -> dict:
+        """What a finished run takes (loads its predictor on this machine)."""
+        return api.try_describe(run_id)
+
+    @app.post("/api/runs/{run_id}/try", dependencies=guard)
+    def try_run(run_id: str, payload: dict = Body(...)) -> dict:  # noqa: B008
+        return api.try_run(run_id, payload.get("inputs"))
+
     @app.get("/api/runs/{run_id}/metrics", dependencies=guard)
     def metrics(run_id: str) -> dict:
         return {"run_id": run_id, "epochs": api.manager().history.epochs(run_id)}

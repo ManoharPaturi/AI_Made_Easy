@@ -78,6 +78,7 @@ class ExperimentsPage(QtWidgets.QWidget):
     apply_best_requested = QtCore.Signal(str)  # sweep_id
     register_requested = QtCore.Signal(str)    # run_id
     deploy_run_requested = QtCore.Signal(str)  # run_id
+    try_run_requested = QtCore.Signal(str)     # run_id (3.5)
     model_deploy_requested = QtCore.Signal(str, int)          # name, version
     model_stage_requested = QtCore.Signal(str, int, str)      # name, version, stage
     model_delete_requested = QtCore.Signal(str, int)          # name, version
@@ -134,6 +135,8 @@ class ExperimentsPage(QtWidgets.QWidget):
         self.deploy_btn = QtWidgets.QPushButton("Deploy…")
         self.deploy_btn.setIcon(icons.icon("download"))
         self.deploy_btn.setToolTip("Build a model server (FastAPI + Docker) from this run")
+        self.try_btn = QtWidgets.QPushButton("Try it…")
+        self.try_btn.setToolTip("Run the trained model on your own input, on this machine")
         self.tag_btn = QtWidgets.QPushButton("Tags…")
         self.folder_btn = QtWidgets.QPushButton("")
         self.folder_btn.setIcon(icons.icon("folder"))
@@ -143,7 +146,8 @@ class ExperimentsPage(QtWidgets.QWidget):
         self.delete_btn.setToolTip("Delete the selected runs and their files")
         for btn in (self.compare_btn, self.results_btn, self.restore_btn, self.diff_btn,
                     self.register_btn,
-                    self.deploy_btn, self.tag_btn, self.folder_btn, self.delete_btn):
+                    self.deploy_btn, self.try_btn, self.tag_btn, self.folder_btn,
+                    self.delete_btn):
             bar.addWidget(btn)
         box.addLayout(bar)
 
@@ -191,6 +195,7 @@ class ExperimentsPage(QtWidgets.QWidget):
         self.tag_btn.clicked.connect(lambda: self._emit_single(self.tag_requested))
         self.register_btn.clicked.connect(lambda: self._emit_single(self.register_requested))
         self.deploy_btn.clicked.connect(lambda: self._emit_single(self.deploy_run_requested))
+        self.try_btn.clicked.connect(lambda: self._emit_single(self.try_run_requested))
         self.folder_btn.clicked.connect(lambda: self._emit_single(self.folder_requested))
         self.delete_btn.clicked.connect(
             lambda: self.delete_requested.emit(self.selected_run_ids()))
@@ -224,6 +229,7 @@ class ExperimentsPage(QtWidgets.QWidget):
         finished = n == 1 and self._status_of(self.selected_run_ids()[0]) == "finished"
         self.register_btn.setEnabled(finished)
         self.deploy_btn.setEnabled(finished)
+        self.try_btn.setEnabled(finished)
         self.delete_btn.setEnabled(n >= 1)
 
     def _show_explanation(self, run_id: str | None) -> None:

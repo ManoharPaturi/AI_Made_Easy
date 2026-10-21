@@ -371,3 +371,10 @@ button:focus-visible, .block-item:focus-visible, [role=button]:focus-visible, se
 .canvas-group.collapsed { border-style: solid; pointer-events: all; display: flex;
                           flex-direction: column; justify-content: center; }
 .canvas-group .group-summary { font-size: 11px; padding: 0 10px 4px 30px; }
+/* Try it (3.5): a run's predictions on your own input */
+.try-result { margin: 8px 0; }
+.try-bar { display: grid; grid-template-columns: minmax(80px, 160px) 1fr 56px; gap: 8px;
+           align-items: center; font-size: 12px; }
+.try-bar .bar { height: 8px; border-radius: 4px; background: var(--border); overflow: hidden; }
+.try-bar .bar span { display: block; height: 100%; background: var(--accent); }
+.try-result img, .try-preview { max-width: 256px; max-height: 256px; border-radius: 6px; }
