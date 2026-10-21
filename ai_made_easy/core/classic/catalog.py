@@ -517,6 +517,272 @@ TRANSFORMERS: list[Transformer] = [
                                        preprocessor="clean_text")),
 ]
 
+# 3.5: the rest of scikit-learn's estimators and transformers that fit a pipeline
+_LIN, _TREES, _NB, _SVM = ("Linear Models", "Trees & Ensembles", "Neighbors & Bayes",
+                           "Support Vector Machines")
+_CV = P("cv", "int", 5, lo=2, hi=20, help="Cross-validation folds for the built-in search")
+ESTIMATORS += [
+    # ---------------------------------------------------------------- classification
+    Estimator("ml.nu_svc", "Nu-SVC", "NuSVC", "sklearn.svm", CLASSIFICATION,
+              (P("nu", "float", 0.5, lo=0.01, hi=1.0, help="Upper bound on the fraction of "
+                                                           "margin errors"), KERNEL, GAMMA),
+              desc="Kernel SVM parameterized by ν, the share of support vectors, instead of C.",
+              category=_SVM, balanced=True, extra={"probability": "True"}),
+    Estimator("ml.logistic_regression_cv", "Logistic Regression (CV)", "LogisticRegressionCV",
+              "sklearn.linear_model", CLASSIFICATION, (P("Cs", "int", 10, lo=1, help="Values "
+                                                         "of C tried"), _CV, MAX_ITER(1000)),
+              desc="Logistic regression that picks its regularization strength by "
+                   "cross-validation.", category=_LIN, balanced=True),
+    Estimator("ml.ridge_classifier_cv", "Ridge Classifier (CV)", "RidgeClassifierCV",
+              "sklearn.linear_model", CLASSIFICATION, (),
+              desc="Ridge classifier with the regularization strength chosen by efficient "
+                   "leave-one-out cross-validation.", category=_LIN, proba=False,
+              balanced=True, seeded=False),
+    Estimator("ml.passive_aggressive_classifier", "Passive-Aggressive Classifier",
+              "PassiveAggressiveClassifier", "sklearn.linear_model", CLASSIFICATION,
+              (C, MAX_ITER(1000)),
+              desc="Online large-margin linear classifier: updates only on mistakes.",
+              category=_LIN, proba=False, balanced=True),
+    Estimator("ml.nearest_centroid", "Nearest Centroid", "NearestCentroid",
+              "sklearn.neighbors", CLASSIFICATION, (),
+              desc="Each class is the mean of its examples; a new example takes the nearest "
+                   "one. A strong, simple baseline.", category=_NB, proba=False, seeded=False),
+    Estimator("ml.complement_nb", "Complement Naive Bayes", "ComplementNB",
+              "sklearn.naive_bayes", CLASSIFICATION, (ALPHA(1.0),),
+              desc="Naive Bayes for imbalanced count features (text): learns from the "
+                   "complement of each class.", category=_NB, nonnegative=True, seeded=False),
+    Estimator("ml.extra_tree_classifier", "Extra Tree Classifier", "ExtraTreeClassifier",
+              "sklearn.tree", CLASSIFICATION, (MAX_DEPTH(), MIN_SPLIT, MIN_LEAF),
+              desc="One extremely randomized tree (splits drawn at random).", category=_TREES,
+              balanced=True),
+    Estimator("ml.dummy_classifier", "Baseline (Dummy) Classifier", "DummyClassifier",
+              "sklearn.dummy", CLASSIFICATION,
+              (P("strategy", "enum", "prior",
+                 options=("prior", "most_frequent", "stratified", "uniform")),),
+              desc="Ignores the features: the score any real model must beat.",
+              category=_LIN),
+    Estimator("ml.calibrated_classifier", "Calibrated Linear SVM", "CalibratedClassifierCV",
+              "sklearn.calibration", CLASSIFICATION,
+              (P("method", "enum", "sigmoid", options=("sigmoid", "isotonic")), _CV),
+              desc="A linear SVM with probabilities calibrated by cross-validation "
+                   "(Platt scaling or isotonic): trustworthy confidence scores.",
+              category=_SVM, seeded=False),
+    # ---------------------------------------------------------------- regression
+    Estimator("ml.nu_svr", "Nu-SVR", "NuSVR", "sklearn.svm", REGRESSION,
+              (P("nu", "float", 0.5, lo=0.01, hi=1.0), C, KERNEL, GAMMA),
+              desc="Kernel support vector regression parameterized by ν.", category=_SVM,
+              seeded=False),
+    Estimator("ml.kernel_ridge", "Kernel Ridge", "KernelRidge", "sklearn.kernel_ridge",
+              REGRESSION, (ALPHA(1.0), P("kernel", "enum", "rbf",
+                                         options=("rbf", "linear", "poly", "laplacian"))),
+              desc="Ridge regression with the kernel trick: smooth non-linear fits on small "
+                   "tables.", category=_SVM, seeded=False),
+    Estimator("ml.ridge_cv", "Ridge (CV)", "RidgeCV", "sklearn.linear_model", REGRESSION, (),
+              desc="Ridge with its regularization strength chosen by leave-one-out CV.",
+              category=_LIN, seeded=False),
+    Estimator("ml.lasso_cv", "Lasso (CV)", "LassoCV", "sklearn.linear_model", REGRESSION,
+              (_CV, MAX_ITER(1000)), desc="Lasso with the strength chosen along a path by "
+                                         "cross-validation.", category=_LIN),
+    Estimator("ml.elastic_net_cv", "Elastic Net (CV)", "ElasticNetCV", "sklearn.linear_model",
+              REGRESSION, (P("l1_ratio", "float", 0.5, lo=0.0, hi=1.0), _CV, MAX_ITER(1000)),
+              desc="Elastic net with the strength chosen by cross-validation.", category=_LIN),
+    Estimator("ml.lars", "Least-Angle Regression", "Lars", "sklearn.linear_model", REGRESSION,
+              (P("n_nonzero_coefs", "int", 500, lo=1),),
+              desc="Least-angle regression (Efron et al., 2004): adds features one at a "
+                   "time, for tables with many features.", category=_LIN),
+    Estimator("ml.lasso_lars", "Lasso (LARS)", "LassoLars", "sklearn.linear_model",
+              REGRESSION, (ALPHA(0.01),), desc="Lasso fitted with least-angle regression.",
+              category=_LIN),
+    Estimator("ml.lasso_lars_ic", "Lasso (information criterion)", "LassoLarsIC",
+              "sklearn.linear_model", REGRESSION,
+              (P("criterion", "enum", "aic", options=("aic", "bic")),),
+              desc="Lasso whose strength minimizes AIC or BIC: no cross-validation needed.",
+              category=_LIN, seeded=False),
+    Estimator("ml.omp", "Orthogonal Matching Pursuit", "OrthogonalMatchingPursuit",
+              "sklearn.linear_model", REGRESSION, (),
+              desc="Greedy sparse regression: picks the most correlated feature, refits, "
+                   "repeats.", category=_LIN, seeded=False),
+    Estimator("ml.ard_regression", "ARD Regression", "ARDRegression", "sklearn.linear_model",
+              REGRESSION, (MAX_ITER(300),),
+              desc="Bayesian linear regression with one prior per weight (automatic "
+                   "relevance determination): prunes useless features.", category=_LIN,
+              seeded=False),
+    Estimator("ml.theil_sen", "Theil-Sen Regression", "TheilSenRegressor",
+              "sklearn.linear_model", REGRESSION, (MAX_ITER(300),),
+              desc="Robust linear fit from the median of many small-subset fits: up to ~29% "
+                   "outliers barely move it.", category=_LIN),
+    Estimator("ml.ransac", "RANSAC Regression", "RANSACRegressor", "sklearn.linear_model",
+              REGRESSION, (P("max_trials", "int", 100, lo=1),),
+              desc="Fits a line to random subsets and keeps the one most rows agree with: "
+                   "ignores gross outliers.", category=_LIN),
+    Estimator("ml.quantile_regression", "Quantile Regression", "QuantileRegressor",
+              "sklearn.linear_model", REGRESSION,
+              (P("quantile", "float", 0.5, lo=0.01, hi=0.99, help="0.5 = the median"),
+               ALPHA(0.0)),
+              desc="Predicts a quantile (e.g. the median, or the 90th percentile for a "
+                   "safety margin) instead of the mean.", category=_LIN, seeded=False,
+              extra={"solver": "'highs'"}),
+    Estimator("ml.tweedie_regression", "Tweedie Regression", "TweedieRegressor",
+              "sklearn.linear_model", REGRESSION,
+              (P("power", "float", 0.0, lo=0.0, hi=3.0, help="0 normal, 1 Poisson, 2 gamma; "
+                                                             "1-2 compound Poisson-gamma"),
+               ALPHA(1.0), MAX_ITER(300)),
+              desc="Generalized linear model for insurance claims, rainfall and other "
+                   "zero-heavy positive targets.", category=_LIN, seeded=False),
+    Estimator("ml.passive_aggressive_regressor", "Passive-Aggressive Regressor",
+              "PassiveAggressiveRegressor", "sklearn.linear_model", REGRESSION,
+              (C, MAX_ITER(1000)), desc="Online large-margin linear regression.",
+              category=_LIN),
+    Estimator("ml.extra_tree_regressor", "Extra Tree Regressor", "ExtraTreeRegressor",
+              "sklearn.tree", REGRESSION, (MAX_DEPTH(), MIN_SPLIT, MIN_LEAF),
+              desc="One extremely randomized regression tree.", category=_TREES),
+    Estimator("ml.bagging_regressor", "Bagging Regressor", "BaggingRegressor",
+              "sklearn.ensemble", REGRESSION,
+              (N_EST(10), P("max_samples", "float", 1.0, lo=0.05, hi=1.0)),
+              desc="Averages trees fitted on bootstrap samples.", category=_TREES,
+              extra=N_JOBS),
+    Estimator("ml.dummy_regressor", "Baseline (Dummy) Regressor", "DummyRegressor",
+              "sklearn.dummy", REGRESSION,
+              (P("strategy", "enum", "mean", options=("mean", "median")),),
+              desc="Predicts the training mean (or median): the score any real model must "
+                   "beat.", category=_LIN, seeded=False),
+    Estimator("ml.pls_regression", "PLS Regression", "PLSRegression",
+              "sklearn.cross_decomposition", REGRESSION, (P("n_components", "int", 2, lo=1),),
+              desc="Partial least squares: regression on a few components chosen to predict "
+                   "the target, for many correlated features (spectra, sensors).",
+              category=_LIN, seeded=False),
+    # ---------------------------------------------------------------- clustering
+    Estimator("ml.affinity_propagation", "Affinity Propagation", "AffinityPropagation",
+              "sklearn.cluster", CLUSTERING, (P("damping", "float", 0.5, lo=0.5, hi=0.99),),
+              desc="Finds the number of clusters itself by passing messages between rows; "
+                   "each cluster is represented by a real example.", category="Clustering"),
+    Estimator("ml.mean_shift", "Mean Shift", "MeanShift", "sklearn.cluster", CLUSTERING, (),
+              desc="Moves each point uphill on the data's density: clusters are the peaks "
+                   "(no cluster count needed).", category="Clustering", seeded=False,
+              extra=N_JOBS),
+    Estimator("ml.optics", "OPTICS", "OPTICS", "sklearn.cluster", CLUSTERING,
+              (P("min_samples", "int", 5, lo=2),),
+              desc="Density clustering like DBSCAN, but for clusters of different densities.",
+              category="Clustering", seeded=False, extra=N_JOBS),
+    Estimator("ml.bisecting_kmeans", "Bisecting K-Means", "BisectingKMeans", "sklearn.cluster",
+              CLUSTERING, (N_CLUST,),
+              desc="Splits the largest cluster in two, repeatedly: a hierarchy of K-Means.",
+              category="Clustering"),
+    Estimator("ml.bayesian_gaussian_mixture", "Bayesian Gaussian Mixture",
+              "BayesianGaussianMixture", "sklearn.mixture", CLUSTERING,
+              (P("n_components", "int", 8, lo=1, help="An upper bound: unneeded components "
+                                                      "shrink away"),),
+              desc="Gaussian mixture that switches off the components it doesn't need "
+                   "(variational Dirichlet process).", category="Clustering"),
+    # ---------------------------------------------------------------- anomaly detection
+    Estimator("ml.elliptic_envelope", "Elliptic Envelope", "EllipticEnvelope",
+              "sklearn.covariance", ANOMALY,
+              (P("contamination", "float", 0.1, lo=0.001, hi=0.5),),
+              desc="Fits a robust Gaussian to the normal rows; points far outside its "
+                   "ellipse are anomalies.", category="Anomaly Detection"),
+    Estimator("ml.sgd_one_class_svm", "One-Class SVM (SGD)", "SGDOneClassSVM",
+              "sklearn.linear_model", ANOMALY, (P("nu", "float", 0.1, lo=0.001, hi=1.0),),
+              desc="A linear one-class SVM trained by SGD: scales to large tables.",
+              category="Anomaly Detection"),
+]
+
+_SCORE = P("score_func", "enum", "f_classif", options=("f_classif", "f_regression", "chi2"))
+_N_COMP = lambda d=10: P("n_components", "int", d, lo=1)  # noqa: E731
+TRANSFORMERS += [
+    Transformer("ml.max_abs_scale", "Max-Abs Scaling", "MaxAbsScaler", "sklearn.preprocessing",
+                desc="Divides each feature by its largest absolute value (keeps zeros and "
+                     "sparsity)."),
+    Transformer("ml.normalizer", "Row Normalizer", "Normalizer", "sklearn.preprocessing",
+                (P("norm", "enum", "l2", options=("l2", "l1", "max")),),
+                desc="Scales every row to unit length (for cosine-like comparisons)."),
+    Transformer("ml.binarizer", "Binarizer", "Binarizer", "sklearn.preprocessing",
+                (P("threshold", "float", 0.0),),
+                desc="Turns each value into 1 above the threshold, else 0."),
+    Transformer("ml.variance_threshold", "Variance Threshold", "VarianceThreshold",
+                "sklearn.feature_selection", (P("threshold", "float", 0.0, lo=0.0),),
+                desc="Drops features whose variance is at most the threshold (constants)."),
+    Transformer("ml.select_percentile", "Select Percentile", "SelectPercentile",
+                "sklearn.feature_selection", (P("percentile", "int", 50, lo=1, hi=100), _SCORE),
+                desc="Keeps the best-scoring percentage of the features.",
+                render=lambda p: (f"SelectPercentile(score_func={p['score_func']}, "
+                                  f"percentile={int(p['percentile'])})")),
+    Transformer("ml.select_fpr", "Select by False Positive Rate", "SelectFpr",
+                "sklearn.feature_selection", (P("alpha", "float", 0.05, lo=1e-6, hi=1.0),
+                                              _SCORE),
+                desc="Keeps the features whose univariate test p-value is below alpha.",
+                render=lambda p: f"SelectFpr(score_func={p['score_func']}, alpha={p['alpha']})"),
+    Transformer("ml.select_fdr", "Select by False Discovery Rate", "SelectFdr",
+                "sklearn.feature_selection", (P("alpha", "float", 0.05, lo=1e-6, hi=1.0),
+                                              _SCORE),
+                desc="Keeps features while controlling the expected share of false "
+                     "discoveries (Benjamini-Hochberg).",
+                render=lambda p: f"SelectFdr(score_func={p['score_func']}, alpha={p['alpha']})"),
+    Transformer("ml.select_fwe", "Select by Family-Wise Error", "SelectFwe",
+                "sklearn.feature_selection", (P("alpha", "float", 0.05, lo=1e-6, hi=1.0),
+                                              _SCORE),
+                desc="Keeps features while controlling the chance of any false discovery "
+                     "(Bonferroni).",
+                render=lambda p: f"SelectFwe(score_func={p['score_func']}, alpha={p['alpha']})"),
+    Transformer("ml.incremental_pca", "Incremental PCA", "IncrementalPCA",
+                "sklearn.decomposition", (_N_COMP(),),
+                desc="PCA fitted in mini-batches: the same components for tables too big for "
+                     "memory."),
+    Transformer("ml.sparse_pca", "Sparse PCA", "SparsePCA", "sklearn.decomposition",
+                (_N_COMP(), P("alpha", "float", 1.0, lo=0.0)), seeded=True,
+                desc="Components that each use only a few features: easier to interpret."),
+    Transformer("ml.factor_analysis", "Factor Analysis", "FactorAnalysis",
+                "sklearn.decomposition", (_N_COMP(),), seeded=True,
+                desc="Explains the features by a few hidden factors plus per-feature noise."),
+    Transformer("ml.nmf", "Non-Negative Matrix Factorization", "NMF", "sklearn.decomposition",
+                (_N_COMP(), MAX_ITER(500)), seeded=True,
+                desc="Parts-based components with no negative values (needs non-negative "
+                     "features: scale them to 0-1 first)."),
+    Transformer("ml.lda_topics", "Topics (Latent Dirichlet Allocation)",
+                "LatentDirichletAllocation", "sklearn.decomposition", (_N_COMP(),),
+                seeded=True,
+                desc="Each row as a mix of topics (word counts or other non-negative "
+                     "features)."),
+    Transformer("ml.feature_agglomeration", "Feature Agglomeration", "FeatureAgglomeration",
+                "sklearn.cluster", (P("n_clusters", "int", 5, lo=1),),
+                desc="Merges similar features by hierarchical clustering (averages each "
+                     "group)."),
+    Transformer("ml.gaussian_projection", "Gaussian Random Projection",
+                "GaussianRandomProjection", "sklearn.random_projection", (_N_COMP(),),
+                seeded=True,
+                desc="A random linear map to fewer features that roughly keeps distances "
+                     "(Johnson-Lindenstrauss)."),
+    Transformer("ml.sparse_projection", "Sparse Random Projection", "SparseRandomProjection",
+                "sklearn.random_projection", (_N_COMP(),), seeded=True,
+                desc="A cheaper, sparse random projection."),
+    Transformer("ml.rbf_sampler", "Random Fourier Features", "RBFSampler",
+                "sklearn.kernel_approximation",
+                (P("gamma", "float", 1.0, lo=1e-6), _N_COMP(100)), seeded=True,
+                desc="Random features approximating an RBF kernel (Rahimi & Recht, 2007): a "
+                     "linear model on them acts like a kernel SVM."),
+    Transformer("ml.skewed_chi2_sampler", "Skewed Chi² Features", "SkewedChi2Sampler",
+                "sklearn.kernel_approximation",
+                (P("skewedness", "float", 1.0, lo=1e-6), _N_COMP(100)), seeded=True,
+                desc="Random features for the skewed chi-squared kernel (features above "
+                     "−skewedness)."),
+    Transformer("ml.additive_chi2_sampler", "Additive Chi² Features", "AdditiveChi2Sampler",
+                "sklearn.kernel_approximation", (P("sample_steps", "int", 2, lo=1, hi=3),),
+                desc="Features for the additive chi-squared kernel, for histograms "
+                     "(non-negative features)."),
+    Transformer("ml.polynomial_sketch", "Polynomial Kernel Sketch", "PolynomialCountSketch",
+                "sklearn.kernel_approximation",
+                (P("degree", "int", 2, lo=1, hi=5), _N_COMP(100)), seeded=True,
+                desc="Approximates a polynomial kernel's features (Tensor Sketch)."),
+    Transformer("ml.lle", "Locally Linear Embedding", "LocallyLinearEmbedding",
+                "sklearn.manifold", (P("n_components", "int", 2, lo=1),
+                                     P("n_neighbors", "int", 10, lo=2)), seeded=True,
+                desc="A non-linear embedding that keeps each point's relation to its "
+                     "neighbours."),
+]
+UNIVARIATE_SELECTORS = ("ml.select_k_best", "ml.select_percentile", "ml.select_fpr",
+                        "ml.select_fdr", "ml.select_fwe")
+NONNEGATIVE_TRANSFORMERS = ("ml.nmf", "ml.lda_topics", "ml.additive_chi2_sampler")
+
+
 SEARCH = BlockDefinition(
     type_id="ml.hyperparameter_search", display_name="Hyperparameter Search",
     category="Model Selection", color=family_color("classic"),

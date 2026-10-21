@@ -239,6 +239,57 @@ LOSSES += [
              "MarginRankingLoss on pairs made from the labels). Retrieval and search.",
         meta={**_METRIC_META, "torch_helper": "MarginRankingPairsLoss"}),
 ]
+# Keras's other losses (3.5), with the same formula in PyTorch
+_PM1 = "(2 * target - 1)"   # {0, 1} labels as {-1, +1}, as Keras converts them
+LOSSES += [
+    Component(
+        "train.loss_hinge", "Hinge",
+        (), torch=lambda p: f"lambda pred, target: torch.clamp(1 - {_PM1} * pred, min=0).mean()",
+        keras=lambda p: "keras.losses.Hinge()",
+        desc="The SVM loss on a raw score: zero once an example is on the right side by a "
+             "margin of 1 (binary, labels 0 / 1 read as −1 / +1).",
+        meta={"task": "binary", "target": "float", "input": "logits"}),
+    Component(
+        "train.loss_squared_hinge", "Squared Hinge",
+        (), torch=lambda p: (f"lambda pred, target: torch.clamp(1 - {_PM1} * pred, "
+                             "min=0).pow(2).mean()"),
+        keras=lambda p: "keras.losses.SquaredHinge()",
+        desc="Hinge squared: smooth at the margin and harder on large mistakes (binary).",
+        meta={"task": "binary", "target": "float", "input": "logits"}),
+    Component(
+        "train.loss_soft_margin", "Soft Margin",
+        (), torch=lambda p: f"lambda pred, target: nn.functional.soft_margin_loss(pred, {_PM1})",
+        keras=lambda p: "keras.losses.BinaryCrossentropy(from_logits=True)",
+        desc="torch's SoftMarginLoss, log(1 + exp(−y·x)): the logistic loss written for "
+             "−1 / +1 labels (equal to binary cross-entropy on logits).",
+        meta={"task": "binary", "target": "float", "input": "logits"}),
+    Component(
+        "train.loss_msle", "Mean Squared Log Error",
+        (), torch=lambda p: ("lambda pred, target: (torch.log1p(pred.clamp(min=0)) - "
+                             "torch.log1p(target.clamp(min=0))).pow(2).mean()"),
+        keras=lambda p: "keras.losses.MeanSquaredLogarithmicError()",
+        desc="Regression on a log scale: relative errors count, so a miss of 10 on 1000 "
+             "costs about as much as 0.1 on 10. Prices, counts, durations (targets ≥ 0).",
+        meta={"task": "regression", "target": "float", "input": "raw"}),
+    Component(
+        "train.loss_mape", "Mean Absolute Percentage Error",
+        (), torch=lambda p: ("lambda pred, target: 100 * ((target - pred).abs() / "
+                             "target.abs().clamp(min=1e-7)).mean()"),
+        keras=lambda p: "keras.losses.MeanAbsolutePercentageError()",
+        desc="Regression error as a percentage of the target (avoid targets near zero).",
+        meta={"task": "regression", "target": "float", "input": "raw"}),
+    Component(
+        "train.loss_generalized_ce", "Generalized Cross-Entropy",
+        (P("q", "float", 0.7, lo=0.01, hi=0.99,
+           help="Towards 0: cross-entropy; towards 1: robust to wrong labels"),),
+        torch=lambda p: (f"lambda pred, target: ((1 - pred.softmax(-1).gather(1, "
+                         f"target.long().reshape(-1, 1)).clamp(min=1e-7) ** {float(p['q'])}) "
+                         f"/ {float(p['q'])}).mean()"),
+        desc="Noise-robust classification loss (Zhang & Sabuncu, 2018), (1 − p_y^q) / q: "
+             "between cross-entropy and mean absolute error, it learns well when some "
+             "training labels are wrong. Multi-class, on logits, PyTorch.",
+        meta={"task": "multiclass", "target": "int", "input": "logits"}),
+]
 METRIC_LOSS_IDS = tuple(c.type_id for c in LOSSES if c.meta.get("metric"))
 PAIR_LOSS_IDS = ("train.loss_cosine_embedding", "train.loss_margin_ranking")
 
@@ -381,6 +432,26 @@ OPTIMIZERS: list[Component] = [
         desc="Evolved sign momentum (Chen et al., 2023): one state per weight, half Adam's "
              "memory. Use a learning rate about 10x smaller than AdamW's.",
         meta={"torch_helper": "Lion"}),
+    Component(
+        "train.muon", "Muon",
+        (_LR(0.02), P("momentum", "float", 0.95, lo=0.0, hi=0.999),
+         P("nesterov", "bool", True), P("ns_steps", "int", 5, lo=1, hi=10,
+                                        help="Newton–Schulz steps per update"),
+         P("adamw_lr", "float", 3e-4, lo=0.0, help="Learning rate of the AdamW part "
+                                                    "(biases, norms, other 1-D weights)"),
+         _WD(0.0)),
+        torch=lambda p: (f"Muon(model.parameters(), lr={p['lr']}, momentum={p['momentum']}, "
+                         f"nesterov={bool(p['nesterov'])}, ns_steps={int(p['ns_steps'])}, "
+                         f"adamw_lr={p['adamw_lr']}, weight_decay={p['weight_decay']})"),
+        keras=lambda p: (f"keras.optimizers.Muon(learning_rate={p['lr']}, "
+                         f"momentum={p['momentum']}, nesterov={bool(p['nesterov'])}, "
+                         f"ns_steps={int(p['ns_steps'])}, "
+                         f"adam_lr_ratio={float(p['adamw_lr']) / max(float(p['lr']), 1e-12)}, "
+                         f"weight_decay={p['weight_decay']})"),
+        desc="Muon (Jordan et al., 2024): momentum whose update is orthogonalized by a few "
+             "Newton–Schulz steps for every weight matrix (and conv kernel), AdamW for the "
+             "rest. Fast on transformers and CNNs; Keras 3.10 or later.",
+        meta={"torch_helper": "Muon"}),
     Component(
         "train.lamb", "LAMB",
         (_LR(1e-3), _B1, _B2, _EPS(1e-6), _WD(1e-2)),
@@ -746,6 +817,63 @@ class SAM(torch.optim.Optimizer):
 
     def step(self, closure=None):
         raise RuntimeError("SAM steps with first_step() and second_step()")
+''',
+    "Muon": '''\
+class Muon(torch.optim.Optimizer):
+    """Muon (Jordan et al., 2024): SGD momentum, orthogonalized by Newton-Schulz steps,
+    for every weight with two or more axes (conv kernels flattened); AdamW for the rest."""
+
+    def __init__(self, params, lr=0.02, momentum=0.95, nesterov=True, ns_steps=5,
+                 adamw_lr=3e-4, betas=(0.9, 0.95), eps=1e-8, weight_decay=0.0):
+        super().__init__(params, dict(lr=lr, momentum=momentum, nesterov=nesterov,
+                                      ns_steps=ns_steps, adamw_scale=adamw_lr / max(lr, 1e-12),
+                                      betas=betas, eps=eps, weight_decay=weight_decay))
+
+    @staticmethod
+    def orthogonalize(g: torch.Tensor, steps: int) -> torch.Tensor:
+        a, b, c = 3.4445, -4.7750, 2.0315
+        x = g / (g.norm() + 1e-7)
+        tall = x.size(0) > x.size(1)
+        if tall:
+            x = x.T
+        for _ in range(steps):
+            m = x @ x.T
+            x = a * x + (b * m + c * m @ m) @ x
+        return x.T if tall else x
+
+    @torch.no_grad()
+    def step(self, closure=None):
+        loss = None
+        if closure is not None:
+            with torch.enable_grad():
+                loss = closure()
+        for group in self.param_groups:
+            lr, wd = group["lr"], group["weight_decay"]
+            for p in group["params"]:
+                if p.grad is None:
+                    continue
+                g, state = p.grad, self.state[p]
+                if p.ndim >= 2:
+                    buf = state.setdefault("momentum", torch.zeros_like(g))
+                    buf.mul_(group["momentum"]).add_(g)
+                    g = g.add(buf, alpha=group["momentum"]) if group["nesterov"] else buf
+                    flat = g.reshape(g.size(0), -1)
+                    update = self.orthogonalize(flat, group["ns_steps"]).view_as(p)
+                    p.mul_(1 - lr * wd)
+                    p.add_(update, alpha=-lr * max(1.0, flat.size(0) / flat.size(1)) ** 0.5)
+                else:
+                    state["step"] = state.get("step", 0) + 1
+                    m = state.setdefault("exp_avg", torch.zeros_like(g))
+                    v = state.setdefault("exp_avg_sq", torch.zeros_like(g))
+                    b1, b2 = group["betas"]
+                    m.lerp_(g, 1 - b1)
+                    v.lerp_(g.square(), 1 - b2)
+                    alr = lr * group["adamw_scale"]
+                    m_hat = m / (1 - b1 ** state["step"])
+                    v_hat = v / (1 - b2 ** state["step"])
+                    p.mul_(1 - alr * wd)
+                    p.addcdiv_(m_hat, v_hat.sqrt().add_(group["eps"]), value=-alr)
+        return loss
 ''',
     "Lion": '''\
 class Lion(torch.optim.Optimizer):
