@@ -1,5 +1,64 @@
 # Changelog
 
+## 3.5.0
+
+Try a trained model, see what it attended to, and 86 more blocks from the libraries you
+use. 675 blocks, 68 recipes. See [docs/ROADMAP_3.5.md](docs/ROADMAP_3.5.md) for
+what is in this release and what is still open.
+
+### Added
+- **Try it** (Experiments page, both apps): run a finished model on your own input. The
+  form follows what the model takes: one field per column for a table, a text box, an
+  image or WAV file, or a JSON list for anything else. It shows the predicted label with
+  the top classes. The model is loaded once, in the run's own folder and interpreter,
+  and answers on this machine; nothing is sent anywhere. Also `GET` / `POST
+  /api/runs/{id}/try`.
+- **Attention Maps** (`eval.attention_maps`, PyTorch): after training, the last attention
+  layer's weights on a few test samples, saved with the run and shown in both apps. A
+  vision transformer's patch attention is drawn over the image; text and sequences save
+  the attention matrix. Works with `nn.MultiheadAttention`, the Transformer layers and
+  the attention blocks (GQA, Llama, and others).
+- **Audio Saliency** (`eval.audio_saliency`, PyTorch): which parts of each test clip's
+  spectrogram, or of a raw waveform, moved an audio classifier's prediction.
+- **21 more layers** from `torch.nn` and Keras 3: constant padding 1–3D, channel
+  shuffle, cosine similarity, pairwise distance, EmbeddingBag, Unfold / Fold,
+  fractional max pooling 2–3D, LP pooling 1D / 3D, Softmax2d, Unflatten, feature alpha
+  dropout, the full encoder-decoder `nn.Transformer`, ConvLSTM2D, additive (Bahdanau)
+  attention, and spectral-normalized Dense / Conv2D. Each one is checked against the
+  designer's shapes and PyTorch's parameter count, and has a Keras form where one is
+  faithful.
+- **Losses:** hinge, squared hinge, soft margin, mean squared log error, mean absolute
+  percentage error, and generalized cross-entropy (robust to wrong labels).
+- **The Muon optimizer:** orthogonalized momentum for weight matrices, AdamW for the
+  rest (Keras 3.10 or later for Keras scripts).
+- **35 more scikit-learn estimators:** Nu-SVC / SVR, the cross-validated logistic,
+  ridge, lasso and elastic-net models, LARS and Lasso-LARS, OMP, ARD, Theil-Sen, RANSAC,
+  quantile and Tweedie regression, passive-aggressive models, nearest centroid,
+  complement naive Bayes, single extra trees, bagging regression, dummy baselines, a
+  calibrated linear SVM, kernel ridge, PLS, affinity propagation, mean shift, OPTICS,
+  bisecting K-Means, a Bayesian Gaussian mixture, elliptic envelope and an SGD one-class
+  SVM.
+- **21 more scikit-learn transformers:** max-abs scaling, a row normalizer, a
+  binarizer, variance threshold, percentile / FPR / FDR / FWE feature selection,
+  incremental and sparse PCA, factor analysis, NMF, LDA topics, feature agglomeration,
+  Gaussian and sparse random projections, random Fourier, skewed and additive chi²
+  features, a polynomial kernel sketch and locally linear embedding.
+
+### Changed
+- **Web canvas:** a folded group's card can be dragged, and its blocks move with it;
+  wires that end inside it are dashed stand-ins, as on the desktop.
+- **Tests:** a plain `pytest` now runs on four workers and leaves out the slow tests
+  (`tests/slow_tests.txt`): about three minutes, against 45–60. `AIME_TESTS=all` runs
+  everything, as CI does.
+- `ai_made_easy.egg-info/` is no longer tracked.
+
+### Fixed
+- Pipelines with a transformer that needs non-negative features (NMF, LDA, chi²) warn
+  without Min-Max scaling, and the scaler then clips test rows to its range.
+- Every univariate feature selector, not only Select K Best, checks its score function
+  against the task.
+- `test_tcn_receptive_field` no longer depends on the tests that ran before it.
+
 ## 3.4.1
 
 A fix release.

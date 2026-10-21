@@ -74,3 +74,23 @@ test("docs screenshots: 3.3 command palette and canvas notes / groups", async ({
   await page.getByTestId("palette").getByRole("combobox").fill("export");
   await page.screenshot({ path: `${OUT}/web_palette.png` });
 });
+
+test("docs screenshots: 3.5 Try it", async ({ page, request }) => {
+  const started = await (await request.post("/api/runs", { data: { graph: tiny, project: "churn" } })).json();
+  const runId: string = started.run_id;
+  await expect.poll(async () => (await (await request.get(`/api/runs/${runId}`)).json()).status,
+    { timeout: 120_000 }).toBe("finished");
+  await page.goto("/");
+  await expect(page.locator(".block-node").first()).toBeVisible();
+  await page.getByRole("button", { name: "Experiments" }).click();
+  await page.getByLabel(/only/).uncheck();
+  await page.getByTestId("runs").locator("tr", { hasText: runId }).click();
+  await page.getByTestId("try-run").click();
+  const dialog = page.getByRole("dialog", { name: `Try run ${runId}` });
+  await expect(dialog.getByTestId("try-form")).toBeVisible({ timeout: 60_000 });
+  await dialog.getByTestId("try-json").fill(JSON.stringify([[0.4, -1.2, 0.8, 0.1, 1.5, -0.3, 0.9, -0.7]]));
+  await dialog.getByTestId("try-predict").click();
+  await expect(dialog.getByTestId("try-result")).toBeVisible({ timeout: 60_000 });
+  await dialog.screenshot({ path: `${OUT}/web_try_it.png` });
+  await request.delete(`/api/runs/${runId}`);
+});
