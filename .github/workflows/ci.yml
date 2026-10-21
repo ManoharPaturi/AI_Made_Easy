@@ -9,6 +9,11 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+# every job runs the whole suite, slow tests included (a plain local `pytest` leaves
+# out tests/slow_tests.txt)
+env:
+  AIME_TESTS: all
+
 jobs:
   lint:
     runs-on: ubuntu-latest

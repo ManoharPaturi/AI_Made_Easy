@@ -63,9 +63,9 @@ def test_sequence_blocks_are_causal(type_id, params):
 def test_tcn_receptive_field():
     from ai_made_easy.core.sequence.helpers import tcn_receptive_field
 
+    torch.manual_seed(0)   # before building: the weights must not depend on earlier tests
     net = build(single("seq.tcn", "64, 1", {"channels": 4, "levels": 3, "kernel_size": 3,
                                            "dropout": 0.0}))
-    torch.manual_seed(0)
     seen = torch.zeros(64, dtype=torch.bool)
     for _ in range(8):   # union over inputs: a ReLU can block a path for one input
         x = torch.randn(1, 64, 1, requires_grad=True)
