@@ -134,9 +134,10 @@ def task_of(graph) -> Task | None:  # noqa: ANN001 — core.graph.Graph
 
 
 def _pairs_task(graph) -> str | None:  # noqa: ANN001
-    """Labelled pairs (3.4) are a yes / no question about each pair, whatever the loss's
-    usual task."""
-    return "binary" if any(n.type_id == "data.pairs" for n in graph.nodes.values()) else None
+    """Labelled pairs (3.4) and triplets (3.6) are a yes / no question about each one,
+    whatever the loss's usual task."""
+    return "binary" if any(n.type_id in ("data.pairs", "data.triplets")
+                           for n in graph.nodes.values()) else None
 
 
 register_task_resolver(_pairs_task)

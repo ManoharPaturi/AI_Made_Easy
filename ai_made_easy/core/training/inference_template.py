@@ -182,7 +182,7 @@ def infer(raw: list) -> list[dict]:
     # labelled pairs: each item gets its score; the higher one ranks first
     return [{"score": round(float(v), 6)} for v in _PREDICTOR(x).float().cpu().numpy()[:, 0]]
 {% elif pairs %}
-    # labelled pairs: each item gets its embedding; compare two by cosine similarity
+    # labelled pairs or triplets: each item gets its embedding; compare two by cosine similarity
     return [{"embedding": [round(float(v), 6) for v in row]}
             for row in _PREDICTOR(x).float().cpu().numpy()]
 {% elif metric_loss %}

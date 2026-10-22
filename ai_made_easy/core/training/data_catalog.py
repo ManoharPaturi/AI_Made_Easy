@@ -153,6 +153,19 @@ DATASETS: list[DataBlock] = [
              "Embedding (same or different) or Margin Ranking (which ranks higher).",
         modality=ARRAY),
     DataBlock(
+        "data.triplets", "Labelled Triplets", "Data",
+        (P("path", "str", "", help="Your table of triplets; empty = generated demo triplets "
+                                   "(8 features per item)"),
+         P("format", "enum", "csv", options=("csv", "tsv", "parquet")),
+         P("anchor_prefix", "str", "a_", help="Columns of the anchor item, e.g. a_height"),
+         P("positive_prefix", "str", "p_", help="The same columns of an item like the anchor"),
+         P("negative_prefix", "str", "n_", help="The same columns of an item unlike it")),
+        desc="A table of triplets: each row holds an anchor, an item like it (positive) and "
+             "one unlike it (negative), in a_, p_ and n_ columns. The model is the encoder; "
+             "Triplet loss trains it so the positive ends up closer to the anchor than the "
+             "negative. Accuracy: how often it does on the test triplets.",
+        modality=ARRAY),
+    DataBlock(
         "data.json", "JSON Records", "Data",
         (P("path", "str", "data.jsonl"), P("x_field", "str", "x"), P("y_field", "str", "y")),
         desc="JSON array or JSON Lines with feature and target fields.", modality=ARRAY),
