@@ -503,4 +503,8 @@ export interface TryForm {
   input_help: string;
   example: unknown[] | null;
   signature: { input_shape?: number[]; classes?: string[] | null; columns?: string[] | null };
+  /** An image classifier that can show its Grad-CAM heatmap (3.6). */
+  can_explain?: boolean;
+  /** File types "Predict a file" takes, e.g. ".csv" or ".zip"; "" when it can't (3.6). */
+  batch_formats?: string;
 }

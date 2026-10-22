@@ -5,10 +5,17 @@ machine: no package is built and no server is started.
 The worker imports the run's training script (``main()`` is not run), calls its
 ``load_predictor`` and then answers one JSON request per line with ``infer``. The two most
 recently tried runs stay loaded.
+
+3.6: a whole file of inputs at once (a table, a text file, or a zip of images or WAV clips)
+comes back as a CSV of predictions, and an image classifier's prediction can come with its
+Grad-CAM heatmap, computed in the worker from the loaded network (so runs trained before
+3.6 explain too).
 """
 from __future__ import annotations
 
 import base64
+import csv
+import io
 import json
 import os
 import queue
@@ -46,16 +53,79 @@ except Exception as exc:  # noqa: BLE001
     reply({"ready": False, "error": f"{type(exc).__name__}: {exc}"})
     sys.exit(1)
 state = getattr(model_def, "INFERENCE_STATE", {}) or {}
+
+
+def conv_layer():
+    """The last Conv2d of a PyTorch image model (Grad-CAM's layer), or None."""
+    try:
+        import torch.nn as nn
+    except ImportError:
+        return None
+    model = getattr(model_def, "_PREDICTOR", None)
+    if not isinstance(model, nn.Module) or not hasattr(model_def, "open_image"):
+        return None
+    convs = [m for m in model.modules() if isinstance(m, nn.Conv2d)]
+    return convs[-1] if convs else None
+
+
+def explain(raw):
+    """Grad-CAM (Selvaraju et al., 2017) of the predicted class, drawn over each image."""
+    import base64
+    import io
+
+    import numpy as np
+    import torch
+    from PIL import Image
+
+    model, layer = model_def._PREDICTOR, conv_layer()
+    if layer is None:
+        raise ValueError("Grad-CAM needs a PyTorch image model with a convolution")
+    out = []
+    for item in raw:
+        x = torch.from_numpy(np.ascontiguousarray(model_def.prepare_inputs([item])))
+        x = x.to(next(model.parameters()).device)
+        kept = {}
+        hooks = [layer.register_forward_hook(lambda m, i, o: kept.__setitem__("a", o)),
+                 layer.register_full_backward_hook(lambda m, gi, go: kept.__setitem__("g", go[0]))]
+        try:
+            model.eval()
+            with torch.enable_grad():
+                scores = model(x.requires_grad_(True)).float()
+                k = int(scores.argmax(1)[0]) if scores.shape[1] > 1 else 0
+                model.zero_grad()
+                scores[0, k].backward()
+        finally:
+            for h in hooks:
+                h.remove()
+        weights = kept["g"].mean(dim=(2, 3), keepdim=True)
+        cam = torch.relu((weights * kept["a"]).sum(1))[0].detach().cpu().numpy()
+        cam = cam / cam.max() if cam.max() > 0 else cam
+        image = model_def.open_image(item).convert("RGB")
+        heat = Image.fromarray(np.uint8(cam * 255)).resize(image.size, Image.BILINEAR)
+        h = np.asarray(heat, dtype=np.float32)[..., None] / 255
+        colour = np.concatenate([h, np.zeros_like(h), 1 - h], axis=-1) * 255
+        blend = np.asarray(image, dtype=np.float32) * 0.55 + colour * 0.45
+        buf = io.BytesIO()
+        Image.fromarray(np.uint8(np.clip(blend, 0, 255))).save(buf, format="PNG")
+        out.append({"class_index": k, "gradcam": base64.b64encode(buf.getvalue()).decode()})
+    return out
+
+
 reply({"ready": True, "signature": {
     "input_shape": list(getattr(model_def, "INPUT_SHAPE", ()) or ()),
     "classes": [str(c) for c in (getattr(model_def, "CLASS_NAMES", None) or [])] or None,
     "columns": ((state.get("table") or {}).get("columns")
                 or getattr(model_def, "_COLUMNS", None)),
     "sample_rate": getattr(model_def, "SAMPLE_RATE", None),
+    "explain": conv_layer() is not None,
 }})
 for line in sys.stdin:
     try:
-        reply({"ok": True, "predictions": model_def.infer(json.loads(line))})
+        request = json.loads(line)
+        if isinstance(request, dict) and "explain" in request:
+            reply({"ok": True, "predictions": explain(request["explain"])})
+            continue
+        reply({"ok": True, "predictions": model_def.infer(request)})
     except Exception as exc:  # noqa: BLE001 — reported to the app, the worker carries on
         reply({"ok": False, "error": f"{type(exc).__name__}: {exc}"})
 '''
@@ -98,7 +168,7 @@ class _Worker:
             raise TryError("the model stopped:\n" + "".join(self._err)[-2000:])
         return got
 
-    def ask(self, inputs: list, timeout: float) -> list:
+    def ask(self, inputs: list | dict, timeout: float) -> list:
         with self.lock:
             self.proc.stdin.write(json.dumps(inputs) + "\n")
             self.proc.stdin.flush()
@@ -184,11 +254,16 @@ def describe(service: TryService, history, run_id: str) -> dict:  # noqa: ANN001
         example = None
     return {"run_id": run_id, "task": meta.get("task"), "modality": meta.get("modality"),
             "input_kind": meta["input_kind"], "input_help": meta.get("input_help", ""),
-            "example": example, "signature": worker.signature}
+            "example": example, "signature": worker.signature,
+            "can_explain": bool(worker.signature.get("explain")),
+            "batch_formats": BATCH_FORMATS.get(meta["input_kind"], "")}
 
 
-def predict(service: TryService, history, run_id: str, inputs: list) -> dict:  # noqa: ANN001
-    """The run's predictions for ``inputs`` (the same requests as its model server)."""
+def predict(service: TryService, history, run_id: str, inputs: list,  # noqa: ANN001
+            explain: bool = False) -> dict:
+    """The run's predictions for ``inputs`` (the same requests as its model server); with
+    ``explain``, an image classifier's predictions also carry a Grad-CAM heatmap (base64
+    PNG) of the predicted class."""
     import time
 
     if not isinstance(inputs, list) or not inputs:
@@ -201,9 +276,156 @@ def predict(service: TryService, history, run_id: str, inputs: list) -> dict:  #
         inputs = strip_data_urls(inputs)
     elif kind == "audio":
         inputs = wav_paths(inputs, temp_folder())
+    if explain and not worker.signature.get("explain"):
+        raise TryError("Grad-CAM explains PyTorch image models with a convolution")
     started = time.perf_counter()
     predictions = worker.ask(inputs, timeout=120)
+    if explain:
+        cams = worker.ask({"explain": inputs}, timeout=120)
+        predictions = [{**p, "gradcam": c["gradcam"]} if isinstance(p, dict) else p
+                       for p, c in zip(predictions, cams, strict=True)]
     return {"run_id": run_id, "input_kind": kind, "predictions": predictions,
+            "latency_ms": round((time.perf_counter() - started) * 1000, 1)}
+
+
+# ------------------------------------------------------------------ a file of inputs (3.6)
+
+MAX_BATCH_ROWS = 10_000
+_CHUNK = 64
+BATCH_FORMATS = {"records": ".csv", "arrays": ".csv", "texts": ".csv,.txt", "prompt": ".csv,.txt",
+                 "images": ".zip", "audio": ".zip", "speech": ".zip"}
+_IMAGE_EXT = (".png", ".jpg", ".jpeg", ".bmp", ".gif", ".webp", ".tif", ".tiff")
+
+
+def _number(text: str) -> bool:
+    try:
+        float(text)
+    except ValueError:
+        return False
+    return True
+
+
+def _cell(text: str):
+    """A CSV cell as the model's server would get it in JSON: numbers as numbers."""
+    try:
+        return float(text) if text.strip() and text.strip().lower() not in ("nan", "inf") \
+            else (None if not text.strip() else text)
+    except ValueError:
+        return text
+
+
+def batch_items(kind: str, filename: str, data: bytes, folder: Path,
+                signature: dict | None = None) -> tuple[list, list]:
+    """(inputs, a name per input) from an uploaded file, for an input kind."""
+    name = filename.lower()
+    if kind == "arrays":
+        shape = (signature or {}).get("input_shape") or []
+        if len(shape) != 1 or not name.endswith(".csv"):
+            raise TryError("a file of inputs works for models that take a list of numbers: "
+                           "a CSV with one input per row")
+        rows = [r for r in csv.reader(io.StringIO(data.decode("utf-8-sig"))) if r]
+        if rows and any(not _number(v) for v in rows[0]):
+            rows = rows[1:]                          # a header row
+        bad = next((i for i, r in enumerate(rows) if len(r) != shape[0]), None)
+        if bad is not None:
+            raise TryError(f"row {bad + 1} has {len(rows[bad])} values; the model takes "
+                           f"{shape[0]}")
+        try:
+            return [[float(v) for v in r] for r in rows], [str(i + 1) for i in range(len(rows))]
+        except ValueError as exc:
+            raise TryError(f"every value must be a number: {exc}") from None
+    if kind == "records":
+        if not name.endswith((".csv", ".tsv")):
+            raise TryError("a table model predicts a CSV file: one row per input, with the "
+                           "columns it was trained on")
+        rows = list(csv.DictReader(io.StringIO(data.decode("utf-8-sig")),
+                                   delimiter="\t" if name.endswith(".tsv") else ","))
+        return ([{k: _cell(v or "") for k, v in r.items() if k is not None} for r in rows],
+                [str(i + 1) for i in range(len(rows))])
+    if kind in ("texts", "prompt"):
+        text = data.decode("utf-8-sig")
+        if name.endswith(".csv"):
+            rows = list(csv.DictReader(io.StringIO(text)))
+            column = next((c for c in (rows[0].keys() if rows else ())
+                           if c and c.lower() in ("text", "prompt", "sentence")), None)
+            if column is None:
+                raise TryError("the CSV needs a 'text' column")
+            texts = [r[column] or "" for r in rows]
+        else:
+            texts = [line for line in text.splitlines() if line.strip()]
+        return texts, [str(i + 1) for i in range(len(texts))]
+    if kind in ("images", "audio", "speech"):
+        import zipfile
+
+        if not name.endswith(".zip"):
+            raise TryError(f"{'images' if kind == 'images' else 'clips'} come as a .zip file")
+        wanted = _IMAGE_EXT if kind == "images" else (".wav",)
+        inputs, names = [], []
+        with zipfile.ZipFile(io.BytesIO(data)) as archive:
+            for info in archive.infolist():
+                base = Path(info.filename).name
+                if info.is_dir() or base.startswith(".") or not base.lower().endswith(wanted):
+                    continue
+                if info.file_size > 50 * 2**20:
+                    raise TryError(f"{info.filename} is larger than 50 MB")
+                blob = archive.read(info)
+                if kind == "images":
+                    inputs.append(base64.b64encode(blob).decode())
+                else:
+                    path = folder / f"clip_{len(inputs)}.wav"
+                    path.write_bytes(blob)
+                    inputs.append(str(path))
+                names.append(info.filename)
+        if not inputs:
+            raise TryError(f"the zip has no {'images' if kind == 'images' else 'WAV files'}")
+        return inputs, names
+    raise TryError(f"this model ({kind}) takes JSON inputs; try them one list at a time")
+
+
+def _flat(prediction) -> dict:
+    """One CSV row from a prediction: scalars as they are, lists joined, probabilities as
+    one column per class."""
+    if not isinstance(prediction, dict):
+        return {"prediction": prediction}
+    row = {}
+    for key, value in prediction.items():
+        if key == "probabilities" and isinstance(value, dict):
+            row.update({f"p({cls})": v for cls, v in value.items()})
+        elif isinstance(value, (list, tuple)):
+            row[key] = " ".join(str(v) for v in value) if len(value) <= 64 else f"[{len(value)}]"
+        elif isinstance(value, dict):
+            row[key] = json.dumps(value)
+        else:
+            row[key] = value
+    return row
+
+
+def predict_file(service: TryService, history, run_id: str, filename: str,  # noqa: ANN001
+                 data: bytes) -> dict:
+    """Predictions for every input in an uploaded file, as CSV text (the inputs' names or
+    row numbers first, then the prediction columns)."""
+    import time
+
+    worker, meta = _target(service, history, run_id)
+    kind = meta["input_kind"]
+    inputs, names = batch_items(kind, filename, data, temp_folder(), worker.signature)
+    if len(inputs) > MAX_BATCH_ROWS:
+        raise TryError(f"at most {MAX_BATCH_ROWS} inputs per file (this one has {len(inputs)})")
+    if not inputs:
+        raise TryError("the file has no inputs")
+    started = time.perf_counter()
+    rows = []
+    for at in range(0, len(inputs), _CHUNK):
+        rows += [_flat(p) for p in worker.ask(inputs[at:at + _CHUNK], timeout=300)]
+    key = "file" if kind in ("images", "audio", "speech") else "row"
+    columns = [key] + list(dict.fromkeys(c for r in rows for c in r))
+    out = io.StringIO()
+    writer = csv.DictWriter(out, fieldnames=columns, extrasaction="ignore", lineterminator="\n")
+    writer.writeheader()
+    for name, row in zip(names, rows, strict=True):
+        writer.writerow({key: name, **row})
+    return {"run_id": run_id, "rows": len(rows), "csv": out.getvalue(),
+            "filename": f"{Path(filename).stem}_predictions.csv",
             "latency_ms": round((time.perf_counter() - started) * 1000, 1)}
 
 
