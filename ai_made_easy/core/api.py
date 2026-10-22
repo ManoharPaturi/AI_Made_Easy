@@ -471,6 +471,13 @@ def wait_sweep(sweep_id: str, timeout: float = 3600.0) -> dict:
     return get_sweep(sweep_id)
 
 
+def sweep_analysis(sweep_id: str) -> dict:
+    """Which settings mattered: parameter importance and the parallel-coordinates data."""
+    from ai_made_easy.core.sweep_analysis import analyze
+
+    return {"sweep_id": sweep_id, **analyze(sweep_store().get(sweep_id))}
+
+
 def sweep_best_graph(sweep_id: str) -> dict:
     from ai_made_easy.core.sweeps import SweepError, best_graph
 
@@ -1069,12 +1076,24 @@ def try_describe(run_id: str) -> dict:
         raise ApiError(str(exc)) from exc
 
 
-def try_run(run_id: str, inputs: list) -> dict:
+def try_run(run_id: str, inputs: list, explain: bool = False) -> dict:
     """Predictions of a finished run for ``inputs`` (the same requests as its model server:
-    rows, texts, base64 images, WAV files...), computed on this machine."""
+    rows, texts, base64 images, WAV files...), computed on this machine. ``explain`` adds a
+    Grad-CAM heatmap to an image classifier's predictions."""
     from ai_made_easy.core import tryit
 
     try:
-        return tryit.predict(try_service(), manager().history, run_id, inputs)
+        return tryit.predict(try_service(), manager().history, run_id, inputs, explain=explain)
+    except tryit.TryError as exc:
+        raise ApiError(str(exc)) from exc
+
+
+def try_file(run_id: str, filename: str, data: bytes) -> dict:
+    """Predictions of a finished run for every input in a file (a CSV table, a text file,
+    or a zip of images or WAV clips) as CSV text: ``{"csv", "rows", "filename"}``."""
+    from ai_made_easy.core import tryit
+
+    try:
+        return tryit.predict_file(try_service(), manager().history, run_id, filename, data)
     except tryit.TryError as exc:
         raise ApiError(str(exc)) from exc

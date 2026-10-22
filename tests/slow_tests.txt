@@ -293,6 +293,14 @@ tests/test_training_e2e.py::test_training_script_runs[text-keras]
 tests/test_training_e2e.py::test_training_script_runs[text-pytorch]
 tests/test_training_e2e.py::test_training_script_runs[text_folder-keras]
 tests/test_training_e2e.py::test_training_script_runs[text_folder-pytorch]
+tests/test_tryit_batch.py::test_a_csv_of_arrays_comes_back_with_a_prediction_per_row
+tests/test_tryit_batch.py::test_a_table_model_predicts_a_csv
+tests/test_tryit_batch.py::test_a_zip_of_images_comes_back_with_a_row_per_image
+tests/test_tryit_batch.py::test_bad_files_say_what_is_wrong
+tests/test_tryit_batch.py::test_desktop_try_dialog_predicts_a_file_and_shows_grad_cam
+tests/test_tryit_batch.py::test_image_predictions_can_carry_a_grad_cam
+tests/test_tryit_batch.py::test_models_without_a_convolution_do_not_offer_grad_cam
+tests/test_tryit_batch.py::test_the_server_returns_a_csv_download
 tests/test_ui_pipelines.py::test_train_runs_a_pipeline
 tests/test_vision.py::test_augmentation_preview_for_vision
 tests/test_vision.py::test_box_tasks_train_and_serve[detection]

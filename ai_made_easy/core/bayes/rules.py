@@ -1,7 +1,7 @@
 """Design rules for Bayesian layers, the Laplace approximation and calibration blocks."""
 from __future__ import annotations
 
-from ai_made_easy.core.bayes.blocks import CALIBRATION, STOCHASTIC, quantile_levels
+from ai_made_easy.core.bayes.blocks import CALIBRATION, MDN_IDS, STOCHASTIC, quantile_levels
 from ai_made_easy.core.lints import LintContext, _issue, _name, register_rule
 
 REGRESSION_LOSSES = ("train.loss_mse", "train.loss_l1", "train.loss_huber",
@@ -10,14 +10,14 @@ REGRESSION_LOSSES = ("train.loss_mse", "train.loss_l1", "train.loss_huber",
 
 def bayes_rules(ctx: LintContext) -> list:
     types = {n.type_id for n in ctx.graph.nodes.values()}
-    if not types & {*STOCHASTIC, "bayes.mdn", "bayes.quantile_head", "bayes.laplace",
+    if not types & {*STOCHASTIC, *MDN_IDS, "bayes.quantile_head", "bayes.laplace",
                     *CALIBRATION}:
         return []
     out = []
     last = ctx.last_compute()
     loss = ctx.loss_type()
     classification = loss is not None and loss not in REGRESSION_LOSSES
-    for node in ctx.nodes_of("bayes.mdn"):
+    for node in ctx.nodes_of(*MDN_IDS):
         if last is None or node.instance_id != last.instance_id:
             out.append(_issue("error", f"{_name(node)} must be the last layer: it outputs the "
                                        "mixture's parameters", node.instance_id))
@@ -33,7 +33,7 @@ def bayes_rules(ctx: LintContext) -> list:
             out.append(_issue("error", "a quantile head predicts real-valued targets: use an "
                                        "MSE loss block (training uses the pinball loss "
                                        "instead)", node.instance_id))
-        if ctx.nodes_of("bayes.mdn", "bayes.laplace"):
+        if ctx.nodes_of(*MDN_IDS, "bayes.laplace"):
             out.append(_issue("error", "a quantile head does not combine with a mixture "
                                        "density head or the Laplace approximation: keep one",
                               node.instance_id))
@@ -57,7 +57,7 @@ def bayes_rules(ctx: LintContext) -> list:
             out.append(_issue("error", "the Laplace approximation needs the model to end with "
                                        "a Dense layer (no activation after it)",
                               node.instance_id))
-        if ctx.nodes_of("bayes.mdn"):
+        if ctx.nodes_of(*MDN_IDS):
             out.append(_issue("error", "the Laplace approximation and a mixture density head "
                                        "do not combine: keep one", node.instance_id))
     if not classification:

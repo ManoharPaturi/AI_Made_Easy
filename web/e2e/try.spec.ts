@@ -44,6 +44,15 @@ test("try it: a finished run predicts from a form, and says what's wrong", async
   await dialog.getByTestId("try-json").fill("[[1, 2, 3]]");     // the wrong size
   await dialog.getByTestId("try-predict").click();
   await expect(dialog.getByRole("alert")).toContainText("expects");
+
+  // 3.6: a whole file of inputs comes back as a CSV of predictions
+  await expect(dialog.getByTestId("try-explain")).toHaveCount(0);   // no convolution here
+  const rows = Array.from({ length: 3 }, () => Array(16).fill(0.25).join(",")).join("\n");
+  await dialog.getByTestId("try-batch").setInputFiles(
+    { name: "rows.csv", mimeType: "text/csv", buffer: Buffer.from(rows) });
+  const batch = dialog.getByTestId("try-batch-result");
+  await expect(batch).toContainText("3 predictions", { timeout: 60_000 });
+  await expect(batch.getByRole("link")).toHaveAttribute("download", "rows_predictions.csv");
   await dialog.getByRole("button", { name: "Close" }).click();
   await request.delete(`/api/runs/${runId}`);
 });

@@ -245,6 +245,29 @@ export interface SweepTrial {
   objectives?: Record<string, number>;   // multi-objective AutoML: design costs
 }
 
+/** Which settings mattered in a sweep (3.6). */
+export interface SweepAxis {
+  key: string;
+  label: string;
+  kind: "number" | "choice";
+  min?: number;
+  max?: number;
+  log?: boolean;
+  choices?: string[];
+}
+
+export interface SweepAnalysis {
+  sweep_id: string;
+  metric: string;
+  direction: "min" | "max";
+  trials: number;
+  axes: SweepAxis[];
+  score_axis: { min: number; max: number } | null;
+  rows: { number: number; run_id: string; values: Record<string, unknown>; score: number; best: boolean }[];
+  importance: { key: string; label: string; importance: number; explained: number; trend: string }[];
+  note: string;
+}
+
 export interface SweepRecord {
   sweep_id: string;
   name: string;
@@ -503,4 +526,8 @@ export interface TryForm {
   input_help: string;
   example: unknown[] | null;
   signature: { input_shape?: number[]; classes?: string[] | null; columns?: string[] | null };
+  /** An image classifier that can show its Grad-CAM heatmap (3.6). */
+  can_explain?: boolean;
+  /** File types "Predict a file" takes, e.g. ".csv" or ".zip"; "" when it can't (3.6). */
+  batch_formats?: string;
 }

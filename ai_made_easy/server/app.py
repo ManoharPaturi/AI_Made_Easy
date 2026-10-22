@@ -38,7 +38,7 @@ from fastapi import (
     WebSocket,
     WebSocketDisconnect,
 )
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from starlette.background import BackgroundTask
 
 from ai_made_easy import __version__
@@ -347,7 +347,22 @@ def create_app(*, token: str | None = None, projects_dir: str | Path | None = No
 
     @app.post("/api/runs/{run_id}/try", dependencies=guard)
     def try_run(run_id: str, payload: dict = Body(...)) -> dict:  # noqa: B008
-        return api.try_run(run_id, payload.get("inputs"))
+        return api.try_run(run_id, payload.get("inputs"), explain=bool(payload.get("explain")))
+
+    @app.post("/api/runs/{run_id}/try/file", dependencies=guard)
+    async def try_file(run_id: str, file: UploadFile = File(...)) -> Response:  # noqa: B008
+        """Predictions for a whole file of inputs, as a CSV download."""
+        work = Path(tempfile.mkdtemp(prefix="aime_try_"))
+        try:
+            target = work / "upload"
+            await _save_upload(file, target)
+            got = await asyncio.to_thread(api.try_file, run_id, file.filename or "inputs",
+                                          target.read_bytes())
+        finally:
+            shutil.rmtree(work, ignore_errors=True)
+        return Response(got["csv"], media_type="text/csv", headers={
+            "Content-Disposition": f'attachment; filename="{got["filename"]}"',
+            "X-Rows": str(got["rows"])})
 
     @app.get("/api/runs/{run_id}/metrics", dependencies=guard)
     def metrics(run_id: str) -> dict:
@@ -523,6 +538,10 @@ def create_app(*, token: str | None = None, projects_dir: str | Path | None = No
     @app.post("/api/sweeps/{sweep_id}/stop", dependencies=guard)
     def stop_sweep(sweep_id: str) -> dict:
         return api.stop_sweep(sweep_id)
+
+    @app.get("/api/sweeps/{sweep_id}/analysis", dependencies=guard)
+    def sweep_analysis(sweep_id: str) -> dict:
+        return api.sweep_analysis(sweep_id)
 
     @app.get("/api/sweeps/{sweep_id}/best", dependencies=guard)
     def sweep_best(sweep_id: str) -> dict:

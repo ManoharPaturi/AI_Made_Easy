@@ -29,7 +29,9 @@ FEATURE_ORDER = ("ml.max_abs_scale", "ml.normalizer", "ml.binarizer", "ml.varian
                  "ml.feature_agglomeration", "ml.truncated_svd", "ml.kernel_pca", "ml.fast_ica",
                  "ml.gaussian_projection", "ml.sparse_projection", "ml.nystroem",
                  "ml.rbf_sampler", "ml.skewed_chi2_sampler", "ml.additive_chi2_sampler",
-                 "ml.polynomial_sketch", "ml.isomap", "ml.lle", "ml.umap")
+                 "ml.polynomial_sketch", "ml.random_trees_embedding",
+                 "ml.dictionary_learning", "ml.minibatch_nmf", "ml.isomap", "ml.lle",
+                 "ml.umap")
 NN_PREFIXES = ("core.", "arch.", "llm.")
 
 

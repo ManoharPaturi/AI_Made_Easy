@@ -382,3 +382,4 @@ button:focus-visible, .block-item:focus-visible, [role=button]:focus-visible, se
 .try-bar .bar { height: 8px; border-radius: 4px; background: var(--border); overflow: hidden; }
 .try-bar .bar span { display: block; height: 100%; background: var(--accent); }
 .try-result img, .try-preview { max-width: 256px; max-height: 256px; border-radius: 6px; }
+.try-result .try-cam { float: right; margin-left: 12px; max-width: 160px; }

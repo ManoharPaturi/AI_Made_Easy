@@ -291,4 +291,8 @@ test("multi-objective AutoML: accuracy against latency, Pareto front", async ({ 
     await expect(page.getByTestId("pareto-chart").locator("circle")).toHaveCount(3, { timeout: 2000 });
   }).toPass({ timeout: 200_000 });
   await expect(page.locator("tr[data-pareto]").first()).toContainText("◆");
+  // 3.6: which settings mattered — one line per finished trial; importance needs 4
+  const insights = page.getByTestId("sweep-insights");
+  await expect(insights.getByTestId("parallel-chart").locator("polyline")).toHaveCount(3);
+  await expect(insights.getByTestId("importance")).toContainText("at least 4 finished trials");
 });

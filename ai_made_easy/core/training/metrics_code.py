@@ -47,6 +47,16 @@ def average_precision(scores: np.ndarray, positive: np.ndarray) -> float:
     precision = np.cumsum(hits) / np.arange(1, len(hits) + 1)
     return float(precision[hits].mean())
 ''',
+    "ranks": '''
+def ranks(v: np.ndarray) -> np.ndarray:
+    """Ranks with ties averaged (as scipy.stats.rankdata)."""
+    order = np.argsort(v, kind="mergesort")
+    r = np.empty(len(v))
+    r[order] = np.arange(1, len(v) + 1)
+    _, inverse, counts = np.unique(v, return_inverse=True, return_counts=True)
+    sums = np.bincount(inverse, weights=r)
+    return sums[inverse] / counts[inverse]
+''',
 }
 
 
@@ -60,7 +70,11 @@ def _needs(keys: set[str]) -> list[str]:
         helpers.append("auc")
     if "avg_precision" in keys:
         helpers.append("ap")
-    return helpers
+    if "spearman" in keys:
+        helpers.append("ranks")
+    if "jaccard" in keys:
+        helpers.append("confusion")
+    return list(dict.fromkeys(helpers))
 
 
 def metrics_code(task: str, metrics: list[tuple[str, dict, str]]) -> str:
@@ -98,6 +112,12 @@ def metrics_code(task: str, metrics: list[tuple[str, dict, str]]) -> str:
             add("    aps = [average_precision(scores[:, j], y[:, j] == 1) for j in range(y.shape[1])]")
             add("    m[\"avg_precision\"] = float(np.nanmean(aps)) if not np.all(np.isnan(aps)) "
                 "else float(\"nan\")")
+        if "hamming" in keys:
+            add("    m[\"hamming\"] = float((pred != y).mean())")
+        if "jaccard" in keys:
+            add("    union = (pred | y).sum(axis=1)")
+            add("    m[\"jaccard\"] = float(np.where(union > 0, (pred & y).sum(axis=1) "
+                "/ np.maximum(union, 1), 1.0).mean())")
     elif task == "regression":
         add("    pred = outputs.reshape(targets.shape) if outputs.size == targets.size else outputs")
         add("    err = pred - targets")
@@ -122,12 +142,27 @@ def metrics_code(task: str, metrics: list[tuple[str, dict, str]]) -> str:
             add("    var_y = float(np.var(targets))")
             add("    m[\"explained_variance\"] = 1.0 - float(np.var(err)) / var_y if var_y > 0 "
                 "else float(\"nan\")")
+        if "pearson" in keys or "spearman" in keys:
+            add("    flat_p, flat_t = np.ravel(pred).astype(float), np.ravel(targets).astype(float)")
+        if "pearson" in keys:
+            add("    m[\"pearson\"] = float(np.corrcoef(flat_p, flat_t)[0, 1]) "
+                "if flat_p.std() > 0 and flat_t.std() > 0 else float(\"nan\")")
+        if "spearman" in keys:
+            add("    rp, rt = ranks(flat_p), ranks(flat_t)")
+            add("    m[\"spearman\"] = float(np.corrcoef(rp, rt)[0, 1]) "
+                "if rp.std() > 0 and rt.std() > 0 else float(\"nan\")")
+        if "max_error" in keys:
+            add("    m[\"max_error\"] = float(np.max(np.abs(err))) if err.size else float(\"nan\")")
+        if "msle" in keys:
+            add("    m[\"msle\"] = float(np.mean((np.log1p(np.clip(pred, 0, None)) - "
+                "np.log1p(np.clip(targets, 0, None))) ** 2))")
     add("    return m")
     return "".join(out) + "\n".join(body)
 
 
 def _classification(add, keys: set[str], params: dict, binary: bool) -> None:
-    if keys & {"precision", "recall", "f1", "mcc", "kappa", "balanced_accuracy", "confusion"}:
+    if keys & {"precision", "recall", "f1", "mcc", "kappa", "balanced_accuracy", "confusion",
+               "jaccard"}:
         add("    cm = confusion_matrix(y, pred, k)")
     if "accuracy" in keys:
         add("    m[\"accuracy\"] = float((pred == y).mean())")
@@ -170,5 +205,15 @@ def _classification(add, keys: set[str], params: dict, binary: bool) -> None:
     if "log_loss" in keys:
         add("    m[\"log_loss\"] = float(-np.mean(np.log(np.clip(scores[np.arange(len(y)), y], "
             "1e-12, 1.0))))")
+    if "brier" in keys:
+        add("    onehot = np.eye(k)[y]")
+        add("    m[\"brier\"] = float(np.mean(np.sum((scores - onehot) ** 2, axis=1)))"
+            if not binary else "    m[\"brier\"] = float(np.mean((p - y) ** 2))")
+    if "jaccard" in keys:
+        add("    tp_j = np.diag(cm).astype(float)")
+        add("    denom_j = cm.sum(axis=0) + cm.sum(axis=1) - tp_j")
+        add("    m[\"jaccard\"] = float(tp_j[1] / denom_j[1]) if denom_j[1] else 0.0"
+            if binary else
+            "    m[\"jaccard\"] = float(np.mean(tp_j[denom_j > 0] / denom_j[denom_j > 0]))")
     if "confusion" in keys:
         add("    m[\"confusion\"] = cm.tolist()")

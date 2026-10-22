@@ -32,10 +32,14 @@ function value(raw: string): string | number {
 
 export function TryResult({ prediction }: { prediction: Prediction }) {
   const probs = prediction.probabilities as Record<string, number> | undefined;
+  const cam = typeof prediction.gradcam === "string" ? prediction.gradcam : null;
   if (probs && typeof probs === "object") {
     const top = Object.entries(probs).sort((a, b) => b[1] - a[1]).slice(0, 5);
     return (
       <div className="try-result" data-testid="try-result">
+        {cam && <img className="try-cam" data-testid="try-gradcam" alt="Grad-CAM: where the model looked"
+                     title="Grad-CAM: red is where the model looked for this class"
+                     src={`data:image/png;base64,${cam}`} />}
         <div><strong>{String(prediction.label)}</strong>
           {typeof prediction.confidence === "number"
             && <span className="muted"> · {(prediction.confidence * 100).toFixed(1)}% sure</span>}</div>
@@ -66,6 +70,8 @@ export function TryModal({ run, onClose }: { run: RunRecord; onClose: () => void
   const [json, setJson] = useState("");
   const [file, setFile] = useState<{ name: string; url: string } | null>(null);
   const [result, setResult] = useState<{ predictions: Prediction[]; latency_ms: number } | null>(null);
+  const [explain, setExplain] = useState(false);
+  const [batch, setBatch] = useState<{ name: string; url: string; rows: number } | null>(null);
 
   useEffect(() => {
     api.tryForm(run.run_id).then((f) => {
@@ -90,10 +96,26 @@ export function TryModal({ run, onClose }: { run: RunRecord; onClose: () => void
     setBusy(true);
     setError("");
     try {
-      setResult(await api.tryRun(run.run_id, inputs()));
+      setResult(await api.tryRun(run.run_id, inputs(), explain && !!form?.can_explain));
     } catch (e) {
       setError(String((e as Error).message));
       setResult(null);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const predictFile = async (file: File) => {
+    setBusy(true);
+    setError("");
+    try {
+      const csv = await api.tryFile(run.run_id, file);
+      if (batch) URL.revokeObjectURL(batch.url);
+      const stem = file.name.replace(/\.[^.]+$/, "");
+      setBatch({ name: `${stem}_predictions.csv`, rows: Math.max(0, csv.trim().split("\n").length - 1),
+                 url: URL.createObjectURL(new Blob([csv], { type: "text/csv" })) });
+    } catch (e) {
+      setError(String((e as Error).message));
     } finally {
       setBusy(false);
     }
@@ -129,6 +151,22 @@ export function TryModal({ run, onClose }: { run: RunRecord; onClose: () => void
               <textarea id="try-json" rows={6} className="code" value={json}
                         onChange={(e) => setJson(e.target.value)} data-testid="try-json" />
               <div className="help">{form.input_help}</div></div>)}
+          {form.can_explain && (
+            <label className="check">
+              <input type="checkbox" checked={explain} data-testid="try-explain"
+                     onChange={(e) => setExplain(e.target.checked)} />
+              Show where the model looked (Grad-CAM)</label>)}
+          {form.batch_formats && (
+            <div className="field"><label htmlFor="try-batch">Or predict a whole file ({form.batch_formats})</label>
+              <input id="try-batch" type="file" accept={form.batch_formats} data-testid="try-batch"
+                     disabled={busy}
+                     onChange={(e) => { const f = e.target.files?.[0]; if (f) void predictFile(f); }} />
+              <div className="help">One prediction per {kind === "images" || kind === "audio" || kind === "speech"
+                ? "file in the zip" : "row"}; the predictions come back as a CSV.</div>
+              {batch && (
+                <p data-testid="try-batch-result">{batch.rows} predictions ·{" "}
+                  <a href={batch.url} download={batch.name}>download {batch.name}</a></p>)}
+            </div>)}
         </div>)}
       {error && <p className="error" role="alert">{error}</p>}
       {result && (

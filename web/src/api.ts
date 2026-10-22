@@ -1,11 +1,40 @@
 // Typed client for the AI Made Easy server. Every call goes to /api; errors carry the
 // server's user-facing message.
 import type {
-  BackendList, BackendTest, PipelineRecord, SavedProject,
-  AutoMLStarted, DataFacts, Explanation, RecipeInfo, RecipeSuggestion, WizardTask,
-  BlockDef, BudgetReport, TableLayout, RunSamples, DataProfile, DeviceProfile, FamilyInfo, TaskInfo, ModelVersion, Project, RunEvent, RunRecord, SplitPreview, Summary,
-  SweepParam, SweepRecord, Validation, ExportFormat, FetchedDataset, TrackingStatus,
-  FeatureImportance, DesignDiff, TryForm,
+  AutoMLStarted,
+  BackendList,
+  BackendTest,
+  BlockDef,
+  BudgetReport,
+  DataFacts,
+  DataProfile,
+  DesignDiff,
+  DeviceProfile,
+  Explanation,
+  ExportFormat,
+  FamilyInfo,
+  FeatureImportance,
+  FetchedDataset,
+  ModelVersion,
+  PipelineRecord,
+  Project,
+  RecipeInfo,
+  RecipeSuggestion,
+  RunEvent,
+  RunRecord,
+  RunSamples,
+  SavedProject,
+  SplitPreview,
+  Summary,
+  SweepAnalysis,
+  SweepParam,
+  SweepRecord,
+  TableLayout,
+  TaskInfo,
+  TrackingStatus,
+  TryForm,
+  Validation,
+  WizardTask,
 } from "./types";
 
 export class ApiError extends Error {}
@@ -101,9 +130,15 @@ export const api = {
   runDiff: (id: string, graph: Project) => post<DesignDiff>(`/runs/${id}/diff`, { graph }),
   runSamples: (id: string) => get<RunSamples>(`/runs/${id}/samples`),
   tryForm: (id: string) => get<TryForm>(`/runs/${id}/try`),
-  tryRun: (id: string, inputs: unknown[]) =>
+  tryRun: (id: string, inputs: unknown[], explain = false) =>
     post<{ predictions: Record<string, unknown>[]; latency_ms: number }>(`/runs/${id}/try`,
-                                                                          { inputs }),
+                                                                          { inputs, explain }),
+  /** Predictions for every input in a file, as CSV text. */
+  tryFile: (id: string, file: File) => {
+    const form = new FormData();
+    form.append("file", file);
+    return post<string>(`/runs/${id}/try/file`, form);
+  },
   metrics: (id: string) => get<{ epochs: { epoch: number; metrics: Record<string, number> }[] }>(
     `/runs/${id}/metrics`),
   stopRun: (id: string) => post<Record<string, unknown>>(`/runs/${id}/stop`),
@@ -119,6 +154,7 @@ export const api = {
   sweep: (id: string) => get<SweepRecord>(`/sweeps/${id}`),
   stopSweep: (id: string) => post<Record<string, unknown>>(`/sweeps/${id}/stop`),
   bestGraph: (id: string) => get<{ graph: Project }>(`/sweeps/${id}/best`),
+  sweepAnalysis: (id: string) => get<SweepAnalysis>(`/sweeps/${id}/analysis`),
 
   startPipeline: (graph: Project, project = "", on = "local") =>
     post<{ pipeline_id: string; stages: string[] }>("/pipelines", { graph, project, on }),

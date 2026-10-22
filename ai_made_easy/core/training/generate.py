@@ -60,8 +60,9 @@ def _task_label(spec: TrainingSpec) -> str:
 def _requirements(spec: TrainingSpec, framework: str, torchvision: bool) -> str:
     reqs = ["torch", "numpy"] if framework == "pytorch" else ["keras>=3", "numpy"]
     block = spec.dataset["block"]
-    if torchvision:
-        reqs.append("torchvision")
+    if torchvision:   # JPEG and Gaussian noise augmentation (3.6) arrived in torchvision 0.21
+        newer = {"prep.random_jpeg", "prep.gaussian_noise"} & {t for t, _ in spec.image_train}
+        reqs.append("torchvision>=0.21" if newer else "torchvision")
     if block in ("data.csv", "data.text_csv", "data.timeseries_csv"):
         reqs.append("pandas")
     if block == "data.image_folder" or (spec.is_classification and torchvision) \
@@ -224,6 +225,7 @@ def _torch_ctx(graph: Graph, spec: TrainingSpec) -> dict:
         metric_loss=spec.metric_loss,
         two_views=cat.COMPONENTS[spec.loss["kind"]].meta.get("views") == 2,
         sam=bool(cat.COMPONENTS[spec.optimizer["kind"]].meta.get("sam")),
+        closure=bool(cat.COMPONENTS[spec.optimizer["kind"]].meta.get("closure")),
         schedule_free=bool(cat.COMPONENTS[spec.optimizer["kind"]].meta.get("schedule_free")),
         scheduler_expr=sched_expr, scheduler_step=sched_step,
         uses_functional=ctx["uses_functional"] or ctx["loss_helper"] == "FocalLoss",
@@ -440,6 +442,7 @@ def generate_training(graph: Graph, framework: str) -> str:
 
     own = generator_for(graph, framework)
     if own is not None:
+        _plain_optimizer(graph)
         return own(graph)
     if is_classic(graph) or framework == "sklearn":
         if not is_classic(graph):
@@ -450,6 +453,7 @@ def generate_training(graph: Graph, framework: str) -> str:
 
     task = task_of(graph)
     if task is not None and task.trainer_kind in _GRAPH_TRAINERS:
+        _plain_optimizer(graph)
         return TRAINERS[task.trainer_kind](graph, None, framework)
     spec = collect_spec(graph)
     kind = get_task(spec.task).trainer_kind
@@ -457,6 +461,17 @@ def generate_training(graph: Graph, framework: str) -> str:
         raise CodegenError(f"{get_task(spec.task).label} needs the {kind} trainer, "
                            "which is not available")
     return TRAINERS[kind](graph, spec, framework)
+
+
+def _plain_optimizer(graph: Graph) -> None:
+    """SAM and L-BFGS step differently (two passes, or a closure): only the standard
+    supervised loop knows how, so the family trainers refuse them with a clear message."""
+    for node in graph.nodes.values():
+        meta = cat.COMPONENTS[node.type_id].meta if node.type_id in cat.OPTIMIZER_IDS else {}
+        if meta.get("sam") or meta.get("closure"):
+            raise CodegenError(f"{cat.COMPONENTS[node.type_id].name} works with the standard "
+                               "training loop (tables, images, text, audio, arrays); this "
+                               "design's trainer steps the usual way: pick another optimizer")
 
 
 def _supervised(graph: Graph, spec: TrainingSpec, framework: str) -> str:
