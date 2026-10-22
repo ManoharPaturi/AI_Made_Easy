@@ -201,6 +201,15 @@ def collect_spec(graph: Graph) -> TrainingSpec:
             spec.image_train.append((node.type_id, params))
         else:
             spec.steps[node.type_id] = params
+    elastic = next((p for t, p in spec.image_train if t == "prep.elastic_transform"), None)
+    if elastic is not None and len(spec.input_shape) == 3:
+        sigma = float(elastic["sigma"])
+        reach = (int(8 * sigma + 1) | 1) // 2        # torchvision's blur kernel, half width
+        if reach >= min(spec.input_shape[1:]):
+            raise CodegenError(f"Elastic Transform's sigma {sigma:g} is too large for "
+                               f"{spec.input_shape[1]}×{spec.input_shape[2]} images: set "
+                               f"sigma to {max((min(spec.input_shape[1:]) - 1) / 8, 0.1):.2g} "
+                               "or less")
     spec.split = spec.steps.pop("prep.split", None) or cat_defaults("prep.split")
     spec.loader = spec.steps.pop("prep.dataloader", None) or cat_defaults("prep.dataloader")
     if spec.modality == "timeseries" and spec.split.get("shuffle"):

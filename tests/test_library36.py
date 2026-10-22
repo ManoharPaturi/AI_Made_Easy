@@ -326,6 +326,10 @@ def test_new_image_augmentations_train(tmp_path, monkeypatch):
     for fragment in ("v2.JPEG((50, 95))", "v2.ElasticTransform(", "v2.RandomChannelPermutation()",
                      "v2.GaussianNoise(sigma=0.05, clip=True)"):
         assert fragment in code
+    from ai_made_easy.core.training.spec import collect_spec
+    from ai_made_easy.core.training.generate import _requirements
+
+    assert "torchvision>=0.21" in _requirements(collect_spec(graph), "pytorch", True)
     ns: dict = {"__name__": "aime_training"}
     exec(compile(code, "<augs>", "exec"), ns)  # noqa: S102
     ns["main"]()
@@ -343,3 +347,17 @@ def test_new_transformers_run_in_a_pipeline(tid, tmp_path):
         ("ml.logistic_regression", {}), ("eval.accuracy", {})])
     assert not [i for i in graph.validate() if i.severity == "error"], graph.validate()
     run_graph(graph, tmp_path)
+
+
+def test_elastic_transform_says_when_sigma_is_too_large_for_the_images(tmp_path):
+    from verify_training import chain, write_images
+
+    from ai_made_easy.core.codegen import CodegenError
+    from ai_made_easy.core.codegen.training_gen import generate_training
+
+    graph = chain("elastic", "3, 16, 16", [("core.flatten", {}), ("core.dense", {"units": 2})],
+                  [("data.image_folder", {"root": str(write_images(tmp_path))}),
+                   ("prep.resize", {"height": 16, "width": 16}),
+                   ("prep.elastic_transform", {"sigma": 5.0})])
+    with pytest.raises(CodegenError, match="set sigma to 1.9 or less"):
+        generate_training(graph, "pytorch")
