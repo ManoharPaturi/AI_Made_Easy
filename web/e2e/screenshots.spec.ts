@@ -117,3 +117,26 @@ test("docs screenshots: 3.6 which settings mattered", async ({ page, request }) 
   await expect(insights.getByTestId("parallel-chart").locator("polyline")).toHaveCount(8);
   await insights.screenshot({ path: `${OUT}/web_sweep_insights.png` });
 });
+
+test("docs screenshots: 3.7 which settings matter together", async ({ page, request }) => {
+  test.setTimeout(480_000);
+  const spec = {
+    metric: "val_loss", strategy: "random", max_trials: 12, seed: 4,
+    dimensions: [
+      { node: "opt", param: "lr", kind: "float", low: 0.0003, high: 0.3, log: true },
+      { node: "d1", param: "units", kind: "choice", values: [4, 16, 64] },
+      { node: "trainer", param: "batch_size", kind: "choice", values: [16, 64] }],
+  };
+  const started = await (await request.post("/api/sweeps",
+    { data: { graph: { ...tiny, name: "churn_pairs_sweep" }, spec, project: "churn" } })).json();
+  await expect.poll(async () => (await (await request.get(`/api/sweeps/${started.sweep_id}`)).json()).state,
+    { timeout: 460_000 }).toBe("finished");
+  await page.goto("/");
+  await expect(page.locator(".block-node").first()).toBeVisible();
+  await page.getByRole("button", { name: "Experiments" }).click();
+  await page.getByRole("button", { name: "Sweeps" }).click();
+  await page.getByText(/churn_pairs_sweep/).first().click();
+  const insights = page.getByTestId("sweep-insights");
+  await expect(insights.getByTestId("pair-heatmap")).toBeVisible({ timeout: 30_000 });   // the first analysis imports scikit-learn
+  await insights.screenshot({ path: `${OUT}/web_sweep_pairs.png` });
+});

@@ -1,5 +1,47 @@
 # Changelog
 
+## 3.7.0
+
+Windows as a tested platform, which settings matter together in a sweep, and 31 more
+blocks. 747 blocks, 70 recipes. See [docs/ROADMAP_3.7.md](docs/ROADMAP_3.7.md) for what is
+in this release and what is still open.
+
+### Added
+- **Windows in CI:** the test suite runs on Windows (Python 3.12), and the Windows
+  desktop app is built and started on every pull request.
+- **Which settings matter together** (sweeps, both apps): from 10 finished trials,
+  importance comes from a random forest fitted to the trials, split into each setting's
+  own effect and each pair's joint effect (functional ANOVA, the idea behind fANOVA). The
+  strongest pairs are listed, with a heatmap of the predicted score over the top pair.
+- **Sweep again near the best** (both apps; `GET /api/sweeps/{id}/again`): a new sweep
+  with each range narrowed to where the best quarter of the trials were, opened in the
+  sweep form for review before it starts.
+- **18 more layers:** sliding-window, ALiBi, differential and Linformer attention;
+  Perceiver latents; RetNet retention, an RWKV block and a Hyena operator; MLP-Mixer, gMLP
+  and PoolFormer blocks; Ghost module, Involution, deformable convolution, Fused-MBConv,
+  ECA and Global Response Normalization; Dynamic Tanh. 11 have Keras forms.
+- **Training:** PolyLoss, an asymmetric loss for multi-label, Charbonnier and SSIM (+ L1)
+  losses; VICReg and Barlow Twins self-supervised losses; the Prodigy, Cautious AdamW and
+  Yogi optimizers.
+- **Metrics:** PSNR, SSIM and concordance (Lin's CCC), in neural and classic pipelines.
+- **Augmentation:** photometric distort.
+- **Recipes:** Tiny RWKV (a recurrent language model) and Barlow Twins (self-supervised
+  image features).
+
+### Changed
+- The web app is built with TypeScript 7.0.
+- Child processes (training workers, Try it, generated scripts) write UTF-8 to the app,
+  and the app reads it as UTF-8, on every OS.
+
+### Fixed
+- Windows: generated scripts failed to run when the data path (C:\Users\…) appeared in
+  their header, which Python read as an escape sequence.
+- Windows: `$AIME_DOCKER` and `$AIME_SSH` lost the backslashes of a Windows path.
+- Windows: deleting a run right after it finished could fail while the worker was still
+  exiting; export metadata recorded `exports\model.onnx` instead of `exports/model.onnx`.
+- RWKV and Hyena designs say they can't be exported to ExecuTorch, and deformable
+  convolution to ONNX or ExecuTorch, instead of failing during export.
+
 ## 3.6.0
 
 Try a model on a whole file, see which settings mattered in a sweep, and 41 more blocks.
