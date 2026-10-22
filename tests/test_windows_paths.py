@@ -8,6 +8,7 @@ the path intact."""
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -20,6 +21,7 @@ from ai_made_easy.core.registry import get_registry
 
 SAMPLES = Path(__file__).resolve().parents[1] / "ai_made_easy" / "samples"
 WINDOWS = "C:\\Users\\nobody\\Ünïcode data\\"
+INNER_DOCSTRING = re.compile(r'(?<![rRbB"])"""[^"\n]*\{\{')
 PATH_PARAMS = {"path", "root", "folder", "directory", "dir", "file", "images", "labels",
                "annotations", "train_path", "val_path", "test_path", "corpus", "source"}
 
@@ -67,6 +69,31 @@ def test_scripts_compile_with_windows_paths(graph, paths):
     assert compiled, "no Python target generated"
 
 
+def _scenarios():
+    import sys
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
+    from verify_training import SCENARIOS
+    return [pytest.param(s, id=s.name) for s in SCENARIOS]
+
+
+@pytest.mark.parametrize("scenario", _scenarios())
+def test_training_scripts_compile_with_windows_data_paths(scenario, tmp_path):
+    """Every data source in the training checks, with its files under a Windows folder:
+    the data comment lands in function docstrings as well as the module docstring."""
+    graph = scenario.build(tmp_path)
+    moved = 0
+    for node in graph.nodes.values():
+        for key, value in node.params.items():
+            if isinstance(value, str) and value.startswith(str(tmp_path)):
+                rest = value[len(str(tmp_path)):].strip("/\\").replace("/", "\\")
+                node.params[key] = WINDOWS + rest
+                moved += 1
+    if not moved:
+        pytest.skip("synthetic data: no file path")
+    for target in scenario.frameworks:
+        code = api.generate(graph, f"{target}_train")
+        compile(code, f"<{scenario.name}:{target}>", "exec")
+
 
 def test_every_generated_module_docstring_is_raw():
     """Templates whose output starts with a module docstring that interpolates values (a
@@ -83,6 +110,11 @@ def test_every_generated_module_docstring_is_raw():
                     and node.value.startswith('"""') and ("{{" in node.value.split('"""')[1]
                                                           or "{" in node.value.split('"""')[1]):
                 bad.append(f"{path.relative_to(package.parent)}:{node.lineno}")
+            elif isinstance(node, ast.Constant) and isinstance(node.value, str):
+                # a docstring inside a template ("Load {{ comment }}.") gets the data path too
+                for match in INNER_DOCSTRING.finditer(node.value):
+                    bad.append(f"{path.relative_to(package.parent)}:{node.lineno}: "
+                               f"{match.group(0)[:60]}")
     assert not bad, "start the generated docstring with r\"\"\":\n" + "\n".join(bad)
 
 
