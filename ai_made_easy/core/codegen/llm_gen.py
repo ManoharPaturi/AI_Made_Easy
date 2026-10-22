@@ -270,7 +270,7 @@ def load_texts():
     ds = load_dataset("{{ spec.dataset.dataset_id }}", split="{{ spec.dataset.split }}")
     return [str(x) for x in ds["{{ spec.dataset.text_field }}"]]
 {% else %}
-    with open("{{ spec.dataset.file_path }}") as fh:
+    with open("{{ spec.dataset.file_path }}", encoding="utf-8") as fh:
         return [line.strip() for line in fh if line.strip()]
 {% endif %}
 

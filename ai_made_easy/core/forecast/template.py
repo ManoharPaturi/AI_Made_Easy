@@ -378,7 +378,7 @@ def main() -> None:
     metrics["naive_mase"] = naive_mase(test)
     print("test: " + " ".join(f"{k}={v:.4f}" for k, v in metrics.items()
                               if isinstance(v, float)))
-    Path("metrics.json").write_text(json.dumps(metrics, indent=1))
+    Path("metrics.json").write_text(json.dumps(metrics, indent=1), encoding="utf-8")
     save_plots(test, kept, series)
     print(f"saved {len(kept)} forecast plots to {SAMPLES_DIR}/")
 

@@ -498,7 +498,7 @@ def _text_stats(files: list[Path]) -> tuple[list[str], list[Finding]]:
     lengths, empty = [], 0
     for f in files:
         try:
-            words = len(f.read_text(errors="replace").split())
+            words = len(f.read_text(errors="replace", encoding="utf-8").split())
         except OSError:
             continue
         lengths.append(words)
@@ -635,7 +635,7 @@ def _profile_json(params: dict, base) -> DataProfile:
         profile.findings.append(Finding("error", f"data file {path} was not found"))
         return profile
     try:
-        text = path.read_text().strip()
+        text = path.read_text(encoding="utf-8").strip()
         records = (json.loads(text) if text.startswith("[")
                    else [json.loads(line) for line in text.splitlines() if line.strip()])
     except Exception as exc:  # noqa: BLE001

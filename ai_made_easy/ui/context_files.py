@@ -40,7 +40,7 @@ class FileActions:
         data = self.project_service.snapshot().to_dict()
         data.setdefault("meta", {})["autosave_of"] = str(self.project_store.path or "")
         try:
-            self._recovery_file().write_text(json.dumps(data))
+            self._recovery_file().write_text(json.dumps(data), encoding="utf-8")
         except OSError as exc:
             self.log_bus.warning(f"autosave failed: {exc}")
 
@@ -57,7 +57,7 @@ class FileActions:
             QtWidgets.QMessageBox.StandardButton.Yes | QtWidgets.QMessageBox.StandardButton.No)
         if answer == QtWidgets.QMessageBox.StandardButton.Yes:
             try:
-                data = json.loads(path.read_text())
+                data = json.loads(path.read_text(encoding="utf-8"))
                 self.graph_service.load(Graph.from_dict(data))
                 self.project_store.set_name(data.get("name", "recovered"))
                 original = data.get("meta", {}).get("autosave_of")

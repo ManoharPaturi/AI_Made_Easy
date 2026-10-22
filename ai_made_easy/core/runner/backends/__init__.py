@@ -226,7 +226,7 @@ def saved() -> list[dict]:
     if not path.exists():
         return []
     try:
-        data = json.loads(path.read_text())
+        data = json.loads(path.read_text(encoding="utf-8"))
     except ValueError:
         return []
     return [b for b in data if isinstance(b, dict) and "name" in b and "kind" in b]
@@ -242,7 +242,7 @@ def save(name: str, kind: str, **options: Any) -> dict:
     entry = {"name": name, "kind": kind, **options}
     entries.append(entry)
     _store_path().parent.mkdir(parents=True, exist_ok=True)
-    _store_path().write_text(json.dumps(entries, indent=1))
+    _store_path().write_text(json.dumps(entries, indent=1), encoding="utf-8")
     return entry
 
 
@@ -250,7 +250,7 @@ def remove(name: str) -> None:
     entries = saved()
     if not any(b["name"] == name for b in entries):
         raise BackendError(f"no saved backend {name!r}")
-    _store_path().write_text(json.dumps([b for b in entries if b["name"] != name], indent=1))
+    _store_path().write_text(json.dumps([b for b in entries if b["name"] != name], indent=1), encoding="utf-8")
 
 
 def listing() -> list[dict]:

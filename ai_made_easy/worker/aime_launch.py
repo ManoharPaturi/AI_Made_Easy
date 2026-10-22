@@ -56,14 +56,14 @@ def main(argv: list[str]) -> int:
             _extract(fh.read(), run_dir)
     elif BUNDLE:
         _extract(base64.b64decode(BUNDLE), run_dir)
-    with open(os.path.join(run_dir, "bundle.json")) as fh:
+    with open(os.path.join(run_dir, "bundle.json"), encoding="utf-8") as fh:
         meta = json.load(fh)
 
     # a fresh start (a notebook run twice) begins a fresh event log
     for stale in ("exit_code", "pid"):
         if os.path.exists(os.path.join(run_dir, stale)):
             os.remove(os.path.join(run_dir, stale))
-    events = open(os.path.join(run_dir, "events.jsonl"), "w", buffering=1)
+    events = open(os.path.join(run_dir, "events.jsonl"), "w", buffering=1, encoding="utf-8")
     lock = threading.Lock()
 
     def write(line: str) -> None:
@@ -87,7 +87,7 @@ def main(argv: list[str]) -> int:
     proc = subprocess.Popen([sys.executable, "-u", meta["worker"], meta["script"]],
                             cwd=run_dir, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                             text=True, bufsize=1)
-    with open(os.path.join(run_dir, "pid"), "w") as fh:
+    with open(os.path.join(run_dir, "pid"), "w", encoding="utf-8") as fh:
         fh.write(str(proc.pid))
 
     def stop(signum, frame):  # noqa: ANN001, ARG001
@@ -107,7 +107,7 @@ def main(argv: list[str]) -> int:
     code = proc.wait()
     err.join(timeout=5)
     events.close()
-    with open(os.path.join(run_dir, "exit_code"), "w") as fh:
+    with open(os.path.join(run_dir, "exit_code"), "w", encoding="utf-8") as fh:
         fh.write(str(code))
     return code
 
@@ -123,9 +123,9 @@ def run(argv: list[str]) -> int:
             raise
         run_dir = os.path.abspath(argv[0])
         os.makedirs(run_dir, exist_ok=True)
-        with open(os.path.join(run_dir, "events.jsonl"), "a") as fh:
+        with open(os.path.join(run_dir, "events.jsonl"), "a", encoding="utf-8") as fh:
             fh.write(json.dumps({"type": "error", "traceback": traceback.format_exc()}) + "\n")
-        with open(os.path.join(run_dir, "exit_code"), "w") as fh:
+        with open(os.path.join(run_dir, "exit_code"), "w", encoding="utf-8") as fh:
             fh.write(str(exc.code if isinstance(exc, SystemExit) and isinstance(exc.code, int)
                          else 1))
         return 1

@@ -143,14 +143,14 @@ class RunHistory:
         if not file.exists():
             raise KeyError(f"unknown run {run_id!r}")
         with self._lock:
-            return RunRecord.from_dict(json.loads(file.read_text()))
+            return RunRecord.from_dict(json.loads(file.read_text(encoding="utf-8")))
 
     def list(self, *, project: str | None = None, parent: str | None = None,
              kind: str | None = None) -> list[RunRecord]:
         records = []
         for file in sorted(self.root.glob("*/run.json"), reverse=True):
             try:
-                rec = RunRecord.from_dict(json.loads(file.read_text()))
+                rec = RunRecord.from_dict(json.loads(file.read_text(encoding="utf-8")))
             except (OSError, ValueError, TypeError):
                 continue
             if project is not None and rec.project != project:
@@ -167,7 +167,7 @@ class RunHistory:
         if not file.exists():
             return []
         out = []
-        for line in file.read_text().splitlines():
+        for line in file.read_text(encoding="utf-8").splitlines():
             try:
                 out.append(json.loads(line))
             except ValueError:
@@ -179,7 +179,7 @@ class RunHistory:
         with self._lock:
             file = self.path(record.run_id) / "run.json"
             tmp = file.with_suffix(".tmp")
-            tmp.write_text(json.dumps(asdict(record), indent=1, default=str))
+            tmp.write_text(json.dumps(asdict(record), indent=1, default=str), encoding="utf-8")
             tmp.replace(file)
 
     def update(self, run_id: str, **fields: Any) -> RunRecord:
@@ -194,7 +194,7 @@ class RunHistory:
 
     def append_epoch(self, run_id: str, event: dict) -> None:
         with self._lock:
-            with open(self.path(run_id) / "epochs.jsonl", "a") as fh:
+            with open(self.path(run_id) / "epochs.jsonl", "a", encoding="utf-8") as fh:
                 fh.write(json.dumps(event) + "\n")
             record = self.get(run_id)
             record.epochs_done += 1
@@ -219,7 +219,7 @@ class RunHistory:
             metrics_file = self.path(run_id) / "metrics.json"
             if metrics_file.exists():
                 try:
-                    data = json.loads(metrics_file.read_text())
+                    data = json.loads(metrics_file.read_text(encoding="utf-8"))
                     record.final_metrics = {k: v for k, v in data.items()
                                             if isinstance(v, (int, float))}
                 except ValueError:

@@ -152,8 +152,8 @@ class KaggleBackend(RemoteBackend):
             args = [RUN_DIR] + (["--install"] if meta["enable_internet"] else [])
             with tempfile.TemporaryDirectory() as folder:
                 Path(folder, "aime_kernel.py").write_text(
-                    run.bundle.launcher(embed=True, args=args))
-                Path(folder, "kernel-metadata.json").write_text(json.dumps(meta, indent=1))
+                    run.bundle.launcher(embed=True, args=args), encoding="utf-8")
+                Path(folder, "kernel-metadata.json").write_text(json.dumps(meta, indent=1), encoding="utf-8")
                 url = client.push(folder)
             run.slug = meta["id"]
             run.accelerator = self.accelerator()
@@ -211,11 +211,11 @@ class KaggleBackend(RemoteBackend):
                 merge_folder(produced, run.workdir)
         events = run.workdir / "events.jsonl"
         if events.exists():
-            for line in events.read_text().splitlines():
+            for line in events.read_text(encoding="utf-8").splitlines():
                 self.feed(run, line)
         exit_file = run.workdir / "exit_code"
-        if exit_file.exists() and exit_file.read_text().strip().lstrip("-").isdigit():
-            code = int(exit_file.read_text().strip())
+        if exit_file.exists() and exit_file.read_text(encoding="utf-8").strip().lstrip("-").isdigit():
+            code = int(exit_file.read_text(encoding="utf-8").strip())
         if run.held_done is None and code and log_tail:
             run.record({"type": "error", "traceback": log_tail})
         self.finish(run, code)
@@ -235,9 +235,9 @@ def _kernel_log(folder: Path) -> str:
     """The tail of a downloaded kernel log (a JSON list of stream chunks)."""
     for path in folder.glob("*.log"):
         try:
-            chunks = json.loads(path.read_text())
+            chunks = json.loads(path.read_text(encoding="utf-8"))
             text = "".join(c.get("data", "") for c in chunks if isinstance(c, dict))
         except ValueError:
-            text = path.read_text(errors="replace")
+            text = path.read_text(errors="replace", encoding="utf-8")
         return text[-3000:]
     return ""

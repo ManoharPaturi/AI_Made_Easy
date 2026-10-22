@@ -352,8 +352,8 @@ def main() -> None:
     metrics, preds = evaluate(model, test, names, device)
     print("test: " + " ".join(f"{k}={v:.4f}" for k, v in metrics.items()
                               if isinstance(v, float)))
-    Path("metrics.json").write_text(json.dumps(metrics, indent=1))
-    Path("classes.json").write_text(json.dumps(names))
+    Path("metrics.json").write_text(json.dumps(metrics, indent=1), encoding="utf-8")
+    Path("classes.json").write_text(json.dumps(names), encoding="utf-8")
     save_samples(test, preds, names)
     print(f"saved spectrogram samples to {SAMPLES_DIR}/")
 

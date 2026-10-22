@@ -508,7 +508,7 @@ def main() -> None:
     print("test: " + " ".join(f"{k}={v:.4f}" for k, v in report.items()))
     final = {**report, **test_metrics, **{f"cv_{m}": v for m, v in cv.items()}}
     Path("metrics.json").write_text(json.dumps(
-        {k: v for k, v in final.items() if isinstance(v, (float, list))}, indent=1))
+        {k: v for k, v in final.items() if isinstance(v, (float, list))}, indent=1), encoding="utf-8")
 
 
 if __name__ == "__main__":

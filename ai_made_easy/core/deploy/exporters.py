@@ -749,4 +749,4 @@ def summary(report: dict) -> dict:
 if __name__ == "__main__":  # pragma: no cover — a quick look at a report
     import sys
 
-    print(json.dumps(summary(json.loads(Path(sys.argv[1]).read_text())["formats"]), indent=1))
+    print(json.dumps(summary(json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))["formats"]), indent=1))

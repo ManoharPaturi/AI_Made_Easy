@@ -25,7 +25,7 @@ from PIL import Image, ImageDraw
 from torchvision import tv_tensors
 from torchvision.transforms import v2
 
-cfg = json.loads(Path(sys.argv[1]).read_text())
+cfg = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
 torch.manual_seed(cfg["seed"])
 random.seed(cfg["seed"])
 ''' + runtime.DATA_CODE + runtime.ENCODE_CODE + r'''

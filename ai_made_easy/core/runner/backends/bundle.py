@@ -30,7 +30,7 @@ MAX_EMBEDDED_BYTES = 20_000_000
 def worker_source() -> str:
     from ai_made_easy.core.runner.protocol import worker_script_path
 
-    return worker_script_path().read_text()
+    return worker_script_path().read_text(encoding="utf-8")
 
 
 def launcher_path() -> Path:
@@ -112,7 +112,7 @@ class Bundle:
     def launcher(self, embed: bool = False, args: list[str] | None = None) -> str:
         """The launcher's source; with ``embed`` the bundle travels inside it, and
         ``args`` become its arguments when it runs without any."""
-        source = launcher_path().read_text()
+        source = launcher_path().read_text(encoding="utf-8")
         if args is not None:
             source = source.replace("DEFAULT_ARGS: list = []", f"DEFAULT_ARGS: list = {args!r}", 1)
         if not embed:
@@ -135,7 +135,7 @@ def prepare(graph: Graph, framework: str, run_id: str, run_dir: Path) -> Bundle:
     relocated, files = relocate_data(graph)
     script = export_training(relocated, framework, run_dir)
     return Bundle(run_id=run_id, run_dir=Path(run_dir), script=script.name, files=files,
-                  requirements=training_requirements(script.read_text()))
+                  requirements=training_requirements(script.read_text(encoding="utf-8")))
 
 
 def unpack_outputs(data: bytes, run_dir: Path) -> None:

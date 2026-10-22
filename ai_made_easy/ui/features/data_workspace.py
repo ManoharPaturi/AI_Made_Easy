@@ -389,7 +389,7 @@ class DataPage(QtWidgets.QWidget):
                 p = Path(f)
                 if p.suffix.lower() == ".txt":
                     try:
-                        parts.append(f"— {p.name}\n{p.read_text(errors='replace')[:400]}")
+                        parts.append(f"— {p.name}\n{p.read_text(errors='replace', encoding='utf-8')[:400]}")
                     except OSError:
                         continue
                 else:

@@ -568,13 +568,13 @@ def main() -> None:
     torch.save(model.state_dict(), CHECKPOINT)
     save_inference_state()
     save_calibration(train_loader, test_loader)
-    Path("classes.json").write_text(json.dumps(CLASS_NAMES))
+    Path("classes.json").write_text(json.dumps(CLASS_NAMES), encoding="utf-8")
     print(f"saved best weights to {CHECKPOINT}")
     metrics, kept = evaluate(model, test_loader, device, keep=8)
     print("test: " + " ".join(f"{k}={v:.4f}" for k, v in metrics.items()
                               if isinstance(v, float)))
     Path("metrics.json").write_text(json.dumps(
-        {k: v for k, v in metrics.items() if isinstance(v, (float, list))}, indent=1))
+        {k: v for k, v in metrics.items() if isinstance(v, (float, list))}, indent=1), encoding="utf-8")
     try:
         save_overlays(kept)
         print(f"saved {len(kept)} prediction overlays to {SAMPLES_DIR}/")

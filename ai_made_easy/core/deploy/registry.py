@@ -65,7 +65,7 @@ class ModelRegistry:
         run_file = run_dir / "run.json"
         if not run_file.exists():
             raise RegistryError(f"{run_dir} is not a run folder")
-        record = json.loads(run_file.read_text())
+        record = json.loads(run_file.read_text(encoding="utf-8"))
         if record.get("status") != "finished":
             raise RegistryError("only finished runs can be registered")
         files = [run_dir / f for f in _COPY if (run_dir / f).exists()]
@@ -95,7 +95,7 @@ class ModelRegistry:
 
     def _save(self, mv: ModelVersion) -> None:
         (self.path(mv.name, mv.version) / "model.json").write_text(
-            json.dumps(mv.to_dict(), indent=1, default=str))
+            json.dumps(mv.to_dict(), indent=1, default=str), encoding="utf-8")
 
     def get(self, name: str, version: int | str | None = None) -> ModelVersion:
         if version in (None, "", "latest"):
@@ -111,7 +111,7 @@ class ModelRegistry:
         file = self.path(name, int(version)) / "model.json"
         if not file.exists():
             raise KeyError(f"no version {version} of {name!r}")
-        data = json.loads(file.read_text())
+        data = json.loads(file.read_text(encoding="utf-8"))
         return ModelVersion(**{k: v for k, v in data.items()
                                if k in ModelVersion.__dataclass_fields__})
 

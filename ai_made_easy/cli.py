@@ -266,7 +266,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "budget" and (args.list or not args.project):
         return _budget_command(args, None)
 
-    with open(args.project) as fh:
+    with open(args.project, encoding="utf-8") as fh:
         graph = Graph.from_dict(json.load(fh))
 
     if args.command == "validate":
@@ -351,7 +351,7 @@ def main(argv: list[str] | None = None) -> int:
 
         script = Path(args.out) / f"{sanitize_name(graph.name)}_llm.py"
         script.parent.mkdir(parents=True, exist_ok=True)
-        script.write_text(code)
+        script.write_text(code, encoding="utf-8")
         print(script)
         return 0
 
@@ -374,7 +374,7 @@ def main(argv: list[str] | None = None) -> int:
 
         script = Path(args.out) / f"{stem}_export_{'onnx' if args.command == 'onnx' else 'jit'}.py"
         script.parent.mkdir(parents=True, exist_ok=True)
-        script.write_text(code)
+        script.write_text(code, encoding="utf-8")
         print(script)
         if args.run:
             from ai_made_easy.core.runner.manager import python_executable
@@ -546,7 +546,7 @@ def _wizard_command(args) -> int:  # noqa: ANN001
                 print(f"using {best['recipe']['title']}", file=sys.stderr)
             text = json.dumps(graph, indent=2)
             if args.out:
-                with open(args.out, "w") as fh:
+                with open(args.out, "w", encoding="utf-8") as fh:
                     fh.write(text + "\n")
                 print(args.out)
             else:
@@ -582,7 +582,7 @@ def _wizard_command(args) -> int:  # noqa: ANN001
             {k: t[k] for k in ("number", "recipe", "score", "objectives", "values")}
             for t in front]}), flush=True)
     if record["best"] and args.out:
-        with open(args.out, "w") as fh:
+        with open(args.out, "w", encoding="utf-8") as fh:
             json.dump(api.sweep_best_graph(sweep_id), fh, indent=2)
         print(args.out)
     return 0 if record["state"] == "finished" and record["best"] else 1
@@ -610,7 +610,7 @@ def _pipeline_command(args) -> int:  # noqa: ANN001
             return 0
         if args.action == "run":
             path = Path(args.target)
-            graph = json.loads(path.read_text())
+            graph = json.loads(path.read_text(encoding="utf-8"))
             started = api.start_pipeline(graph, base=str(path.resolve().parent), on=args.on)
         else:
             started = api.resume_pipeline(args.target)
@@ -658,7 +658,7 @@ def _import_command(args) -> int:  # noqa: ANN001
         print(f"warning: {warning}")
     if result["unsupported"]:
         return 1
-    Path(args.out).write_text(json.dumps(result["graph"], indent=1))
+    Path(args.out).write_text(json.dumps(result["graph"], indent=1), encoding="utf-8")
     print(f"project: {args.out}")
     return 0 if result["ok"] else 1
 
@@ -686,7 +686,7 @@ def _data_command(args) -> int:  # noqa: ANN001
         return 0
     source = Path(args.source).expanduser()
     is_project = source.suffix == ".json" and source.is_file() and \
-        "nodes" in json.loads(source.read_text() or "{}")
+        "nodes" in json.loads(source.read_text(encoding="utf-8") or "{}")
     try:
         if args.action == "profile" and not args.json:
             from ai_made_easy.core.data.lints import dataset_nodes
@@ -695,7 +695,7 @@ def _data_command(args) -> int:  # noqa: ANN001
             if not is_project:
                 print(profile_path(source, target=args.target).text())
                 return 0
-            nodes = dataset_nodes(Graph.from_dict(json.loads(source.read_text())))
+            nodes = dataset_nodes(Graph.from_dict(json.loads(source.read_text(encoding="utf-8"))))
             if not nodes:
                 print("error: the design has no dataset block", file=sys.stderr)
                 return 1
@@ -707,7 +707,7 @@ def _data_command(args) -> int:  # noqa: ANN001
             if not is_project:
                 print("error: give a project .json", file=sys.stderr)
                 return 2
-            graph = json.loads(source.read_text())
+            graph = json.loads(source.read_text(encoding="utf-8"))
             base = str(project_base(source))
             result = {
                 "profile": lambda: api.profile_data(graph, base=base),
@@ -822,7 +822,7 @@ def _tools_command(args) -> int:  # noqa: ANN001
 
     try:
         if args.command == "tracking":
-            graph = json.loads(Path(args.project).read_text()) if args.project else None
+            graph = json.loads(Path(args.project).read_text(encoding="utf-8")) if args.project else None
             status = api.tracking_status(graph)
             chosen = ", ".join(status["selected"]) or "off"
             print(f"tracking: {chosen}  (AIME_TRACKING={status['env'] or '-'}; per project: "

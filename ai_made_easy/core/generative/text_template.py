@@ -413,7 +413,7 @@ def main() -> None:
         pickle.dump(dict(STATE), fh)
     print(f"saved best weights to {CHECKPOINT}")
     print("test: " + " ".join(f"{k}={v:.4f}" for k, v in metrics.items()))
-    Path("metrics.json").write_text(json.dumps(metrics, indent=1))
+    Path("metrics.json").write_text(json.dumps(metrics, indent=1), encoding="utf-8")
     print(f"saved text samples to {SAMPLES_DIR}/")
 
 

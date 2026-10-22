@@ -628,7 +628,7 @@ def import_onnx(path: str, input_shape: list[int] | None = None) -> dict:
 
 
 def main() -> int:
-    request = json.loads(Path(sys.argv[1]).read_text())
+    request = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
     try:
         result = import_onnx(request["source"], request.get("input_shape"))
     except Unsupported as exc:

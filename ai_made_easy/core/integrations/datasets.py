@@ -164,7 +164,7 @@ def fetch(source: str, *, force: bool = False) -> Path:
     except BaseException:
         shutil.rmtree(dest, ignore_errors=True)
         raise
-    marker.write_text(source + "\n")
+    marker.write_text(source + "\n", encoding="utf-8")
     return data_path(dest)
 
 

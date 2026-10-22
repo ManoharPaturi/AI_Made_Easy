@@ -512,7 +512,7 @@ def main() -> None:
                     f"(Gaussian {baseline / INPUT_DIM / math.log(2):.3f})")
     print(f"saved best weights to {CHECKPOINT}")
     print("test: " + " ".join(f"{k}={v:.4f}" for k, v in metrics.items()))
-    Path("metrics.json").write_text(json.dumps(metrics, indent=1))
+    Path("metrics.json").write_text(json.dumps(metrics, indent=1), encoding="utf-8")
 
 
 if __name__ == "__main__":

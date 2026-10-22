@@ -669,7 +669,7 @@ def import_keras(path: str) -> dict:
 
 
 def main() -> int:
-    request = json.loads(Path(sys.argv[1]).read_text())
+    request = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
     try:
         result = import_keras(request["source"])
     except Unsupported as exc:

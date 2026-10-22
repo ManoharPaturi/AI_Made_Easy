@@ -151,7 +151,7 @@ def load_data():
     X = archive[{{ d.x_key | repr }}]
     return X.reshape(len(X), -1), archive[{{ d.y_key | repr }}]
 {% elif d.block == "data.json" %}
-    text = Path({{ d.path | repr }}).read_text().strip()
+    text = Path({{ d.path | repr }}).read_text(encoding="utf-8").strip()
     records = json.loads(text) if text.startswith("[") else [
         json.loads(line) for line in text.splitlines() if line.strip()]
     X = np.asarray([r[{{ d.x_field | repr }}] for r in records], dtype=float)
@@ -173,7 +173,7 @@ def load_data():
     texts, labels = [], []
     for folder in sorted(p for p in root.iterdir() if p.is_dir()):
         for file in sorted(folder.glob("*.txt")):
-            texts.append(file.read_text(errors="ignore"))
+            texts.append(file.read_text(errors="ignore", encoding="utf-8"))
             labels.append(folder.name)
     return texts, np.asarray(labels)
 {% elif d.block == "data.image_folder" %}
@@ -401,7 +401,7 @@ def main() -> None:
     print(f"saved model to {MODEL_FILE}")
     Path("metrics.json").write_text(json.dumps(
         {**test_metrics, "train": train_metrics,
-         "feature_importances": importances}, indent=1, default=str))
+         "feature_importances": importances}, indent=1, default=str), encoding="utf-8")
 {% if task == "classification" %}
     classes = list(model.classes_)
     probs = predict_scores(model, X_test[:300] if not hasattr(X_test, "iloc") else X_test.iloc[:300])
@@ -411,10 +411,10 @@ def main() -> None:
 {% endif %}
     items = [{"index": i, "true": classes.index(y_test[i]), "probs": [round(float(v), 4) for v in row],
               "file": None} for i, row in enumerate(probs)]
-    Path("predictions.json").write_text(json.dumps(items, indent=1))
+    Path("predictions.json").write_text(json.dumps(items, indent=1), encoding="utf-8")
     mistakes = [it for it in items if int(np.argmax(it["probs"])) != it["true"]]
-    Path("mistakes.json").write_text(json.dumps(mistakes[:50], indent=1))
-    Path("classes.json").write_text(json.dumps([str(c) for c in classes]))
+    Path("mistakes.json").write_text(json.dumps(mistakes[:50], indent=1), encoding="utf-8")
+    Path("classes.json").write_text(json.dumps([str(c) for c in classes]), encoding="utf-8")
     print(f"saved predictions.json ({len(items)} examples)")
 {% endif %}
 {% elif task == "clustering" %}
@@ -449,8 +449,8 @@ def main() -> None:
     joblib.dump(model, MODEL_FILE)
     save_inference_state(X)
     save_costs(model, X)
-    Path("metrics.json").write_text(json.dumps(m, indent=1))
-    Path("clusters.json").write_text(json.dumps([int(v) for v in labels]))
+    Path("metrics.json").write_text(json.dumps(m, indent=1), encoding="utf-8")
+    Path("clusters.json").write_text(json.dumps([int(v) for v in labels]), encoding="utf-8")
     print(f"saved model to {MODEL_FILE}")
 {% else %}
     started = time.time()
@@ -471,7 +471,7 @@ def main() -> None:
     joblib.dump(model, MODEL_FILE)
     save_inference_state(X)
     save_costs(model, X)
-    Path("metrics.json").write_text(json.dumps(m, indent=1))
+    Path("metrics.json").write_text(json.dumps(m, indent=1), encoding="utf-8")
     print(f"saved model to {MODEL_FILE}")
 {% endif %}
 
@@ -499,13 +499,13 @@ def save_costs(model, X) -> None:
     costs = {"model_mb": Path(MODEL_FILE).stat().st_size / 2**20}
     if times and getattr(model, "predict", None) is not None:
         costs["predict_ms"] = float(sorted(times)[len(times) // 2])
-    Path("costs.json").write_text(json.dumps(costs, indent=1))
+    Path("costs.json").write_text(json.dumps(costs, indent=1), encoding="utf-8")
 
 
 def save_inference_state(X) -> None:
     """Record the input columns the pipeline expects (for serving)."""
     columns = [str(c) for c in X.columns] if hasattr(X, "columns") else None
-    Path(INFERENCE_FILE).write_text(json.dumps({"columns": columns}))
+    Path(INFERENCE_FILE).write_text(json.dumps({"columns": columns}), encoding="utf-8")
 
 
 def load_predictor(folder: str | Path = ".", device: str = "cpu"):
@@ -519,7 +519,7 @@ def load_predictor(folder: str | Path = ".", device: str = "cpu"):
             setattr(__main__, name, value)
     _PREDICTOR = joblib.load(Path(folder) / MODEL_FILE)
     state_file = Path(folder) / INFERENCE_FILE
-    _COLUMNS = json.loads(state_file.read_text()).get("columns") if state_file.exists() else None
+    _COLUMNS = json.loads(state_file.read_text(encoding="utf-8")).get("columns") if state_file.exists() else None
     return _PREDICTOR
 
 

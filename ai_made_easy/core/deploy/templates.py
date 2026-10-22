@@ -29,7 +29,7 @@ sys.path.insert(0, str(MODEL_DIR))
 
 import model_def  # noqa: E402 — the generated training script (main() is not run)
 
-METADATA = json.loads((HERE / "metadata.json").read_text())
+METADATA = json.loads((HERE / "metadata.json").read_text(encoding="utf-8"))
 MAX_BATCH = int(os.environ.get("AIME_MAX_BATCH", "256"))
 API_KEY = os.environ.get("AIME_API_KEY", "")
 
@@ -201,7 +201,7 @@ FORMATS = tuple(exporters.ALIASES.get(f, f) for f in sys.argv[1:]) or {formats!r
 REPORT = HERE / "export_report.json"
 report = {{"formats": {{}}}}
 if sys.argv[1:] and REPORT.exists():
-    report = json.loads(REPORT.read_text())
+    report = json.loads(REPORT.read_text(encoding="utf-8"))
 model = model_def.load_predictor(MODEL_DIR)
 state = getattr(model_def, "INFERENCE_STATE", {{}})
 report["signature"] = {{
@@ -239,7 +239,7 @@ def tensorflow_backend(formats: list) -> None:
                           capture_output=True, text=True)
     print(proc.stdout.replace("EXPORT-DONE", "").rstrip())
     if REPORT.exists():
-        report["formats"].update(json.loads(REPORT.read_text()).get("formats", {{}}))
+        report["formats"].update(json.loads(REPORT.read_text(encoding="utf-8")).get("formats", {{}}))
 
 
 todo = list(FORMATS)
@@ -253,7 +253,7 @@ if FRAMEWORK == "keras" and todo:
     if litert and not on_tf and importlib.util.find_spec("tensorflow") is not None and (
             "litert_int8" in litert or importlib.util.find_spec("litert_torch") is None):
         todo = [f for f in todo if f not in litert]
-        REPORT.write_text(json.dumps(report, indent=1, default=str))
+        REPORT.write_text(json.dumps(report, indent=1, default=str), encoding="utf-8")
         tensorflow_backend(litert)
 if todo:
     try:
@@ -271,6 +271,6 @@ for entry in report["formats"].values():
     if entry.get("file"):
         entry["file"] = os.path.relpath(entry["file"], HERE) if os.path.isabs(entry["file"]) \
             else entry["file"]
-REPORT.write_text(json.dumps(report, indent=1, default=str))
+REPORT.write_text(json.dumps(report, indent=1, default=str), encoding="utf-8")
 print("EXPORT-DONE")
 '''

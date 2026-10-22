@@ -197,7 +197,7 @@ class WandbTracker(Tracker):
         self.url = getattr(self.run, "url", "") or f"offline run {self.run.id}"
         with tempfile.TemporaryDirectory() as tmp:
             design = Path(tmp) / "design.json"
-            design.write_text(json.dumps(r.get("graph") or {}, indent=1))
+            design.write_text(json.dumps(r.get("graph") or {}, indent=1), encoding="utf-8")
             artifact = self.wandb.Artifact(f"design-{r.get('run_id', 'run')}", type="design")
             artifact.add_file(str(design))
             self.run.log_artifact(artifact)
@@ -284,7 +284,7 @@ class RunMirror:
         metrics = run_dir / "metrics.json"
         if metrics.is_file():
             try:
-                final = json.loads(metrics.read_text())
+                final = json.loads(metrics.read_text(encoding="utf-8"))
             except ValueError:
                 final = {}
         self._queue.put(("finish", (status, run_dir, final)))
@@ -366,7 +366,7 @@ def open_mlflow_model(uri: str, dest: Path | str | None = None) -> tuple[str, Pa
     if mlmodel is not None:
         import yaml
 
-        flavors = (yaml.safe_load(mlmodel.read_text()) or {}).get("flavors", {})
+        flavors = (yaml.safe_load(mlmodel.read_text(encoding="utf-8")) or {}).get("flavors", {})
     onnx = sorted(folder.rglob("*.onnx"))
     if "onnx" in flavors or (onnx and "pytorch" not in flavors):
         if not onnx:

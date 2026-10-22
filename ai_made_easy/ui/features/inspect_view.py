@@ -125,7 +125,7 @@ class InspectDialog(QtWidgets.QDialog):
 
     def load_results(self) -> None:
         try:
-            result = json.loads((self.workdir / "inspect.json").read_text())
+            result = json.loads((self.workdir / "inspect.json").read_text(encoding="utf-8"))
         except (OSError, ValueError):
             self.sentence.setText("No saliency results yet.")
             return

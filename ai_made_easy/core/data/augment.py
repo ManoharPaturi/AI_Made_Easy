@@ -29,7 +29,7 @@ from PIL import Image
 from torchvision.transforms import v2
 from torchvision.transforms.v2 import functional as F
 
-cfg = json.loads(Path(sys.argv[1]).read_text())
+cfg = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
 torch.manual_seed(cfg["seed"])
 random.seed(cfg["seed"])
 out = Path(cfg["out"])
@@ -81,8 +81,8 @@ def register_previewer(fn) -> None:  # noqa: ANN001
 
 def run_preview(script: str, cfg: dict, out: Path, python: str | None, timeout: float) -> dict:
     """Run a preview script on ``cfg`` in the training environment; parse its result."""
-    (out / "preview.json").write_text(json.dumps(cfg))
-    (out / "preview.py").write_text(script)
+    (out / "preview.json").write_text(json.dumps(cfg), encoding="utf-8")
+    (out / "preview.py").write_text(script, encoding="utf-8")
     env = {**os.environ, "PYTHONWARNINGS": "ignore"}
     try:
         from ai_made_easy.core.runner.manager import python_executable

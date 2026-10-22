@@ -263,7 +263,7 @@ _PREDICTOR = None
 def load_predictor(folder: str | Path = ".", device: str = "cpu"):
     global _PREDICTOR
     folder = Path(folder)
-    STATE.update(json.loads((folder / STATE_FILE).read_text()))
+    STATE.update(json.loads((folder / STATE_FILE).read_text(encoding="utf-8")))
     with np.load(folder / DRAWS_FILE) as npz:
         _PREDICTOR = {k: npz[k] for k in npz.files}
     return _PREDICTOR
@@ -335,7 +335,7 @@ def main() -> None:
         print(f"warning: {stats['divergences']} divergent transitions: raise target_accept "
               "or reparameterise (non-centred hierarchies)", flush=True)
     print("test: " + " ".join(f"{k}={v:.4f}" for k, v in metrics.items()), flush=True)
-    Path("metrics.json").write_text(json.dumps(metrics, indent=1))
+    Path("metrics.json").write_text(json.dumps(metrics, indent=1), encoding="utf-8")
     SAMPLES_DIR.mkdir(exist_ok=True)
     header = f"{'variable':<22}{'mean':>10}{'sd':>9}{'3%':>10}{'97%':>10}{'ess':>8}{'r_hat':>8}"
     lines = ["Posterior summary", header]
@@ -346,15 +346,15 @@ def main() -> None:
                      f"{r.get('ess_bulk', float('nan')):>8.0f}{r.get('r_hat', float('nan')):>8.3f}")
     if "truth" in STATE:
         lines += ["", "True values used to generate the data: " + json.dumps(STATE["truth"])]
-    (SAMPLES_DIR / "report.txt").write_text("\n".join(lines) + "\n")
-    Path("summary.json").write_text(json.dumps(rows, indent=1))
+    (SAMPLES_DIR / "report.txt").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    Path("summary.json").write_text(json.dumps(rows, indent=1), encoding="utf-8")
     if SAMPLER["method"] != "map":
         posterior_grid(draws).save(SAMPLES_DIR / "posterior.png")
         trace_plot(draws).save(SAMPLES_DIR / "trace.png")
     keep = points(draws, 1000)
     np.savez_compressed(DRAWS_FILE, **{k: np.stack([p[k] for p in keep])[None]
                                        for k in draws})
-    Path(STATE_FILE).write_text(json.dumps({k: v for k, v in STATE.items() if k != "truth"}))
+    Path(STATE_FILE).write_text(json.dumps({k: v for k, v in STATE.items() if k != "truth"}), encoding="utf-8")
     print(f"saved posterior draws to {DRAWS_FILE} and a report to {SAMPLES_DIR}/")
 
 

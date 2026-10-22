@@ -92,7 +92,7 @@ def import_model(kind: str, *, source: str, attr: str = "", input_shape: list[in
            "KERAS_BACKEND": os.environ.get("KERAS_BACKEND", "torch")}
     with tempfile.TemporaryDirectory(prefix="aime_import_") as tmp:
         req = Path(tmp) / "request.json"
-        req.write_text(json.dumps(request))
+        req.write_text(json.dumps(request), encoding="utf-8")
         try:
             from ai_made_easy.core.runner.manager import python_executable
 

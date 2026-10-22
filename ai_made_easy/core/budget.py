@@ -85,7 +85,7 @@ def devices() -> dict[str, Device]:
     path = user_devices_path()
     if path.is_file():
         try:
-            for row in json.loads(path.read_text()):
+            for row in json.loads(path.read_text(encoding="utf-8")):
                 out[row["id"]] = Device(**row)
         except (ValueError, TypeError, KeyError):
             pass  # a broken user file never hides the built-ins
@@ -94,7 +94,7 @@ def devices() -> dict[str, Device]:
 
 @lru_cache(maxsize=1)
 def _builtin_devices() -> dict[str, Device]:
-    rows = json.loads((Path(__file__).with_name("devices.json")).read_text())
+    rows = json.loads((Path(__file__).with_name("devices.json")).read_text(encoding="utf-8"))
     return {r["id"]: Device(**r) for r in rows}
 
 
@@ -107,9 +107,9 @@ def get_device(device_id: str) -> Device:
 
 def save_user_device(device: Device) -> None:
     path = user_devices_path()
-    rows = json.loads(path.read_text()) if path.is_file() else []
+    rows = json.loads(path.read_text(encoding="utf-8")) if path.is_file() else []
     rows = [r for r in rows if r.get("id") != device.id] + [device.to_dict()]
-    path.write_text(json.dumps(rows, indent=1) + "\n")
+    path.write_text(json.dumps(rows, indent=1) + "\n", encoding="utf-8")
 
 
 # ------------------------------------------------------------------ settings

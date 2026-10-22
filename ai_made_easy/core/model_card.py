@@ -15,7 +15,7 @@ def read_artifact(workdir: Path | None, name: str, default=None):
     if workdir is None:
         return default
     try:
-        return json.loads((Path(workdir) / name).read_text())
+        return json.loads((Path(workdir) / name).read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return default
 

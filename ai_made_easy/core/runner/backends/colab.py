@@ -156,7 +156,7 @@ class ColabBackend(RemoteBackend):
             self.check_budget(run)
             if drive is None:
                 path = run.workdir / f"{run.run_id}_colab.ipynb"
-                path.write_text(json.dumps(notebook(run, self.gpu, None), indent=1))
+                path.write_text(json.dumps(notebook(run, self.gpu, None), indent=1), encoding="utf-8")
                 run.remote_url = str(path)
                 self.note(run, f"notebook saved: {path}. Upload it at "
                                "https://colab.research.google.com (File → Upload notebook), "
@@ -165,10 +165,10 @@ class ColabBackend(RemoteBackend):
                 folder = drive / APP_FOLDER / "runs" / run.run_id
                 folder.mkdir(parents=True, exist_ok=True)
                 (folder / "bundle.tar.gz").write_bytes(run.bundle.tar_bytes())
-                (folder / LAUNCHER_NAME).write_text(run.bundle.launcher())
+                (folder / LAUNCHER_NAME).write_text(run.bundle.launcher(), encoding="utf-8")
                 book = drive / APP_FOLDER / f"{run.run_id}.ipynb"
                 remote_dir = f"{COLAB_DRIVE}/{APP_FOLDER}/runs/{run.run_id}"
-                book.write_text(json.dumps(notebook(run, self.gpu, remote_dir), indent=1))
+                book.write_text(json.dumps(notebook(run, self.gpu, remote_dir), indent=1), encoding="utf-8")
                 run.remote_dir = str(folder)
                 run.remote_url = str(book)
                 self.note(run, f"notebook in Google Drive: {APP_FOLDER}/{run.run_id}.ipynb — "
@@ -204,7 +204,7 @@ class ColabBackend(RemoteBackend):
                                    f"{file_id}")
             finished = exit_file.exists()
             if events.exists():
-                lines = events.read_text(errors="replace").split("\n")
+                lines = events.read_text(errors="replace", encoding="utf-8").split("\n")
                 complete = lines[:-1]  # the last piece may still be syncing
                 for line in complete[run.remote_offset:]:
                     self.feed(run, line)
@@ -217,7 +217,7 @@ class ColabBackend(RemoteBackend):
                         shutil.copytree(item, target, dirs_exist_ok=True)
                     else:
                         shutil.copy2(item, target)
-                code = exit_file.read_text().strip()
+                code = exit_file.read_text(encoding="utf-8").strip()
                 self.finish(run, int(code) if code.lstrip("-").isdigit() else 1)
                 return
             time.sleep(self.poll)

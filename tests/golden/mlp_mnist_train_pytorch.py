@@ -316,11 +316,11 @@ def dump_test_results(model: nn.Module, loader: DataLoader, device: torch.device
         true = targets[i].tolist() if np.ndim(targets[i]) else int(targets[i])
         items.append({"index": i, "true": true,
                       "probs": [round(float(v), 4) for v in probs[i]], "file": file})
-    Path("predictions.json").write_text(json.dumps(items, indent=1))
+    Path("predictions.json").write_text(json.dumps(items, indent=1), encoding="utf-8")
     mistakes = [it for it in items if int(np.argmax(it["probs"])) != it["true"]]
-    Path("mistakes.json").write_text(json.dumps(mistakes[:50], indent=1))
+    Path("mistakes.json").write_text(json.dumps(mistakes[:50], indent=1), encoding="utf-8")
     if CLASS_NAMES:
-        Path("classes.json").write_text(json.dumps(list(CLASS_NAMES)))
+        Path("classes.json").write_text(json.dumps(list(CLASS_NAMES)), encoding="utf-8")
     print(f"saved predictions.json ({len(items)} examples)")
 
 
@@ -549,7 +549,7 @@ def main() -> None:
     print("test: " + " ".join(f"{k}={v:.4f}" for k, v in report.items()))
     final = {**report, **test_metrics, **{f"cv_{m}": v for m, v in cv.items()}}
     Path("metrics.json").write_text(json.dumps(
-        {k: v for k, v in final.items() if isinstance(v, (float, list))}, indent=1))
+        {k: v for k, v in final.items() if isinstance(v, (float, list))}, indent=1), encoding="utf-8")
     try:
         dump_test_results(model, test_loader, device)
     except Exception as exc:  # noqa: BLE001 — artefacts are optional
