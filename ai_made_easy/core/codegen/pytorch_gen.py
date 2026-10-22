@@ -24,7 +24,7 @@ import torch.nn.functional as F
 
 
 class {{ class_name }}(nn.Module):
-    """{{ graph_name }}: (batch, {{ input_dims }}) -> (batch, {{ output_dims }})."""
+    r"""{{ graph_name }}: (batch, {{ input_dims }}) -> (batch, {{ output_dims }})."""
 
     def __init__(self) -> None:
         super().__init__()
