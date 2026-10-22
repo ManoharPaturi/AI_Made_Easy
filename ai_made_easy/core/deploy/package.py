@@ -422,7 +422,7 @@ def build_package(run_dir: Path | str, out_dir: Path | str, *, formats: tuple[st
         from ai_made_easy.core.runner.manager import python_executable
 
         proc = subprocess.run([python or python_executable(), "export_formats.py"], cwd=out_dir,
-                              capture_output=True, text=True, timeout=timeout, env=run_env)
+                              capture_output=True, encoding="utf-8", errors="replace", timeout=timeout, env=run_env)
         result.log = proc.stdout + proc.stderr
         if "EXPORT-DONE" not in proc.stdout:
             raise DeployError("the packaged model could not be loaded:\n" + result.log[-3000:])

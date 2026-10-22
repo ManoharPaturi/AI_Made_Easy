@@ -77,7 +77,7 @@ def main(argv: list[str]) -> int:
         write(json.dumps({"type": "log", "line": "installing requirements …"}))
         try:
             pip = subprocess.run([sys.executable, "-m", "pip", "install", "-q", "-r", reqs],
-                                 capture_output=True, text=True, timeout=PIP_TIMEOUT)
+                                 capture_output=True, encoding="utf-8", errors="replace", timeout=PIP_TIMEOUT)
             failed = pip.stderr[-2000:] if pip.returncode else ""
         except subprocess.TimeoutExpired:
             failed = f"pip install took longer than {PIP_TIMEOUT // 60} minutes; training anyway"
@@ -86,7 +86,7 @@ def main(argv: list[str]) -> int:
 
     proc = subprocess.Popen([sys.executable, "-u", meta["worker"], meta["script"]],
                             cwd=run_dir, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                            text=True, bufsize=1)
+                            encoding="utf-8", errors="replace", bufsize=1)
     with open(os.path.join(run_dir, "pid"), "w", encoding="utf-8") as fh:
         fh.write(str(proc.pid))
 

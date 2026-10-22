@@ -88,7 +88,7 @@ def run_preview(script: str, cfg: dict, out: Path, python: str | None, timeout: 
         from ai_made_easy.core.runner.manager import python_executable
 
         proc = subprocess.run([python or python_executable(), str(out / "preview.py"),
-                               str(out / "preview.json")], capture_output=True, text=True,
+                               str(out / "preview.json")], capture_output=True, encoding="utf-8", errors="replace",
                               timeout=timeout, env=env)
     except subprocess.TimeoutExpired as exc:
         raise PreviewError(f"the preview took longer than {timeout:.0f}s") from exc

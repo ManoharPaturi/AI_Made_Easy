@@ -193,7 +193,7 @@ def test_all_samples_validate():
         assert graph.meta.get("description"), f"{path.name} lacks description"
 
 
-def test_canvas_exports_png():
+def test_canvas_exports_png(tmp_path):
     """Isolated subprocess: Qt scene rendering doesn't play nice with the
     torch/MCP state accumulated earlier in the pytest process."""
     code = (
@@ -210,7 +210,7 @@ def test_canvas_exports_png():
         "    print('done', path, error)\n"
         "    app.quit()\n"
         "QtCore.QTimer.singleShot(600, lambda: canvas.export_canvas_png(\n"
-        "    '/tmp/aime_canvas_export_test.png', on_done=done))\n"
+        f"    {str(tmp_path / 'canvas.png')!r}, on_done=done))\n"
         "QtCore.QTimer.singleShot(10000, app.quit)\n"
         "app.exec()\n"
     )
@@ -218,7 +218,7 @@ def test_canvas_exports_png():
                             capture_output=True, text=True, timeout=120,
                             env={**os.environ, "PYTHONPATH": str(SAMPLES.parent.parent)})
     assert result.returncode == 0, result.stderr[-500:]
-    out = Path("/tmp/aime_canvas_export_test.png")
+    out = tmp_path / "canvas.png"
     assert out.exists() and out.stat().st_size > 10_000  # real image, not blank
 
 

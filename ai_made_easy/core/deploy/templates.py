@@ -234,9 +234,9 @@ def samples() -> "exporters.Samples":
 def tensorflow_backend(formats: list) -> None:
     """LiteRT int8 (and LiteRT without litert-torch) need Keras on TensorFlow: rerun
     those formats in a TensorFlow-backend process, which reads the same .keras file."""
-    env = {{**os.environ, "KERAS_BACKEND": "tensorflow"}}
+    env = {{**os.environ, "KERAS_BACKEND": "tensorflow", "PYTHONIOENCODING": "utf-8"}}
     proc = subprocess.run([sys.executable, __file__, *formats], cwd=HERE, env=env,
-                          capture_output=True, text=True)
+                          capture_output=True, encoding="utf-8", errors="replace")
     print(proc.stdout.replace("EXPORT-DONE", "").rstrip())
     if REPORT.exists():
         report["formats"].update(json.loads(REPORT.read_text(encoding="utf-8")).get("formats", {{}}))

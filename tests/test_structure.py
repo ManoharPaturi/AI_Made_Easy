@@ -121,6 +121,7 @@ def test_run_store_single_writer_state_machine():
 # ------------------------------------------------------- workbench smoke
 
 WORKBENCH_SMOKE = """
+import os
 import sys
 from ai_made_easy.ui.app import _ensure_qt_plugin_path
 _ensure_qt_plugin_path()
@@ -143,7 +144,7 @@ def check():
     assert ctx.validation_store.valid, [str(i) for i in ctx.validation_store.issues]
     assert ctx.canvas.node_graph.all_nodes(), "demo project should be loaded"
     assert not ctx.project_store.dirty, "opening a project must not mark it dirty"
-    ok = win.grab().save("/tmp/aime_workbench_smoke.png")
+    ok = win.grab().save(os.environ["AIME_SMOKE_PNG"])
     assert ok
     print("SMOKE-OK", flush=True)
     ctx.project_store.mark_clean()
@@ -154,16 +155,17 @@ app.exec()
 """
 
 
-def test_workbench_smoke():
+def test_workbench_smoke(tmp_path):
     """Isolated subprocess: full context + phased shell build + render."""
     pytest.importorskip("PySide6")
     result = subprocess.run(
         [sys.executable, "-c", WORKBENCH_SMOKE],
         cwd=str(Path(__file__).parent.parent),
         capture_output=True, text=True, timeout=180,
-        env={**os.environ, "PYTHONPATH": str(Path(__file__).parent.parent)})
+        env={**os.environ, "PYTHONPATH": str(Path(__file__).parent.parent),
+             "AIME_SMOKE_PNG": str(tmp_path / "smoke.png")})
     assert "SMOKE-OK" in result.stdout, result.stdout[-800:] + result.stderr[-800:]
-    assert Path("/tmp/aime_workbench_smoke.png").stat().st_size > 50_000
+    assert (tmp_path / "smoke.png").stat().st_size > 50_000
 
 
 def test_workbench_is_layout_only():

@@ -39,6 +39,9 @@ def fake_ssh(tmp_path, monkeypatch):
     """ssh to any host lands here; the "remote" python3 is this interpreter."""
     import os
 
+    if os.name == "nt":
+        pytest.skip("the fake SSH host runs POSIX shell scripts (real hosts are Linux)")
+
     bin_dir = tmp_path / "remote-bin"
     bin_dir.mkdir()
     (bin_dir / "python3").write_text(f'#!/bin/sh\nexec "{sys.executable}" "$@"\n')

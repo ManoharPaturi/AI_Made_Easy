@@ -100,7 +100,7 @@ class LocalBackend(Backend):
         proc = subprocess.Popen(
             [python, str(worker_script_path()), str(run.script_path)],
             cwd=str(run.workdir), stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-            text=True, bufsize=1)
+            encoding="utf-8", errors="replace", bufsize=1)
         run.process = proc
         if run.history is not None:
             run.history.update(run.run_id, pid=proc.pid)

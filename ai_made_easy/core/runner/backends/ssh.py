@@ -229,7 +229,7 @@ class SSHBackend(RemoteBackend):
         while code is None:
             command = f"{shlex.quote(self.python)} - {self._dir(run.run_id)} {run.remote_offset}"
             proc = subprocess.Popen(self._argv(command), stdin=subprocess.PIPE,
-                                    stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                                    stdout=subprocess.PIPE, stderr=subprocess.PIPE, encoding="utf-8", errors="replace",
                                     bufsize=1)
             run.process = proc
             assert proc.stdin is not None and proc.stdout is not None
