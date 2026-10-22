@@ -204,6 +204,9 @@ export function CompareTable({ data }: { data: Record<string, unknown> }) {
   for (const [k, v] of Object.entries((data.final_metrics ?? {}) as Record<string, unknown[]>)) rows.push(["metric", k, v]);
   for (const [k, v] of Object.entries((data.params ?? {}) as Record<string, unknown[]>)) rows.push(["parameter", k, v]);
   rows.push(["run", "data", (data.data as string[]).map((d) => d || "—")]);
+  const design = data.design as ({ summary: string } | null)[] | undefined;
+  if (design && design.length > 1)
+    rows.push(["run", "design vs the first", design.map((d, i) => (i === 0 ? "—" : d ? d.summary : "not saved"))]);
   return (
     <>
       <h3>Comparison {data.same_data === false && <span className="sev-warning">— trained on different data</span>}</h3>

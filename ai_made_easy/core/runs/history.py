@@ -327,4 +327,17 @@ def compare(records: list[RunRecord]) -> dict[str, Any]:
         "duration": [r.duration for r in records],
         "data": [r.data_fingerprint for r in records],
         "same_data": len({r.data_fingerprint for r in records}) <= 1,
+        "design": _design_changes(records),
     }
+
+
+def _design_changes(records: list[RunRecord]) -> list[dict | None]:
+    """Each run's design compared with the first run's (3.6): None for the first, and for
+    runs without a saved design."""
+    from ai_made_easy.core.diff import diff
+
+    first = records[0].graph if records else {}
+    out: list[dict | None] = [None]
+    for r in records[1:]:
+        out.append(diff(first, r.graph) if first and r.graph else None)
+    return out

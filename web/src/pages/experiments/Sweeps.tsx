@@ -1,11 +1,12 @@
-// Sweeps and AutoML on the Experiments page: start a sweep, trials, the Pareto front.
+// Sweeps and AutoML on the Experiments page: start a sweep, trials, the Pareto front, and
+// (3.6) which settings mattered: parameter importance and a parallel-coordinates chart.
 import { useCallback, useEffect, useState } from "react";
 
 import { api } from "../../api";
 import { metric, Modal, StatusChip } from "../../components/Modal";
 import { useStore } from "../../state";
 import { RunOnSelect, useRunOn } from "../../components/Backends";
-import type { SweepParam, SweepRecord, SweepTrial } from "../../types";
+import type { SweepAnalysis, SweepAxis, SweepParam, SweepRecord, SweepTrial } from "../../types";
 
 
 export function SweepModal({ onClose, onStarted }: { onClose: () => void; onStarted: () => void }) {
@@ -128,6 +129,103 @@ export function ParetoChart({ sweep, front }: { sweep: SweepRecord; front: Set<n
   );
 }
 
+/** Where a value sits on its axis, 0 (bottom) to 1 (top). */
+function axisPos(axis: SweepAxis, v: unknown): number | null {
+  if (axis.kind === "choice") {
+    const n = axis.choices?.length ?? 0;
+    const i = axis.choices?.indexOf(String(v)) ?? -1;
+    return i < 0 ? null : n > 1 ? i / (n - 1) : 0.5;
+  }
+  if (typeof v !== "number") return null;
+  const [lo, hi] = [axis.min ?? 0, axis.max ?? 1];
+  if (hi === lo) return 0.5;
+  return axis.log ? Math.log(v / lo) / Math.log(hi / lo) : (v - lo) / (hi - lo);
+}
+
+const tick = (v: number | undefined) => (v === undefined ? "" : metric(v) === "—" ? String(v) : metric(v));
+
+export function ParallelChart({ analysis }: { analysis: SweepAnalysis }) {
+  const axes: (SweepAxis & { score?: boolean })[] = [
+    ...analysis.axes,
+    { key: "__score", label: analysis.metric, kind: "number", min: analysis.score_axis?.min,
+      max: analysis.score_axis?.max, score: true }];
+  if (!analysis.rows.length || axes.length < 2) return null;
+  const W = Math.max(420, axes.length * 130), H = 230, top = 28, bottom = 30;
+  const x = (i: number) => 50 + (i * (W - 100)) / (axes.length - 1);
+  const y = (p: number) => top + (1 - p) * (H - top - bottom);
+  const { min = 0, max = 1 } = analysis.score_axis ?? {};
+  const goodness = (s: number) => {          // 1 = the best score, 0 = the worst
+    const t = max === min ? 1 : (s - min) / (max - min);
+    return analysis.direction === "min" ? 1 - t : t;
+  };
+  const rows = [...analysis.rows].sort((a, b) => goodness(a.score) - goodness(b.score));
+  return (
+    <div style={{ overflowX: "auto" }}>
+      <svg width={W} height={H} data-testid="parallel-chart" role="img"
+           aria-label={`Parallel coordinates of ${analysis.rows.length} trials`}>
+        {rows.map((r) => {
+          const pts = axes.map((a, i) => {
+            const p = axisPos(a, a.score ? r.score : r.values[a.key]);
+            return p === null ? null : `${x(i)},${y(p)}`;
+          });
+          // AutoML trials of different recipes have different settings: skip the missing ones
+          const present = pts.filter((p): p is string => p !== null);
+          if (present.length < 2) return null;
+          const g = goodness(r.score);
+          return (
+            <polyline key={r.number} points={present.join(" ")} fill="none"
+                      stroke={r.best ? "var(--accent)" : "var(--text-muted)"}
+                      strokeOpacity={r.best ? 1 : 0.2 + 0.6 * g} strokeWidth={r.best ? 3 : 1.5}>
+              <title>{`#${r.number}: ${analysis.metric} ${metric(r.score)}`}</title>
+            </polyline>);
+        })}
+        {axes.map((a, i) => (
+          <g key={a.key}>
+            <line x1={x(i)} x2={x(i)} y1={top} y2={H - bottom} stroke="var(--border)" />
+            <text x={x(i)} y={14} textAnchor="middle" fontSize="11" fill="var(--text)">{a.label}</text>
+            {a.kind === "choice"
+              ? a.choices?.map((c, j) => (
+                <text key={c} x={x(i) + 4} y={y((a.choices!.length > 1 ? j / (a.choices!.length - 1) : 0.5)) + 3}
+                      fontSize="10" fill="var(--text-dim)">{c}</text>))
+              : <>
+                  <text x={x(i) + 4} y={y(1) + 3} fontSize="10" fill="var(--text-dim)">{tick(a.max)}</text>
+                  <text x={x(i) + 4} y={y(0) + 3} fontSize="10" fill="var(--text-dim)">{tick(a.min)}{a.log ? " (log)" : ""}</text>
+                </>}
+          </g>))}
+      </svg>
+    </div>);
+}
+
+export function ImportanceBars({ analysis }: { analysis: SweepAnalysis }) {
+  return (
+    <div data-testid="importance">
+      {analysis.importance.map((p) => (
+        <div key={p.key} className="try-bar" title={`explains ${(p.explained * 100).toFixed(0)}% of the score's spread on its own`}>
+          <span>{p.label}</span>
+          <span className="bar"><span style={{ width: `${Math.max(1, p.importance * 100)}%` }} /></span>
+          <span className="num">{(p.importance * 100).toFixed(0)}%</span>
+          {p.trend && <span className="muted" style={{ gridColumn: "1 / -1", fontSize: 11 }}>{p.trend}</span>}
+        </div>))}
+      {analysis.note && <p className="muted">{analysis.note}</p>}
+    </div>);
+}
+
+function SweepInsights({ sweepId, trials }: { sweepId: string; trials: number }) {
+  const [analysis, setAnalysis] = useState<SweepAnalysis | null>(null);
+  useEffect(() => {
+    api.sweepAnalysis(sweepId).then(setAnalysis).catch(() => setAnalysis(null));
+  }, [sweepId, trials]);
+  if (!analysis || !analysis.rows.length) return null;
+  return (
+    <div data-testid="sweep-insights">
+      <h3>Which settings mattered</h3>
+      <p className="dim">Each line is a finished trial, from its settings to its {analysis.metric}
+        {" "}({analysis.direction === "min" ? "lower" : "higher"} is better); the best is highlighted.</p>
+      <ParallelChart analysis={analysis} />
+      <ImportanceBars analysis={analysis} />
+    </div>);
+}
+
 export function Sweeps() {
   const { load, notify } = useStore();
   const [sweeps, setSweeps] = useState<SweepRecord[]>([]);
@@ -192,6 +290,8 @@ export function Sweeps() {
                 {" "}{sweep.spec.objectives.join(" and ")} (estimated on {sweep.spec.device}).</p>
               <ParetoChart sweep={sweep} front={front} />
             </>)}
+          <SweepInsights sweepId={sweep.sweep_id}
+            trials={sweep.trials.filter((t) => t.state === "finished").length} />
           <table>
             <thead><tr><th>#</th><th>State</th><th>Values</th><th className="num">Score</th>
               {!!sweep.spec.objectives?.length && <th>Costs</th>}<th>Run</th></tr></thead>
