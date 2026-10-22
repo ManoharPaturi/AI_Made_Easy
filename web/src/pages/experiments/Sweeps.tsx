@@ -201,10 +201,9 @@ export function ImportanceBars({ analysis }: { analysis: SweepAnalysis }) {
     <div data-testid="importance">
       {analysis.importance.map((p) => (
         <div key={p.key} className="try-bar" title={`explains ${(p.explained * 100).toFixed(0)}% of the score's spread on its own`}>
-          <span>{p.label}</span>
+          <span>{p.label}{p.trend && <><br /><span className="muted" style={{ fontSize: 11 }}>{p.trend}</span></>}</span>
           <span className="bar"><span style={{ width: `${Math.max(1, p.importance * 100)}%` }} /></span>
           <span className="num">{(p.importance * 100).toFixed(0)}%</span>
-          {p.trend && <span className="muted" style={{ gridColumn: "1 / -1", fontSize: 11 }}>{p.trend}</span>}
         </div>))}
       {analysis.note && <p className="muted">{analysis.note}</p>}
     </div>);

@@ -57,7 +57,8 @@ def _numeric_trend(groups: dict[int, list[float]], spans: dict[int, list[float]]
         return "lower values scored better"
     if best == order[-1]:
         return "higher values scored better"
-    return f"best between {min(spans[best]):.3g} and {max(spans[best]):.3g}"
+    low, high = min(spans[best]), max(spans[best])
+    return f"best at {low:.3g}" if low == high else f"best between {low:.3g} and {high:.3g}"
 
 
 def analyze(record: Any) -> dict:

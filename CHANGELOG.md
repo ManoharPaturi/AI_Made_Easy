@@ -1,5 +1,49 @@
 # Changelog
 
+## 3.6.0
+
+Try a model on a whole file, see which settings mattered in a sweep, and 41 more blocks.
+716 blocks, 68 recipes. See [docs/ROADMAP_3.6.md](docs/ROADMAP_3.6.md) for what is in
+this release and what is still open.
+
+### Added
+- **Try it on a whole file** (both apps; `POST /api/runs/{id}/try/file`): a CSV table, a
+  CSV of numbers, a text file, or a zip of images or WAV clips comes back as a CSV of
+  predictions (up to 10,000 inputs), computed on this machine.
+- **Grad-CAM in Try it:** an image classifier's prediction can come with a heatmap of
+  where it looked. It is computed from the loaded network, so runs trained before 3.6
+  explain too.
+- **Which settings mattered** (sweeps and AutoML, both apps; `GET
+  /api/sweeps/{id}/analysis`): a parallel-coordinates chart of the finished trials and
+  each setting's importance, with where the best scores were.
+- **Comparing runs** lists each run's design changes against the first run.
+- **The blocks 3.5 left open:** a Gaussian head (mean and variance, trained with the
+  Gaussian negative log-likelihood), a multi-label hinge loss, labelled triplets for the
+  Triplet loss, and L-BFGS.
+- **11 more layers**, PyTorch and Keras: ResNet basic and bottleneck blocks, MBConv,
+  CBAM, DenseNet's dense block, CoordConv2D, a Kolmogorov-Arnold (KAN) layer, Highway,
+  Maxout, Sparsemax and Snake.
+- **Training:** the AdaBelief, Adan and AdEMAMix optimizers; inverse-square-root and
+  warmup-stable-decay schedules; quantile (pinball) and Tweedie losses.
+- **Metrics:** Brier score, Hamming loss, Jaccard index, Pearson and Spearman
+  correlation, max error and mean squared log error, in neural and classic pipelines.
+- **Augmentation:** random JPEG quality, elastic transform, random channel permutation,
+  Gaussian noise.
+- **scikit-learn:** Gaussian process classifier and regressor, radius-neighbours
+  classifier and regressor, Gamma regression; random trees embedding, dictionary
+  learning and mini-batch NMF.
+
+### Changed
+- Family trainers (forecasting, vision tasks, …) refuse SAM and L-BFGS with a clear
+  message instead of failing during training.
+- The `vision` extra needs torchvision 0.21.
+- Minor dependency updates (fastapi, transformers, React, Vite, Playwright).
+
+### Fixed
+- Try it: loading one run's model no longer makes predictions from other runs wait.
+- Elastic Transform with a sigma too large for the images is a design error that says
+  which value fits, instead of a crash during training.
+
 ## 3.5.0
 
 Try a trained model, see what it attended to, and 86 more blocks from the libraries you
