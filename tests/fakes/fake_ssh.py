@@ -20,7 +20,7 @@ os.makedirs(home, exist_ok=True)
 env = dict(os.environ, HOME=home)
 drop = os.environ.get("FAKE_SSH_DROP")
 if drop and " - " in command and not os.path.exists(drop):
-    open(drop, "w").close()
+    open(drop, "w", encoding="utf-8").close()
     proc = subprocess.Popen(["sh", "-c", command], cwd=home, env=env, stdin=sys.stdin,
                             stdout=subprocess.PIPE, text=True)
     for number, line in enumerate(proc.stdout):

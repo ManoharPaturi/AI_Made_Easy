@@ -118,6 +118,8 @@ def test_mcp_impl_functions():
 def test_mcp_stdio_round_trip():
     """Real MCP client over stdio: list tools, call list_blocks + validate."""
     pytest.importorskip("mcp", reason="mcp SDK not installed")
+    if sys.platform == "win32":    # 3.7 CI: the SDK's stdio client crashed the test worker
+        pytest.skip("MCP stdio client crashes the pytest worker on Windows (open in 3.7)")
     import anyio
 
     from mcp import ClientSession, StdioServerParameters
@@ -143,7 +145,7 @@ def test_mcp_stdio_round_trip():
                 payload = json.loads(result.content[0].text)
                 assert payload["count"] == 8
 
-                graph = json.loads((SAMPLES / "mlp_mnist.json").read_text())
+                graph = json.loads((SAMPLES / "mlp_mnist.json").read_text(encoding="utf-8"))
                 result = await session.call_tool(
                     "validate_graph", {"graph": graph})
                 assert json.loads(result.content[0].text)["valid"] is True
@@ -187,7 +189,7 @@ def test_all_samples_validate():
     samples = sorted((SAMPLES).glob("*.json"))
     assert len(samples) >= 9
     for path in samples:
-        graph = Graph.from_dict(_json.loads(path.read_text()))
+        graph = Graph.from_dict(_json.loads(path.read_text(encoding="utf-8")))
         issues = [i for i in graph.validate() if i.severity == "error"]
         assert not issues, f"{path.name}: {issues}"
         assert graph.meta.get("description"), f"{path.name} lacks description"

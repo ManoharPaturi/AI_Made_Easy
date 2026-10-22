@@ -48,7 +48,7 @@ def test_user_devices(isolated_home):
     budget.save_user_device(mine)
     assert budget.get_device("lab_box") == mine
     assert "rtx_3060" in budget.devices()  # built-ins stay
-    budget.user_devices_path().write_text("not json")
+    budget.user_devices_path().write_text("not json", encoding="utf-8")
     assert "lab_box" not in budget.devices() and "t4" in budget.devices()
 
 
@@ -285,14 +285,14 @@ def test_cli_budget(tmp_path, capsys):
 
     path = tmp_path / "p.json"
     data = api.read_sample("mnist_cnn.json")
-    path.write_text(json.dumps(data))
+    path.write_text(json.dumps(data), encoding="utf-8")
     assert main(["budget", "--list"]) == 0
     assert "raspberry_pi_5" in capsys.readouterr().out
     assert main(["budget", str(path), "--device", "t4"]) == 0
     out = capsys.readouterr().out
     assert "forward FLOPs" in out and "NVIDIA T4" in out
     data["meta"] = {"budget": {"device": "t4", "max_params_m": 0.0001}}
-    path.write_text(json.dumps(data))
+    path.write_text(json.dumps(data), encoding="utf-8")
     assert main(["budget", str(path), "--json"]) == 1
     assert json.loads(capsys.readouterr().out)["checks"]
 

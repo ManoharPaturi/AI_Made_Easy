@@ -15,7 +15,7 @@ import subprocess
 import threading
 from typing import TYPE_CHECKING
 
-from ai_made_easy.core.runner.backends import BackendError, RemoteBackend
+from ai_made_easy.core.runner.backends import BackendError, RemoteBackend, split_command
 from ai_made_easy.core.runner.backends.bundle import LAUNCHER_NAME
 from ai_made_easy.core.runs.history import FINAL_STATES
 
@@ -32,7 +32,7 @@ def docker_command() -> list[str]:
     """The docker client (``$AIME_DOCKER`` overrides it, e.g. for tests or podman)."""
     override = os.environ.get("AIME_DOCKER")
     if override:
-        return shlex.split(override)
+        return split_command(override)
     found = shutil.which("docker") or shutil.which("podman")
     if not found:
         raise BackendError("no docker client found: install Docker Desktop (or podman)")

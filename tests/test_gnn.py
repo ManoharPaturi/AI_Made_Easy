@@ -81,8 +81,8 @@ def test_rules(tmp_path):
                                                                      {"out_channels": 4})],
                  [sbm])
     assert any("over-smooth" in m for m in messages(deep))
-    (tmp_path / "nodes.csv").write_text("id,a,b,label\n1,0.1,1,x\n2,0.2,0,y\n3,0.3,1,x\n")
-    (tmp_path / "edges.csv").write_text("source,target\n1,2\n")
+    (tmp_path / "nodes.csv").write_text("id,a,b,label\n1,0.1,1,x\n2,0.2,0,y\n3,0.3,1,x\n", encoding="utf-8")
+    (tmp_path / "edges.csv").write_text("source,target\n1,2\n", encoding="utf-8")
     csv = chain("2", [("graph.gcn", {"out_channels": 2})],
                 [n("data", "data.graph_csv", nodes_path=str(tmp_path / "nodes.csv"),
                    edges_path=str(tmp_path / "edges.csv"))])
@@ -144,7 +144,7 @@ def _sample(name: str, epochs: int) -> dict:
 @needs_pyg
 def test_node_classification_uses_the_graph(tmp_path):
     run, script = _run(_sample("graph_node_classification.json", 60), tmp_path)
-    metrics = json.loads((run / "metrics.json").read_text())
+    metrics = json.loads((run / "metrics.json").read_text(encoding="utf-8"))
     assert metrics["accuracy"] > 0.8                       # features alone give ~0.4
     out = _infer(run, script, [{"nodes": [0, 5]}, {"x": [[0.0] * 16] * 3,
                                                     "edges": [[0, 1], [1, 2]]}])
@@ -155,7 +155,7 @@ def test_node_classification_uses_the_graph(tmp_path):
 @needs_pyg
 def test_graph_classification_finds_motifs(tmp_path):
     run, script = _run(_sample("graph_classification_gin.json", 30), tmp_path)
-    metrics = json.loads((run / "metrics.json").read_text())
+    metrics = json.loads((run / "metrics.json").read_text(encoding="utf-8"))
     assert metrics["accuracy"] > 0.9 and metrics["baseline_accuracy"] < 0.45
     ring = {"x": [[0, 0, 1, 0, 0, 0, 0, 0]] * 6, "edges": [[i, (i + 1) % 6] for i in range(6)]}
     assert _infer(run, script, [ring])[0]["label"] in ("cycle", "house", "star")
@@ -169,7 +169,7 @@ def test_link_prediction(decoder, tmp_path):
         if node["type"] == "graph.link_decoder":
             node["params"]["decoder"] = decoder
     run, script = _run(data, tmp_path)
-    metrics = json.loads((run / "metrics.json").read_text())
+    metrics = json.loads((run / "metrics.json").read_text(encoding="utf-8"))
     assert metrics["roc_auc"] > 0.62                       # communities cap it near 0.76
     out = _infer(run, script, [{"pairs": [[0, 1], [2, 3]]}])
     assert all(0 <= p[2] <= 1 for p in out[0]["pairs"])
@@ -188,8 +188,8 @@ def test_topk_attention_pooling_and_csv(tmp_path):
         for j in range(i + 1, 120):
             if (i % 2 == j % 2 and rng.random() < 0.08) or rng.random() < 0.005:
                 edges.append(f"n{i},n{j}")
-    (tmp_path / "nodes.csv").write_text("id,f1,f2,label\n" + "\n".join(rows) + "\n")
-    (tmp_path / "edges.csv").write_text("source,target\n" + "\n".join(edges) + "\n")
+    (tmp_path / "nodes.csv").write_text("id,f1,f2,label\n" + "\n".join(rows) + "\n", encoding="utf-8")
+    (tmp_path / "edges.csv").write_text("source,target\n" + "\n".join(edges) + "\n", encoding="utf-8")
     data = chain("2", [("graph.gat", {"out_channels": 8, "heads": 2}), ("core.elu", {}),
                        ("graph.gat", {"out_channels": 2, "heads": 1, "concat": False})],
                  [n("data", "data.graph_csv", nodes_path=str(tmp_path / "nodes.csv"),
@@ -197,7 +197,7 @@ def test_topk_attention_pooling_and_csv(tmp_path):
                   n("opt", "train.adam", lr=0.01), n("tr", "train.trainer", epochs=60, batch_size=32)])
     assert Graph.from_dict(data).validate() == []
     run, _script = _run(data, tmp_path)
-    assert json.loads((run / "metrics.json").read_text())["accuracy"] > 0.75
+    assert json.loads((run / "metrics.json").read_text(encoding="utf-8"))["accuracy"] > 0.75
     pooled = chain("8", [("graph.graph_conv", {"out_channels": 32}), ("core.relu", {}),
                          ("graph.sag_pool", {"ratio": 0.7}), ("graph.sage", {"out_channels": 32}),
                          ("graph.attention_pool", {}), ("core.dense", {"units": 3})],
@@ -206,7 +206,7 @@ def test_topk_attention_pooling_and_csv(tmp_path):
     run2 = tmp_path / "pooled"
     run2.mkdir()
     run2, _ = _run(pooled, run2)
-    assert json.loads((run2 / "metrics.json").read_text())["accuracy"] > 0.5
+    assert json.loads((run2 / "metrics.json").read_text(encoding="utf-8"))["accuracy"] > 0.5
 
 
 @needs_pyg
@@ -225,7 +225,7 @@ def test_graph_run_deploys(tmp_path, isolated_home):
         assert mgr.history.epochs(run_id)
         result = build_package(mgr.history.path(run_id), tmp_path / "pkg")
         assert result.verified, result.log[-3000:]
-        meta = json.loads((tmp_path / "pkg/metadata.json").read_text())
+        meta = json.loads((tmp_path / "pkg/metadata.json").read_text(encoding="utf-8"))
         assert meta["task"] == "node_classification" and meta["input_kind"] == "graph"
     finally:
         api.set_manager(None)

@@ -302,11 +302,11 @@ def test_profiles(tmp_path):
     p = profile_dataset("data.synthetic_images", {**defaults("data.synthetic_images"),
                                                   "n_images": 60})
     assert len(p.classes) == 3 and "Input [1, 32, 32]" in p.details[0]
-    (tmp_path / "c.txt").write_text("hello world\n" * 20)
+    (tmp_path / "c.txt").write_text("hello world\n" * 20, encoding="utf-8")
     p = profile_dataset("data.text_corpus", {**defaults("data.text_corpus"), "path": "c.txt"},
                         tmp_path)
     assert p.rows == 240 and any("240 bytes" in f.message for f in p.findings)
-    (tmp_path / "p.csv").write_text("source,target\nabc,cba\nhello,olleh\n,x\n")
+    (tmp_path / "p.csv").write_text("source,target\nabc,cba\nhello,olleh\n,x\n", encoding="utf-8")
     p = profile_dataset("data.text_pairs", {**defaults("data.text_pairs"), "path": "p.csv"},
                         tmp_path)
     assert "max_target_len 6" in p.details[1]
@@ -321,7 +321,7 @@ def test_profiles(tmp_path):
 def _train(data: dict, tmp_path: Path) -> tuple[Path, str]:
     from ai_made_easy.core.training.generate import generate_training
 
-    (tmp_path / "train.py").write_text(generate_training(Graph.from_dict(data), "pytorch"))
+    (tmp_path / "train.py").write_text(generate_training(Graph.from_dict(data), "pytorch"), encoding="utf-8")
     proc = subprocess.run([sys.executable, "train.py"], cwd=tmp_path, capture_output=True,
                           text=True, timeout=900)
     assert proc.returncode == 0, proc.stdout[-2000:] + proc.stderr[-3000:]
@@ -351,7 +351,7 @@ def test_generative_kinds_train_and_serve(key, request_items, expect, tmp_path):
     from PIL import Image
 
     run, stdout = _train(CASES[key], tmp_path)
-    metrics = json.loads((run / "metrics.json").read_text())
+    metrics = json.loads((run / "metrics.json").read_text(encoding="utf-8"))
     assert set(expect[key]) <= set(metrics)
     live = [ln.split(" ", 1)[1] for ln in stdout.splitlines() if ln.startswith("samples: ")]
     assert live and (run / live[-1]).exists()
@@ -379,9 +379,9 @@ def test_worker_emits_sample_events(tmp_path):
     script.write_text(
         "from pathlib import Path\n"
         "Path('samples').mkdir()\n"
-        "Path('samples/epoch_002.txt').write_text('hello')\n"
+        "Path('samples/epoch_002.txt').write_text('hello', encoding='utf-8')\n"
         "print('samples: samples/epoch_002.txt')\n"
-        "print('samples: missing.png')\n")
+        "print('samples: missing.png')\n", encoding="utf-8")
     proc = subprocess.run([sys.executable, str(worker_script_path()), str(script)],
                           cwd=tmp_path, capture_output=True, text=True, timeout=60)
     events = [parse_event(line) for line in proc.stdout.splitlines()]
@@ -409,9 +409,9 @@ def test_generative_run_deploys_with_generate_route(tmp_path, isolated_home):
         assert samples["texts"] and samples["per_class_metric"] == ""
         result = build_package(mgr.history.path(run_id), tmp_path / "pkg")
         assert result.verified, result.log[-3000:]
-        meta = json.loads((tmp_path / "pkg/metadata.json").read_text())
+        meta = json.loads((tmp_path / "pkg/metadata.json").read_text(encoding="utf-8"))
         assert meta["task"] == "language_modeling" and meta["input_kind"] == "prompt"
-        assert "/generate" in (tmp_path / "pkg/README.md").read_text()
+        assert "/generate" in (tmp_path / "pkg/README.md").read_text(encoding="utf-8")
         sys.path.insert(0, str(tmp_path / "pkg"))
         try:
             import importlib
@@ -443,7 +443,7 @@ def test_class_conditional_diffusion_deploys(tmp_path, isolated_home):
     assert status["state"] == "finished", mgr.history.get(run_id).error[-2000:]
     result = build_package(mgr.history.path(run_id), tmp_path / "pkg")
     assert result.verified, result.log[-3000:]
-    meta = json.loads((tmp_path / "pkg/metadata.json").read_text())
+    meta = json.loads((tmp_path / "pkg/metadata.json").read_text(encoding="utf-8"))
     assert meta["input_kind"] == "generation"        # was described as an image classifier
     pytest.importorskip("fastapi")
     from fastapi.testclient import TestClient

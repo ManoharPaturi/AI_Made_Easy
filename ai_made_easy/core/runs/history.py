@@ -96,6 +96,20 @@ def lower_is_better(metric: str) -> bool:
                                 "hamming", "msle"))
 
 
+
+def remove_tree(path: Path, attempts: int = 10) -> None:
+    """``shutil.rmtree`` that waits out Windows' "file in use": a worker that has just
+    finished may still be closing its log or leaving its working folder."""
+    for attempt in range(attempts):
+        try:
+            shutil.rmtree(path)
+            return
+        except PermissionError:
+            if os.name != "nt" or attempt == attempts - 1:
+                raise
+            time.sleep(0.3)
+
+
 class RunHistory:
     """File-backed run records; safe to use from several threads."""
 
@@ -233,7 +247,7 @@ class RunHistory:
             path = self.path(run_id)
             if not (path / "run.json").exists():
                 raise KeyError(f"unknown run {run_id!r}")
-            shutil.rmtree(path)
+            remove_tree(path)
 
     def reset_epochs(self, run_id: str) -> None:
         """Forget recorded epochs (before replaying a remote run's events again)."""

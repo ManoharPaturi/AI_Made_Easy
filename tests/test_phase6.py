@@ -81,7 +81,7 @@ def test_missing_blocks_rejected():
 def test_samples_generate_valid_scripts(sample, workflow):
     import json
 
-    graph = Graph.from_dict(json.loads((SAMPLES / sample).read_text()))
+    graph = Graph.from_dict(json.loads((SAMPLES / sample).read_text(encoding="utf-8")))
     assert collect_llm_spec(graph).workflow == workflow
     code = generate_llm_script(graph)
     ast.parse(code)
@@ -151,7 +151,7 @@ def test_e2e_generation_with_tiny_model(tmp_path: Path):
         ("gn", "llm.generation", {"max_new_tokens": 8, "do_sample": False,
                                    "temperature": 0.7, "top_p": 0.9, "top_k": 50,
                                    "repetition_penalty": 1.0}),
-    ])))
+    ])), encoding="utf-8")
     result = subprocess.run([sys.executable, script.name, "Hello"], cwd=tmp_path,
                             capture_output=True, text=True, timeout=900)
     assert result.returncode == 0, result.stderr

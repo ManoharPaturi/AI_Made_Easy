@@ -70,7 +70,7 @@ def write_table(tmp: Path) -> Path:
         s = "" if np.isnan(size[i]) else f"{size[i]:.3f}"
         lines.append(f"{color[i]},{s},{weight[i]:.3f},{i},{label[i]}")
     path = tmp / "table.csv"
-    path.write_text("\n".join(lines))
+    path.write_text("\n".join(lines), encoding="utf-8")
     return path
 
 
@@ -83,7 +83,7 @@ def write_texts(tmp: Path) -> Path:
         rows.append(f"\"{rng.choice(pos)}! {rng.choice(pos)}\",pos")
         rows.append(f"\"{rng.choice(neg)}. {rng.choice(neg)}\",neg")
     path = tmp / "reviews.csv"
-    path.write_text("\n".join(rows))
+    path.write_text("\n".join(rows), encoding="utf-8")
     return path
 
 
@@ -93,7 +93,7 @@ def write_text_folder(tmp: Path) -> Path:
         (root / cls).mkdir(parents=True)
         for i in range(30):
             (root / cls / f"{i}.txt").write_text(" ".join(np.random.default_rng(i).permutation(
-                words.split())))
+                words.split())), encoding="utf-8")
     return root
 
 
@@ -120,7 +120,7 @@ def write_series(tmp: Path) -> Path:
     other = np.cos(t / 15)
     path = tmp / "series.csv"
     path.write_text("t,value,other\n" + "\n".join(
-        f"{i},{v:.5f},{o:.5f}" for i, v, o in zip(t, value, other, strict=True)))
+        f"{i},{v:.5f},{o:.5f}" for i, v, o in zip(t, value, other, strict=True)), encoding="utf-8")
     return path
 
 
@@ -152,7 +152,7 @@ def write_json(tmp: Path) -> Path:
     path = tmp / "records.jsonl"
     path.write_text("\n".join(json.dumps({"x": list(map(float, rng.normal(size=6) + k)),
                                           "y": int(k)})
-                              for k in rng.integers(0, 2, 100)))
+                              for k in rng.integers(0, 2, 100)), encoding="utf-8")
     return path
 
 
@@ -406,7 +406,7 @@ def run_scenario(sc: Scenario, framework: str, workdir: Path, verbose: bool = Fa
         raise AssertionError(f"{sc.name}: graph invalid: {issues}")
     code = generate_training(graph, framework)
     script = workdir / f"{sc.name}_{framework}.py"
-    script.write_text(code)
+    script.write_text(code, encoding="utf-8")
     env = {**os.environ, "KERAS_BACKEND": "torch", "PYTHONWARNINGS": "ignore"}
     proc = subprocess.run([sys.executable, script.name], cwd=workdir, capture_output=True,
                           text=True, timeout=600, env=env)

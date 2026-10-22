@@ -102,7 +102,7 @@ def test_rules():
 
 
 def test_data_type_rules(tmp_path):
-    (tmp_path / "d.csv").write_text("x,y\n" + "".join(f"{i},{i * 0.3 - 1}\n" for i in range(30)))
+    (tmp_path / "d.csv").write_text("x,y\n" + "".join(f"{i},{i * 0.3 - 1}\n" for i in range(30)), encoding="utf-8")
     data = {"name": "g", "nodes": [n("k", "gp.rbf"),
                                    n("gp", "gp.model", likelihood="poisson", kind="svgp"),
                                    n("data", "data.csv", path=str(tmp_path / "d.csv"))],
@@ -138,7 +138,7 @@ def _infer(folder: Path, script: Path, items: list) -> list:
 ])
 def test_regression_beats_the_baseline_with_calibrated_intervals(library, tmp_path):
     run, script = _run(trend_periodic(library), tmp_path)
-    metrics = json.loads((run / "metrics.json").read_text())
+    metrics = json.loads((run / "metrics.json").read_text(encoding="utf-8"))
     assert metrics["rmse"] < 0.3 * metrics["baseline_rmse"] and metrics["r2"] > 0.9
     assert metrics["coverage_95"] >= 0.85
     assert (run / "eval_samples" / "fit.png").exists()
@@ -150,7 +150,7 @@ def test_regression_beats_the_baseline_with_calibrated_intervals(library, tmp_pa
 @needs_gpytorch
 def test_sparse_variational_classification(tmp_path):
     run, script = _run(api.read_sample("gp_classification.json"), tmp_path)
-    metrics = json.loads((run / "metrics.json").read_text())
+    metrics = json.loads((run / "metrics.json").read_text(encoding="utf-8"))
     assert metrics["accuracy"] > metrics["baseline_accuracy"] + 0.2
     assert 0 <= _infer(run, script, [{"x1": 1.0, "x2": -1.0}])[0]["probability"] <= 1
 
@@ -172,7 +172,7 @@ def test_gp_run_deploys(tmp_path, isolated_home):
         assert mgr.history.epochs(run_id)                    # training-loss curve
         result = build_package(mgr.history.path(run_id), tmp_path / "pkg")
         assert result.verified, result.log[-3000:]
-        meta = json.loads((tmp_path / "pkg/metadata.json").read_text())
+        meta = json.loads((tmp_path / "pkg/metadata.json").read_text(encoding="utf-8"))
         assert meta["task"] == "gp_regression" and meta["input_kind"] == "records"
     finally:
         api.set_manager(None)

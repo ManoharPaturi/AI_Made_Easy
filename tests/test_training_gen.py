@@ -22,7 +22,7 @@ MLP = [("core.dense", {"units": 16}), ("core.relu", {}), ("core.dense", {"units"
 
 
 def load(name: str) -> Graph:
-    return Graph.from_dict(json.loads((SAMPLES / name).read_text()))
+    return Graph.from_dict(json.loads((SAMPLES / name).read_text(encoding="utf-8")))
 
 
 def test_spec_collects_config_blocks():
@@ -158,4 +158,4 @@ def test_training_script_actually_trains(tmp_path: Path):
     assert "epoch 2/2" in result.stdout and "f1=" in result.stdout
     assert (tmp_path / "tiny_best.pt").exists()
     assert (tmp_path / "predictions.json").exists()
-    assert json.loads((tmp_path / "metrics.json").read_text())["accuracy"] >= 0.0
+    assert json.loads((tmp_path / "metrics.json").read_text(encoding="utf-8"))["accuracy"] >= 0.0

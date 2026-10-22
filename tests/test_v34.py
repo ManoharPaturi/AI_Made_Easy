@@ -56,7 +56,7 @@ def test_shap_values_rank_the_informative_feature(tmp_path, monkeypatch):
                    ("eval.shap_values", {"background": 50, "max_samples": 80})])
     code = _run(graph, tmp_path, monkeypatch)
     assert "shap.GradientExplainer" in code and "import shap" in code
-    explained = json.loads((tmp_path / "explain.json").read_text())
+    explained = json.loads((tmp_path / "explain.json").read_text(encoding="utf-8"))
     assert explained["method"] == "shap" and explained["background"] == 50
     assert explained["features"][0]["name"] == "signal"
 
@@ -395,7 +395,7 @@ def _pairs_csv(path: Path, kind: str, n: int = 400) -> Path:
     cols = [f"f{i}" for i in range(4)]
     rows = ["," .join([*(f"a_{c}" for c in cols), *(f"b_{c}" for c in cols), "label"])]
     rows += [",".join([*map(str, a[i]), *map(str, b[i]), str(label[i])]) for i in range(n)]
-    path.write_text("\n".join(rows))
+    path.write_text("\n".join(rows), encoding="utf-8")
     return path
 
 
@@ -417,7 +417,7 @@ def test_labelled_pairs_train_an_encoder(loss, units, tmp_path, monkeypatch, cap
     out = capsys.readouterr().out
     accuracy = float(out.split("test:")[-1].split("accuracy=")[1].split()[0])
     assert accuracy > 0.8, out[-1500:]
-    classes = json.loads((tmp_path / "classes.json").read_text())
+    classes = json.loads((tmp_path / "classes.json").read_text(encoding="utf-8"))
     assert classes == (["b ranks higher", "a ranks higher"] if kind == "ranking"
                        else ["different", "same"])
 

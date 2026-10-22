@@ -207,7 +207,7 @@ def test_mc_dropout_calibration_and_conformal_sets(tmp_path):
         if node["type"] == "train.trainer":
             node["params"]["epochs"] = 12
     run, script = _run(data, tmp_path)
-    metrics = json.loads((run / "metrics.json").read_text())
+    metrics = json.loads((run / "metrics.json").read_text(encoding="utf-8"))
     assert metrics["accuracy"] > 0.8
     assert metrics["calibrated_nll"] <= metrics["nll"] + 0.01
     assert 0.8 <= metrics["conformal_coverage"] and 1 <= metrics["conformal_set_size"] < 2
@@ -226,7 +226,7 @@ def test_bayes_by_backprop_learns(tmp_path):
                   n("opt", "train.adam", lr=0.01),
                   n("tr", "train.trainer", epochs=25, batch_size=64)])
     run, script = _run(data, tmp_path)
-    assert json.loads((run / "metrics.json").read_text())["accuracy"] > 0.85
+    assert json.loads((run / "metrics.json").read_text(encoding="utf-8"))["accuracy"] > 0.85
     probs = _infer(run, script, [[0.5, 0.25]])[0]["probabilities"]
     assert sum(probs.values()) == pytest.approx(1.0, abs=1e-4)
 
@@ -240,7 +240,7 @@ def test_mixture_density_intervals(tmp_path):
                   n("tr", "train.trainer", epochs=30, batch_size=64),
                   n("c", "eval.conformal", alpha=0.1)])
     run, script = _run(data, tmp_path)
-    metrics = json.loads((run / "metrics.json").read_text())
+    metrics = json.loads((run / "metrics.json").read_text(encoding="utf-8"))
     assert 0.8 <= metrics["coverage_90"] <= 0.98           # the predicted spread is honest
     assert metrics["mean_std"] == pytest.approx(0.5, rel=0.4)
     assert metrics["conformal_coverage"] >= 0.8
@@ -264,7 +264,7 @@ def test_last_layer_laplace(kind, tmp_path):
                       n("lp", "bayes.laplace"), n("tr", "train.trainer", epochs=30,
                                                    batch_size=64)])
     run, script = _run(data, tmp_path)
-    metrics = json.loads((run / "metrics.json").read_text())
+    metrics = json.loads((run / "metrics.json").read_text(encoding="utf-8"))
     assert metrics["laplace_prior_precision"] > 0
     if kind == "classification":
         assert metrics["laplace_nll"] <= metrics["nll"] + 0.05

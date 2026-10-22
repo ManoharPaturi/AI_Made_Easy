@@ -102,11 +102,11 @@ def render() -> str:
 def main() -> int:
     text = render()
     if "--check" in sys.argv:
-        if OUT.read_text() != text:
+        if OUT.read_text(encoding="utf-8") != text:
             print("docs/DEPLOY.md is out of date: python scripts/gen_deploy.py")
             return 1
         return 0
-    OUT.write_text(text)
+    OUT.write_text(text, encoding="utf-8")
     return 0
 
 

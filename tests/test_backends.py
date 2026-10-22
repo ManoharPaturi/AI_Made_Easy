@@ -44,7 +44,7 @@ def fake_ssh(tmp_path, monkeypatch):
 
     bin_dir = tmp_path / "remote-bin"
     bin_dir.mkdir()
-    (bin_dir / "python3").write_text(f'#!/bin/sh\nexec "{sys.executable}" "$@"\n')
+    (bin_dir / "python3").write_text(f'#!/bin/sh\nexec "{sys.executable}" "$@"\n', encoding="utf-8")
     (bin_dir / "python3").chmod(0o755)
     monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ['PATH']}")
     monkeypatch.setenv("AIME_SSH", f"{sys.executable} {FAKES / 'fake_ssh.py'}")
@@ -104,7 +104,7 @@ def test_resolve_kinds_and_saved_backends(isolated_home):
                                                                "/opt/venv/bin/python")
     names = [b["name"] for b in backends.listing()]
     assert names[:2] == ["local", "box"] and {"kaggle", "colab", "modal"} <= set(names)
-    stored = (isolated_home / "backends.json").read_text()
+    stored = (isolated_home / "backends.json").read_text(encoding="utf-8")
     assert "secret" not in stored
     backends.remove("box")
     assert backends.saved() == []
@@ -128,7 +128,7 @@ def test_bundle_relocates_local_data(tmp_path, isolated_home):
     run_dir = tmp_path / "run"
     run_dir.mkdir()
     bundle = bundle_mod.prepare(graph, "pytorch", "r1", run_dir)
-    script = (run_dir / bundle.script).read_text()
+    script = (run_dir / bundle.script).read_text(encoding="utf-8")
     assert str(tmp_path) not in script, "no local path may reach the remote script"
     assert "data/data_path_table.csv" in script
     with tarfile.open(fileobj=io.BytesIO(bundle.tar_bytes()), mode="r:gz") as tar:
@@ -158,21 +158,21 @@ def test_launcher_runs_a_bundle_and_reports_failures(tmp_path, isolated_home):
     run_dir.mkdir()
     bundle = bundle_mod.prepare(_design(epochs=1), "pytorch", "r1", run_dir)
     launcher = tmp_path / "aime_launch.py"
-    launcher.write_text(bundle.launcher(embed=True, args=[str(tmp_path / "far")]))
+    launcher.write_text(bundle.launcher(embed=True, args=[str(tmp_path / "far")]), encoding="utf-8")
     out = subprocess.run([sys.executable, str(launcher)], capture_output=True, text=True,
                          timeout=300)
     assert out.returncode == 0, out.stderr
-    events = [json.loads(line) for line in (tmp_path / "far" / "events.jsonl").read_text()
+    events = [json.loads(line) for line in (tmp_path / "far" / "events.jsonl").read_text(encoding="utf-8")
               .splitlines()]
     assert [e["type"] for e in events if e["type"] in ("epoch", "done")] == ["epoch", "done"]
-    assert (tmp_path / "far" / "exit_code").read_text() == "0"
+    assert (tmp_path / "far" / "exit_code").read_text(encoding="utf-8") == "0"
     # a broken bundle still leaves an exit code and the reason
     bad = subprocess.run([sys.executable, str(bundle_mod.launcher_path()),
                           str(tmp_path / "bad"), "--bundle", str(tmp_path / "missing.tgz")],
                          capture_output=True, text=True)
     assert bad.returncode == 1
-    assert (tmp_path / "bad" / "exit_code").read_text() == "1"
-    assert "missing.tgz" in (tmp_path / "bad" / "events.jsonl").read_text()
+    assert (tmp_path / "bad" / "exit_code").read_text(encoding="utf-8") == "1"
+    assert "missing.tgz" in (tmp_path / "bad" / "events.jsonl").read_text(encoding="utf-8")
 
 
 # ------------------------------------------------------------------ SSH
@@ -250,7 +250,7 @@ def test_container_run(manager, tmp_path, monkeypatch):
     result = _final(manager, run_id)
     assert result["record"].status == "finished", result["record"].error
     assert len(result["epochs"]) == 1 and result["record"].final_metrics
-    calls = log.read_text().splitlines()
+    calls = log.read_text(encoding="utf-8").splitlines()
     assert any(c.startswith("build -t aime-train:") for c in calls)
     assert any(c.startswith("run --rm --name aime-") for c in calls)
     assert not (manager.history.path(run_id) / "container").exists()
@@ -272,8 +272,8 @@ class FakeKaggle:
         return "ada"
 
     def push(self, folder: str) -> str:
-        self.pushed = {"meta": json.loads(Path(folder, "kernel-metadata.json").read_text()),
-                       "code": Path(folder, "aime_kernel.py").read_text()}
+        self.pushed = {"meta": json.loads(Path(folder, "kernel-metadata.json").read_text(encoding="utf-8")),
+                       "code": Path(folder, "aime_kernel.py").read_text(encoding="utf-8")}
         return "https://www.kaggle.com/code/ada/kernel"
 
     def status(self, slug: str) -> str:
@@ -284,8 +284,9 @@ class FakeKaggle:
         import subprocess
 
         # what Kaggle does: run the kernel; /kaggle/working becomes the outputs
-        code = self.pushed["code"].replace("/kaggle/working", dest)
-        Path(dest, "kernel.py").write_text(code.replace(", '--install'", ""))
+        # a forward-slash path: pasted into the kernel's source, C:\U… would be an escape
+        code = self.pushed["code"].replace("/kaggle/working", Path(dest).as_posix())
+        Path(dest, "kernel.py").write_text(code.replace(", '--install'", ""), encoding="utf-8")
         subprocess.run([sys.executable, str(Path(dest, "kernel.py"))], check=False,
                        capture_output=True, timeout=300)
         Path(dest, "kernel.py").unlink()
@@ -385,7 +386,7 @@ def test_colab_through_drive_for_desktop(manager, tmp_path):
     deadline = time.time() + 30
     while not book_path.exists() and time.time() < deadline:
         time.sleep(0.1)
-    book = json.loads(book_path.read_text())
+    book = json.loads(book_path.read_text(encoding="utf-8"))
     assert "drive.mount" in "".join(book["cells"][1]["source"])
     assert manager.status(run_id)["state"] == "running"
     _run_notebook(book, drive)
@@ -405,11 +406,11 @@ def test_colab_manual_hand_off_and_import(manager, tmp_path):
     deadline = time.time() + 30
     while not book_path.exists() and time.time() < deadline:
         time.sleep(0.1)
-    book = json.loads(book_path.read_text())
+    book = json.loads(book_path.read_text(encoding="utf-8"))
     # in Colab: the %%writefile cell, the run cell, then the zip download
     source = "".join(book["cells"][1]["source"]).split("\n", 1)[1]
     (tmp_path / "content").mkdir()
-    (tmp_path / "content" / "aime_launch.py").write_text(source)
+    (tmp_path / "content" / "aime_launch.py").write_text(source, encoding="utf-8")
     subprocess.run([sys.executable, str(tmp_path / "content" / "aime_launch.py"),
                     str(tmp_path / "content" / "aime_run")], check=True, capture_output=True,
                    timeout=300)

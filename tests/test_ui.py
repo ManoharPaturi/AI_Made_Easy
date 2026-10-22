@@ -265,8 +265,8 @@ def test_training_page_tiles_curves_and_results(app, tmp_path):
     assert page._tiles["accuracy"].value.text() == "1"
     store.set(RunStore.FINISHED, "train")
     assert "finished" in page.status.text()
-    (tmp_path / "predictions.json").write_text("[]")
-    (tmp_path / "x_best.pt").write_text("")
+    (tmp_path / "predictions.json").write_text("[]", encoding="utf-8")
+    (tmp_path / "x_best.pt").write_text("", encoding="utf-8")
     page.set_results_available(tmp_path)
     assert page.errors_btn.isEnabled() and page.saliency_btn.isEnabled()
 
@@ -274,11 +274,11 @@ def test_training_page_tiles_curves_and_results(app, tmp_path):
 def _artifacts(tmp_path: Path) -> Path:
     preds = [{"index": i, "true": i % 3, "probs": [0.7, 0.2, 0.1] if i % 2 else [0.1, 0.2, 0.7],
               "file": None} for i in range(12)]
-    (tmp_path / "predictions.json").write_text(json.dumps(preds))
+    (tmp_path / "predictions.json").write_text(json.dumps(preds), encoding="utf-8")
     (tmp_path / "mistakes.json").write_text(json.dumps(
-        [p for p in preds if max(range(3), key=lambda c: p["probs"][c]) != p["true"]]))
-    (tmp_path / "classes.json").write_text(json.dumps(["ant", "bee", "cat"]))
-    (tmp_path / "metrics.json").write_text(json.dumps({"accuracy": 0.42}))
+        [p for p in preds if max(range(3), key=lambda c: p["probs"][c]) != p["true"]]), encoding="utf-8")
+    (tmp_path / "classes.json").write_text(json.dumps(["ant", "bee", "cat"]), encoding="utf-8")
+    (tmp_path / "metrics.json").write_text(json.dumps({"accuracy": 0.42}), encoding="utf-8")
     return tmp_path
 
 
@@ -305,7 +305,7 @@ def test_data_profile_describes_datasets(tmp_path):
     from ai_made_easy.core.data.profile import describe, profile_path
 
     csv = tmp_path / "t.csv"
-    csv.write_text("a,b,label\n1,2,x\n3,,y\n")
+    csv.write_text("a,b,label\n1,2,x\n3,,y\n", encoding="utf-8")
     profile = profile_path(csv, target="label")
     assert [c.name for c in profile.columns] == ["a", "b", "label"] and profile.rows == 2
     assert "1 missing" in profile.summary
@@ -348,7 +348,7 @@ def test_autosave_recovery_and_recent_files(ctx, app, tmp_path):
     ctx._autosave()
     recovery = ctx._recovery_file()
     assert recovery.exists()
-    assert json.loads(recovery.read_text())["nodes"]
+    assert json.loads(recovery.read_text(encoding="utf-8"))["nodes"]
     ctx._clear_recovery()
     assert not recovery.exists()
     project = tmp_path / "p.json"

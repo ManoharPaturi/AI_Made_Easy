@@ -9,7 +9,7 @@ from ai_made_easy.core.graph import Graph
 
 _ONNX_MAIN = '''
 
-OUTPUT = Path("{output_path}")
+OUTPUT = Path({output_path!r})
 
 
 def main() -> None:
@@ -39,7 +39,7 @@ if __name__ == "__main__":
 
 _JIT_MAIN = '''
 
-OUTPUT = Path("{output_path}")
+OUTPUT = Path({output_path!r})
 
 
 def main() -> None:

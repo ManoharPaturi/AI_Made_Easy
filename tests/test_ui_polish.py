@@ -13,7 +13,7 @@ WEB = ROOT / "web" / "src"
 
 
 def _web_actions() -> list[tuple[str, str, str]]:
-    text = (WEB / "actions.ts").read_text()
+    text = (WEB / "actions.ts").read_text(encoding="utf-8")
     return re.findall(r'\{ id: "([^"]+)", label: "([^"]+)", group: "[^"]+"(?:, keys: "([^"]+)")?',
                       text)
 
@@ -48,17 +48,17 @@ def test_one_series_palette_for_both_apps():
     from ai_made_easy.ui.features import experiments, runconsole
     from ai_made_easy.ui.theme import SERIES
 
-    web = re.findall(r'"(#[0-9a-fA-F]{6})"', (WEB / "theme.ts").read_text())
+    web = re.findall(r'"(#[0-9a-fA-F]{6})"', (WEB / "theme.ts").read_text(encoding="utf-8"))
     assert tuple(web) == SERIES
     assert runconsole._SERIES_COLORS is SERIES and experiments._SERIES is SERIES
-    assert "SERIES" in (WEB / "components" / "LineChart.tsx").read_text()
+    assert "SERIES" in (WEB / "components" / "LineChart.tsx").read_text(encoding="utf-8")
 
 
 def test_no_native_browser_dialogs():
     """confirm() / prompt() / alert() block the page and ignore the theme: use useDialogs()."""
     offenders = []
     for path in WEB.rglob("*.ts*"):
-        text = path.read_text()
+        text = path.read_text(encoding="utf-8")
         own = path.name == "Dialogs.tsx" or "useDialogs()" in text   # the in-app ones
         for n, line in enumerate(text.splitlines(), 1):
             native = re.search(r"window\.(confirm|prompt|alert)\(", line) or (
@@ -71,7 +71,7 @@ def test_no_native_browser_dialogs():
 def test_web_files_stay_small():
     """The 3.3 refactor split App.tsx and ExperimentsPage.tsx; keep them from regrowing."""
     for name, limit in (("App.tsx", 300), ("pages/ExperimentsPage.tsx", 120)):
-        assert len((WEB / name).read_text().splitlines()) <= limit, name
+        assert len((WEB / name).read_text(encoding="utf-8").splitlines()) <= limit, name
 
 
 def test_context_split_into_mixins():
@@ -86,7 +86,7 @@ def test_context_split_into_mixins():
         assert issubclass(context.AppContext, mixin)
     assert hasattr(context.AppContext, "act_open") and hasattr(context.AppContext, "act_train")
     assert hasattr(context, "_load_trained")      # still importable from the old place
-    assert len(Path(context.__file__).read_text().splitlines()) < 900
+    assert len(Path(context.__file__).read_text(encoding="utf-8").splitlines()) < 900
 
 
 # ---------------------------------------------------------------------- desktop
