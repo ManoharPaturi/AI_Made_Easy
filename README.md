@@ -50,7 +50,7 @@ boilerplate. It runs on the desktop or in the browser.
   state-space models, flows), optionally trading accuracy against latency or model size
   on your target device: the result is one Pareto front of networks and classic models
   to choose from. Trials can train several at a time, on any backend.
-- **716 blocks in 9 families** ([docs/FAMILIES.md](docs/FAMILIES.md) lists every
+- **747 blocks in 9 families** ([docs/FAMILIES.md](docs/FAMILIES.md) lists every
   family, task, block and design rule) across every major library: `torch.nn` layers, Keras 3
   equivalents, torchvision / `keras.applications` / timm pretrained backbones,
   Hugging Face text and image encoders, scikit-learn, XGBoost, LightGBM and CatBoost,
@@ -62,6 +62,16 @@ boilerplate. It runs on the desktop or in the browser.
   ArcFace, CosFace, triplet and supervised contrastive losses for embeddings; SAM and
   Schedule-Free AdamW; weight averaging (EMA, SWA); Integrated Gradients; target encoding
   and SMOTE for classic models; Tiny Llama, Vision Transformer, ConvNeXt and ArcFace recipes.
+- **Windows, and which settings matter together (3.7).** Windows is now tested on every
+  change, and the Windows desktop app is built and started in CI. Sweeps with 10 or more
+  trials show which pairs of settings matter together, with a heatmap of the strongest
+  pair, and can be swept again near the best trials in one click. 31 more blocks:
+  sliding-window, ALiBi and differential attention, RetNet, RWKV and Hyena, MLP-Mixer and
+  gMLP, Ghost and deformable convolutions, Dynamic Tanh; PolyLoss, VICReg and Barlow
+  Twins; Prodigy, Cautious AdamW and Yogi; PSNR and SSIM; Tiny RWKV and Barlow Twins
+  recipes.
+
+  ![Which settings matter together: a sweep's pairs and heatmap](docs/images/web_sweep_pairs.png)
 - **Try a whole file, and see which settings mattered (3.6).** Try it predicts every
   row of a CSV or every image in a zip and gives back a CSV; image classifiers show a
   Grad-CAM heatmap with each prediction. Sweeps and AutoML draw a parallel-coordinates
