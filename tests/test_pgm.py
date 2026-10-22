@@ -136,7 +136,7 @@ def test_data_and_learning_rules(tmp_path):
     assert any("learn it with the em estimator" in m for m in msgs)
     assert any("Network Sample draws rows" in m for m in msgs)
     assert any("up to relabelling" in m for m in msgs)
-    (tmp_path / "s.csv").write_text("D,I,G\neasy,low,A\n")
+    (tmp_path / "s.csv").write_text("D,I,G\neasy,low,A\n", encoding="utf-8")
     csv = student((node("data", "data.csv", path=str(tmp_path / "s.csv")),), tables=False)
     assert any("no data column for L, S" in m for m in issues(csv))
     structure = student((node("sl", "pgm.structure_learning"),), tables=False)
@@ -218,12 +218,12 @@ def test_student_network_textbook_posteriors(tmp_path):
                     node("q2", "pgm.query", variables="I", evidence="G=C, S=high"),
                     node("q3", "pgm.query", variables="G, L", evidence="I=high", kind="map")))
     run, _out, script = _run(data, tmp_path)
-    results = json.loads((run / "posteriors.json").read_text())
+    results = json.loads((run / "posteriors.json").read_text(encoding="utf-8"))
     assert results[0]["posteriors"]["I"]["high"] == pytest.approx(0.0789, abs=1e-4)
     assert results[1]["posteriors"]["I"]["high"] == pytest.approx(0.5783, abs=1e-4)
     assert results[2]["map"] == {"G": "A", "L": "strong"}
     assert (run / "eval_samples" / "network.png").exists()
-    assert "P(G | D, I)" in (run / "eval_samples" / "report.txt").read_text()
+    assert "P(G | D, I)" in (run / "eval_samples" / "report.txt").read_text(encoding="utf-8")
     out = _infer(run, script, [{"G": "C"}, {"evidence": {"I": "high"}, "kind": "map",
                                             "variables": ["G"]}])
     assert out[0]["posteriors"]["I"]["high"] == pytest.approx(0.0789, abs=1e-4)
@@ -235,9 +235,9 @@ def test_structure_learning_recovers_the_skeleton(tmp_path):
     data = student((node("rows", "data.network_sample", n_rows=5000, seed=1),
                     node("sl", "pgm.structure_learning")))
     run, stdout, _s = _run(data, tmp_path)
-    metrics = json.loads((run / "metrics.json").read_text())
+    metrics = json.loads((run / "metrics.json").read_text(encoding="utf-8"))
     assert metrics["skeleton_errors"] == 0 and metrics["shd"] <= 1
-    assert len(json.loads((run / "learned_edges.json").read_text())) == 4
+    assert len(json.loads((run / "learned_edges.json").read_text(encoding="utf-8"))) == 4
     assert "learned 4 edge(s)" in stdout
 
 
@@ -260,7 +260,7 @@ def test_learning_from_data(extra, check, rt, tmp_path):
     data = student((node("data", "data.csv", path=str(tmp_path / "rows.csv")), *extra),
                    tables=False)
     run, _o, _s = _run(data, tmp_path / "run")
-    assert check(json.loads((run / "metrics.json").read_text()))
+    assert check(json.loads((run / "metrics.json").read_text(encoding="utf-8")))
 
 
 @needs_pgmpy
@@ -276,12 +276,12 @@ def test_markov_dynamic_gaussian_and_em(tmp_path, rt):
                       node("q", "pgm.query", variables="I", evidence="G=C")), tables=False)
     markov["edges"].append({"from": "l/out", "to": "s/parents"})       # a loop
     run, _o, _s = _run(markov, tmp_path / "mn")
-    assert np.isfinite(json.loads((run / "metrics.json").read_text())["test_log_likelihood"])
+    assert np.isfinite(json.loads((run / "metrics.json").read_text(encoding="utf-8"))["test_log_likelihood"])
     hidden = student((csv, node("pl", "pgm.parameter_learning", estimator="em",
                                 iterations=50)), tables=False)
     hidden["nodes"][1]["params"]["latent"] = True
     run, _o, _s = _run(hidden, tmp_path / "em")
-    assert "I" in json.loads((run / "posteriors.json").read_text())[0]["posteriors"]
+    assert "I" in json.loads((run / "posteriors.json").read_text(encoding="utf-8"))[0]["posteriors"]
     rng = np.random.default_rng(0)
     x = [0]
     for _ in range(2999):
@@ -297,7 +297,7 @@ def test_markov_dynamic_gaussian_and_em(tmp_path, rt):
                                          evidence="X[t-1]=1")],
            "edges": [{"from": "x/out", "to": "o/parents"}]}
     run, _o, _s = _run(dbn, tmp_path / "dbn")
-    stay = json.loads((run / "posteriors.json").read_text())[0]["posteriors"]["X[t]"]["1"]
+    stay = json.loads((run / "posteriors.json").read_text(encoding="utf-8"))[0]["posteriors"]["X[t]"]["1"]
     assert stay == pytest.approx(0.9, abs=0.03)
     x = rng.normal(size=1500)
     y = 1 + 2 * x + rng.normal(scale=0.5, size=1500)
@@ -309,7 +309,7 @@ def test_markov_dynamic_gaussian_and_em(tmp_path, rt):
         node("q", "pgm.query", variables="x", evidence="y=5")],
         "edges": [{"from": "x/out", "to": "y/parents"}]}
     run, _o, script = _run(gauss, tmp_path / "gauss")
-    post = json.loads((run / "posteriors.json").read_text())[0]["posteriors"]["x"]
+    post = json.loads((run / "posteriors.json").read_text(encoding="utf-8"))[0]["posteriors"]["x"]
     # x | y=5 with x ~ N(0,1), y = 1 + 2x + N(0, .25): mean 2·4 / (4 + .25) ≈ 1.88
     assert post["mean"] == pytest.approx(8 / 4.25, abs=0.12)
     assert _infer(run, script, [{"y": 5}])[0]["posteriors"]["x"]["mean"] == post["mean"]
@@ -318,7 +318,7 @@ def test_markov_dynamic_gaussian_and_em(tmp_path, rt):
 @needs_hmm
 def test_hmm_finds_regimes_and_serves(tmp_path):
     run, stdout, script = _run(api.read_sample("market_regimes_hmm.json"), tmp_path)
-    metrics = json.loads((run / "metrics.json").read_text())
+    metrics = json.loads((run / "metrics.json").read_text(encoding="utf-8"))
     assert metrics["state_accuracy"] > 0.95 and "restart 5" in stdout
     assert (run / "eval_samples" / "regimes.png").exists()
     out = _infer(run, script, [[0.0, 2.1, 2.0, -2.0]])
@@ -343,9 +343,9 @@ def test_pgm_run_deploys(tmp_path, isolated_home):
         assert api.run_samples(run_id)["texts"]
         result = build_package(mgr.history.path(run_id), tmp_path / "pkg")
         assert result.verified, result.log[-3000:]
-        meta = json.loads((tmp_path / "pkg/metadata.json").read_text())
+        meta = json.loads((tmp_path / "pkg/metadata.json").read_text(encoding="utf-8"))
         assert meta["input_kind"] == "evidence" and meta["framework"] == "pgmpy"
-        assert "pgmpy" in (tmp_path / "pkg/requirements.txt").read_text()
+        assert "pgmpy" in (tmp_path / "pkg/requirements.txt").read_text(encoding="utf-8")
     finally:
         api.set_manager(None)
 

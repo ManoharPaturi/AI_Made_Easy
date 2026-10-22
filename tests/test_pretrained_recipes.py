@@ -84,7 +84,7 @@ def _train(graph: Graph, workdir: Path) -> dict:
     done = subprocess.run([sys.executable, script.name], cwd=workdir, capture_output=True,
                           text=True, timeout=900)
     assert done.returncode == 0, done.stdout[-1500:] + done.stderr[-2500:]
-    return json.loads((workdir / "metrics.json").read_text())
+    return json.loads((workdir / "metrics.json").read_text(encoding="utf-8"))
 
 
 # ================================================================ the wizard

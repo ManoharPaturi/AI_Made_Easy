@@ -433,6 +433,14 @@ class RunManager:
                     time.sleep(0.05)
                 if run.closing_mirror is not None:  # MLflow / W&B finish mirroring
                     run.closing_mirror.join(max(1.0, deadline - time.time()))
+                # a local worker: let it exit, so its files and working folder are free
+                # (Windows can't delete a folder a process still holds)
+                proc = getattr(run, "process", None)
+                if proc is not None and hasattr(proc, "wait"):
+                    try:
+                        proc.wait(timeout=max(1.0, min(30.0, deadline - time.time())))
+                    except Exception:  # noqa: BLE001 — a timeout leaves it to the caller
+                        pass
                 return run.status()
             time.sleep(0.1)
         raise TimeoutError(f"run {run_id} did not finish within {timeout}s")

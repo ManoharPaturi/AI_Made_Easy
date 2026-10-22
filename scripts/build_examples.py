@@ -44,7 +44,7 @@ def pipeline(name, title, description, blocks):
 
 
 def enrich(file: str, title: str, description: str, extra: list) -> dict:
-    data = json.loads((SAMPLES / file).read_text())
+    data = json.loads((SAMPLES / file).read_text(encoding="utf-8"))
     present = {n["type"] for n in data["nodes"]}
     for i, (tid, params) in enumerate(extra):
         if tid not in present:
@@ -168,7 +168,7 @@ def main() -> int:
             failures += 1
             print(f"INVALID {file}: {errors}")
             continue
-        (SAMPLES / file).write_text(json.dumps(data, indent=2) + "\n")
+        (SAMPLES / file).write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
         print(f"wrote {file}")
     return 1 if failures else 0
 

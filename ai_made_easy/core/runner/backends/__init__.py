@@ -93,6 +93,20 @@ class Backend:
         return {}
 
 
+
+def split_command(command: str) -> list[str]:
+    """A command line from an environment variable (``$AIME_DOCKER``, ``$AIME_SSH``) as
+    arguments. Windows paths keep their backslashes (POSIX splitting would eat them);
+    quotes around an argument are removed."""
+    import os
+    import shlex
+
+    if os.name != "nt":
+        return shlex.split(command)
+    return [p[1:-1] if len(p) > 1 and p[0] == p[-1] and p[0] in "\"'" else p
+            for p in shlex.split(command, posix=False)]
+
+
 class LocalBackend(Backend):
     """This computer: the worker runs as a child process (the 3.1 behaviour)."""
 

@@ -18,7 +18,7 @@ SAMPLES = ROOT / "ai_made_easy" / "samples"
 
 
 def _sample(name: str) -> dict:
-    data = json.loads((SAMPLES / f"{name}.json").read_text())
+    data = json.loads((SAMPLES / f"{name}.json").read_text(encoding="utf-8"))
     return data.get("graph", data)
 
 
@@ -35,7 +35,7 @@ def _train(graph: Graph, tmp_path: Path, env: dict | None = None,
                           text=True, timeout=timeout,
                           env={**os.environ, "KERAS_BACKEND": "torch", **(env or {})})
     assert proc.returncode == 0, proc.stdout[-3000:] + proc.stderr[-4000:]
-    return json.loads((tmp_path / "metrics.json").read_text())
+    return json.loads((tmp_path / "metrics.json").read_text(encoding="utf-8"))
 
 
 # ============================================================================ Glow
@@ -289,9 +289,9 @@ def fake_ogb(tmp_path):
     for sub, code in (("nodeproppred", FAKE_NODES), ("graphproppred", FAKE_GRAPHS),
                       ("linkproppred", FAKE_LINKS)):
         (pkg / sub).mkdir(parents=True)
-        (pkg / sub / "__init__.py").write_text(code)
-    (pkg / "__init__.py").write_text("")
-    (pkg / "_fake.py").write_text(FAKE_OGB)
+        (pkg / sub / "__init__.py").write_text(code, encoding="utf-8")
+    (pkg / "__init__.py").write_text("", encoding="utf-8")
+    (pkg / "_fake.py").write_text(FAKE_OGB, encoding="utf-8")
     return {"PYTHONPATH": os.pathsep.join([str(pkg.parent), str(ROOT),
                                            os.environ.get("PYTHONPATH", "")])}
 
@@ -327,7 +327,7 @@ def test_ogb_datasets_use_the_official_split_and_evaluator(tmp_path, fake_ogb, s
     run.mkdir()
     metrics = _train(graph, run, env=fake_ogb)
     assert 0.0 <= metrics[metric] <= 1.0, metrics
-    log = next(run.glob("*_train_pytorch.py")).read_text()
+    log = next(run.glob("*_train_pytorch.py")).read_text(encoding="utf-8")
     assert "ogb" in log
 
 
@@ -452,7 +452,7 @@ def test_custom_environment_spaces_are_read_at_design_time(tmp_path):
     pytest.importorskip("gymnasium")
     pytest.importorskip("stable_baselines3")
     module = tmp_path / "corridor_env.py"
-    module.write_text(CORRIDOR)
+    module.write_text(CORRIDOR, encoding="utf-8")
     graph = _rl("rl_cartpole_ppo")
     env = next(n for n in graph.nodes.values() if n.type_id == "rl.env")
     env.params.update(env_id="custom", custom_id="Corridor-v0", module=str(module))
@@ -502,7 +502,7 @@ def test_qat_text_classifier_stays_within_a_point(tmp_path, isolated_home):
         rng.shuffle(words)
         rows.append(f"{' '.join(words)},{label}")
     table = tmp_path / "texts.csv"
-    table.write_text("\n".join(rows) + "\n")
+    table.write_text("\n".join(rows) + "\n", encoding="utf-8")
     facts = recipes.detect(table, target="label")
     assert facts.kind != "demo", facts
     built = recipes.build("text_bag_of_embeddings", "multiclass", facts, {"epochs": 8}, None)

@@ -46,7 +46,7 @@ def test_pack_round_trip_and_conflicts(isolated_home, tmp_path):
     save_block(_block(32), "Small")
     result = import_pack(pack)
     assert result["renamed"] == {"small": "small_2"}
-    assert json.loads((templates_dir() / "small.json").read_text())["nodes"][0][
+    assert json.loads((templates_dir() / "small.json").read_text(encoding="utf-8"))["nodes"][0][
         "params"]["units"] == 32
     assert import_pack(pack, overwrite=True)["imported"] == ["dense_relu", "small"]
     with pytest.raises(PackError):
@@ -74,7 +74,7 @@ def test_archives_carry_custom_blocks_and_restore_runs(isolated_home, tmp_path):
     archive = write_bundle(tmp_path / "p.aime", graph, name="p",
                            workdir=mgr.history.path(run_id))
     # another machine: same block name, different content
-    (templates_dir() / "dense_relu.json").write_text(json.dumps({**_block(64), "name": "x"}))
+    (templates_dir() / "dense_relu.json").write_text(json.dumps({**_block(64), "name": "x"}), encoding="utf-8")
     bundle = read_bundle(archive)
     assert set(bundle["custom_blocks"]) == {"dense_relu"}
     result = install_for_project(bundle["graph"], bundle["custom_blocks"])
