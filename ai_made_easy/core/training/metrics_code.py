@@ -57,6 +57,30 @@ def ranks(v: np.ndarray) -> np.ndarray:
     sums = np.bincount(inverse, weights=r)
     return sums[inverse] / counts[inverse]
 ''',
+    "ssim": '''
+def ssim(pred: np.ndarray, targets: np.ndarray, window: int = 7) -> float:
+    """Mean SSIM over images (the last two axes, uniform window x window windows); data
+    that is not image-shaped is compared as whole signals, one per example."""
+    a, b = np.asarray(pred, float), np.asarray(targets, float)
+    rng = max(float(b.max() - b.min()), 1e-12)
+    c1, c2 = (0.01 * rng) ** 2, (0.03 * rng) ** 2
+    if a.ndim >= 3 and min(a.shape[-2:]) >= window:
+        a, b = a.reshape(-1, *a.shape[-2:]), b.reshape(-1, *b.shape[-2:])
+
+        def pool(x):
+            c = np.pad(x, ((0, 0), (1, 0), (1, 0))).cumsum(1).cumsum(2)
+            k = window
+            return (c[:, k:, k:] - c[:, :-k, k:] - c[:, k:, :-k] + c[:, :-k, :-k]) / (k * k)
+    else:
+        a, b = a.reshape(len(a), -1), b.reshape(len(b), -1)
+
+        def pool(x):
+            return x.mean(axis=-1)
+    ma, mb = pool(a), pool(b)
+    va, vb, cov = pool(a * a) - ma ** 2, pool(b * b) - mb ** 2, pool(a * b) - ma * mb
+    s = ((2 * ma * mb + c1) * (2 * cov + c2)) / ((ma ** 2 + mb ** 2 + c1) * (va + vb + c2))
+    return float(s.mean())
+''',
 }
 
 
@@ -72,6 +96,8 @@ def _needs(keys: set[str]) -> list[str]:
         helpers.append("ap")
     if "spearman" in keys:
         helpers.append("ranks")
+    if "ssim" in keys:
+        helpers.append("ssim")
     if "jaccard" in keys:
         helpers.append("confusion")
     return list(dict.fromkeys(helpers))
@@ -156,6 +182,17 @@ def metrics_code(task: str, metrics: list[tuple[str, dict, str]]) -> str:
         if "msle" in keys:
             add("    m[\"msle\"] = float(np.mean((np.log1p(np.clip(pred, 0, None)) - "
                 "np.log1p(np.clip(targets, 0, None))) ** 2))")
+        if "ccc" in keys:
+            add("    fp, ft = np.ravel(pred).astype(float), np.ravel(targets).astype(float)")
+            add("    denom = fp.var() + ft.var() + (fp.mean() - ft.mean()) ** 2")
+            add("    m[\"ccc\"] = float(2 * np.mean((fp - fp.mean()) * (ft - ft.mean())) / denom) "
+                "if denom > 0 else float(\"nan\")")
+        if "psnr" in keys:
+            add("    span = float(np.max(targets) - np.min(targets)) if targets.size else 0.0")
+            add("    m[\"psnr\"] = min(100.0, 10 * math.log10(span ** 2 / float(np.mean(err ** 2)))) "
+                "if span > 0 and np.mean(err ** 2) > 0 else 100.0")
+        if "ssim" in keys:
+            add("    m[\"ssim\"] = ssim(pred, targets)")
     add("    return m")
     return "".join(out) + "\n".join(body)
 

@@ -240,6 +240,24 @@ def _simclr(ctx: Context) -> Draft:
     return d
 
 
+def _barlow_twins(ctx: Context) -> Draft:
+    """SimCLR's encoder and augmentations, trained with Barlow Twins instead (3.7)."""
+    d = _simclr(ctx)
+    d.name, d.title = "image_barlow_twins", "Images — Barlow Twins (self-supervised)"
+    d.description = ("Learns image features without labels: the embeddings of two "
+                     "augmentations of the same images should correlate feature by feature, "
+                     "and different features should not.")
+    loss = next(n for n in d.nodes if n["id"] == "loss")
+    loss["type"] = "train.loss_barlow_twins"
+    loss["params"] = {"classes": loss["params"]["classes"], "off_diagonal": 5e-3}
+    d.why["loss"] = ("Barlow Twins: the two views' cross-correlation should be the identity. "
+                     "No negatives, so batches can be small. Labels only measure the result")
+    trainer = next(n for n in d.nodes if n["id"] == "trainer")
+    trainer["params"]["batch_size"] = 128
+    d.why["trainer"] = "works with smaller batches than SimCLR"
+    return d
+
+
 IMAGE_KINDS = ("demo", "image_folder")
 register_recipe(Recipe(
     "image_cnn", "Small CNN", CLASSIFY, "small", "image",
@@ -313,6 +331,17 @@ register_recipe(Recipe(
            Knob("projection", "int", 64, 16, 512, help="Projection size"),
            Knob("image_size", "choice", 64, values=(32, 64, 96, 128)), EPOCHS(30)),
     strengths="uses unlabelled images; features that transfer"))
+register_recipe(Recipe(
+    "image_barlow_twins", "Barlow Twins (self-supervised)", CLASSIFY, "large", "image",
+    "Pretrains an encoder without labels by making the features of two augmentations of "
+    "each image agree, feature by feature; no negative examples needed.",
+    _barlow_twins, data_kinds=IMAGE_KINDS, demo_tasks=("multiclass",), rows=(5_000, 10**8),
+    priority=-0.4, downloads="Fashion-MNIST (30 MB) for the demo",
+    knobs=(_lr(1e-3), Knob("width", "int", 32, 8, 256, help="Filters in the first stage"),
+           Knob("stages", "int", 3, 1, 5, help="Convolution stages"),
+           Knob("projection", "int", 64, 16, 512, help="Projection size"),
+           Knob("image_size", "choice", 64, values=(32, 64, 96, 128)), EPOCHS(30)),
+    strengths="self-supervised with small batches; features that transfer"))
 
 
 # ------------------------------------------------------------------ text

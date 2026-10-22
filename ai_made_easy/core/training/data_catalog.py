@@ -524,6 +524,15 @@ PREPROCESSING: list[DataBlock] = [
         applies_to=frozenset({IMAGE}), stage="train",
         torch=_p_tv("v2.GaussianNoise(sigma={sigma}, clip=True)"),
         keras=_p_tv("layers.GaussianNoise({sigma})"), meta={"after_tensor": True}),
+    # 3.7
+    DataBlock(
+        "prep.photometric_distort", "Photometric Distort", "Augmentation",
+        (P("p", "float", 0.5, lo=0.0, hi=1.0, help="Chance of each change"),),
+        desc="SSD's colour augmentation (Liu et al., 2016): random brightness, contrast, "
+             "saturation and hue, each with probability p, in a random order. A strong "
+             "default for detection and photos in varied lighting.",
+        applies_to=frozenset({IMAGE}), stage="train",
+        torch=_p_tv("v2.RandomPhotometricDistort(p={p})")),
     DataBlock(
         "prep.mixup_cutmix", "MixUp / CutMix", "Augmentation",
         (P("mode", "enum", "mixup", options=("mixup", "cutmix", "both")),

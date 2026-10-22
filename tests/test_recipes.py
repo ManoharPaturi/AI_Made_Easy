@@ -158,10 +158,10 @@ def test_modalities_and_demo_tasks():
                                             "image_transfer", "timm_probe", "timm_finetune",
                                             "dinov2_probe", "dinov2_finetune",
                                             "image_vit", "image_convnext", "image_arcface",
-                                            "image_simclr"}
+                                            "image_simclr", "image_barlow_twins"}
     for s in image:   # 10 classes: one output each, or ArcFace's 10 class centres
         nodes = Graph.from_dict(s.graph).nodes
-        if s.recipe.id in ("image_arcface", "image_simclr"):
+        if s.recipe.id in ("image_arcface", "image_simclr", "image_barlow_twins"):
             assert nodes["loss"].params["classes"] == 10
         else:
             assert nodes["dense"].params["units"] == 10

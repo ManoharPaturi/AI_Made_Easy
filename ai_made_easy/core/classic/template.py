@@ -328,6 +328,20 @@ def evaluate(model: Pipeline, X, y) -> dict:
     m["max_error"] = metrics.max_error(np.ravel(y), np.ravel(pred))
 {% elif key == "msle" %}
     m["msle"] = metrics.mean_squared_log_error(np.clip(y, 0, None), np.clip(pred, 0, None))
+{% elif key == "ccc" %}
+    fp, ft = np.ravel(pred).astype(float), np.ravel(y).astype(float)
+    m["ccc"] = 2 * np.mean((fp - fp.mean()) * (ft - ft.mean())) / (fp.var() + ft.var() + (fp.mean() - ft.mean()) ** 2)
+{% elif key == "psnr" %}
+    span, mse = float(np.max(y) - np.min(y)), float(np.mean((np.asarray(pred) - np.asarray(y)) ** 2))
+    m["psnr"] = min(100.0, 10 * np.log10(span ** 2 / mse)) if span > 0 and mse > 0 else 100.0
+{% elif key == "ssim" %}
+    # tables have no images: SSIM compares each row's values as one signal
+    a, b = np.asarray(pred, float).reshape(len(y), -1), np.asarray(y, float).reshape(len(y), -1)
+    rng = max(float(b.max() - b.min()), 1e-12)
+    c1, c2 = (0.01 * rng) ** 2, (0.03 * rng) ** 2
+    ma, mb = a.mean(1), b.mean(1)
+    va, vb, cov = a.var(1), b.var(1), (a * b).mean(1) - ma * mb
+    m["ssim"] = float(np.mean(((2 * ma * mb + c1) * (2 * cov + c2)) / ((ma ** 2 + mb ** 2 + c1) * (va + vb + c2))))
 {% endif %}
 {% endfor %}
 {% endif %}
