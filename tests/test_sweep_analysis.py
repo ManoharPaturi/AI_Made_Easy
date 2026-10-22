@@ -144,4 +144,8 @@ def test_automl_trials_with_different_settings_keep_their_lines():
     got = analyze({"spec": {"metric": "accuracy"}, "trials": trials, "best": {"number": 0}})
     axes = {a["key"]: a for a in got["axes"]}
     assert axes["recipe"]["choices"] == ["forest", "mlp"]
+    from ai_made_easy.core.sweep_analysis import _numeric_trend
+
+    assert _numeric_trend({0: [1.0, 1.1], 1: [0.2], 2: [1.0]}, {0: [4, 4], 1: [16], 2: [64]},
+                          "min") == "best at 16"
     assert axes["max_depth"]["kind"] == "number" and axes["lr"]["kind"] == "number"

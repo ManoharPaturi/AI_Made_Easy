@@ -50,7 +50,7 @@ boilerplate. It runs on the desktop or in the browser.
   state-space models, flows), optionally trading accuracy against latency or model size
   on your target device: the result is one Pareto front of networks and classic models
   to choose from. Trials can train several at a time, on any backend.
-- **675 blocks in 9 families** ([docs/FAMILIES.md](docs/FAMILIES.md) lists every
+- **716 blocks in 9 families** ([docs/FAMILIES.md](docs/FAMILIES.md) lists every
   family, task, block and design rule) across every major library: `torch.nn` layers, Keras 3
   equivalents, torchvision / `keras.applications` / timm pretrained backbones,
   Hugging Face text and image encoders, scikit-learn, XGBoost, LightGBM and CatBoost,
@@ -62,6 +62,15 @@ boilerplate. It runs on the desktop or in the browser.
   ArcFace, CosFace, triplet and supervised contrastive losses for embeddings; SAM and
   Schedule-Free AdamW; weight averaging (EMA, SWA); Integrated Gradients; target encoding
   and SMOTE for classic models; Tiny Llama, Vision Transformer, ConvNeXt and ArcFace recipes.
+- **Try a whole file, and see which settings mattered (3.6).** Try it predicts every
+  row of a CSV or every image in a zip and gives back a CSV; image classifiers show a
+  Grad-CAM heatmap with each prediction. Sweeps and AutoML draw a parallel-coordinates
+  chart and rank the settings by how much they mattered. 41 more blocks: ResNet, MBConv,
+  CBAM and DenseNet building blocks, KAN, AdaBelief / Adan / AdEMAMix, warmup-stable-decay,
+  quantile and Tweedie losses, a Gaussian (mean + variance) head, L-BFGS, new metrics,
+  augmentations and scikit-learn models.
+
+  ![Which settings mattered: parallel coordinates and importance of a sweep](docs/images/web_sweep_insights.png)
 - **Try it, and see what it attended to (3.5).** Run a finished model on your own input
   from the Experiments page: a form built from what it takes (table fields, text, an
   image or a WAV clip), answered on your machine. Attention maps of transformer models
@@ -305,7 +314,7 @@ environment with the frameworks installed (`$AIME_PYTHON`, or `python3` on the
 ```bash
 pip install -e ".[all,dev]"
 ruff check ai_made_easy scripts tests
-pytest                                  # ~1,700 tests on four workers, about three minutes
+pytest                                  # ~1,800 tests on four workers, about five minutes
 AIME_TESTS=all pytest                   # also the ~300 slow ones (real training), as CI does
 cd web && npm ci && npm run build && npx playwright test   # web UI
 UPDATE_GOLDEN=1 pytest tests/test_golden.py
