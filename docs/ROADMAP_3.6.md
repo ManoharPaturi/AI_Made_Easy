@@ -41,8 +41,11 @@ scikit-learn models and transformers (see the CHANGELOG). **Done.**
 - CHANGELOG, README, this roadmap, FAMILIES regenerated, a screenshot of the sweep
   insights, version 3.6.0. The tag and release follow your confirmation.
 
+## Also in 3.6 (#58)
+- Every text file is read and written as UTF-8 (about 220 places), so non-ASCII names
+  work on Windows with Python < 3.15. `tests/test_encoding.py` keeps it that way.
+  **Done.**
+
 ## Still open
-- Text files read and written without an explicit UTF-8 encoding (about 200 places):
-  non-ASCII names can fail on Windows with Python < 3.15. Proposed as its own change.
 - TypeScript 7 for the web app (a major version).
 - Importance that accounts for interactions between settings (fANOVA), for large sweeps.
