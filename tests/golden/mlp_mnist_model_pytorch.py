@@ -11,7 +11,7 @@ import torch.nn as nn
 
 
 class MnistMlp(nn.Module):
-    """mnist_mlp: (batch, 1, 28, 28) -> (batch, 10)."""
+    r"""mnist_mlp: (batch, 1, 28, 28) -> (batch, 10)."""
 
     def __init__(self) -> None:
         super().__init__()

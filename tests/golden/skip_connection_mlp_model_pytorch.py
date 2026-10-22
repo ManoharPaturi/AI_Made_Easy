@@ -11,7 +11,7 @@ import torch.nn as nn
 
 
 class SkipMlp(nn.Module):
-    """skip_mlp: (batch, 64) -> (batch, 10)."""
+    r"""skip_mlp: (batch, 64) -> (batch, 10)."""
 
     def __init__(self) -> None:
         super().__init__()
