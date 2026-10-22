@@ -193,6 +193,7 @@ class TryService:
         self._workers: OrderedDict[str, _Worker] = OrderedDict()
         self._keep = keep
         self._lock = threading.Lock()
+        self._loading: dict[str, threading.Lock] = {}
 
     def worker(self, run_id: str, run_dir: Path, record: dict, *,
                load_timeout: float = 300) -> _Worker:
@@ -204,28 +205,44 @@ class TryService:
             if got is not None and got.alive():
                 self._workers.move_to_end(run_id)
                 return got
-            if record.get("status") != "finished":
-                raise TryError(f"the run is {record.get('status') or 'not finished'}; only "
-                               "finished runs can be tried")
-            framework = record.get("framework", "pytorch")
-            try:
-                script, _ = _artifacts(run_dir, framework)
-            except Exception as exc:  # noqa: BLE001 — DeployError: what is missing
-                raise TryError(str(exc)) from exc
-            env = {**os.environ, "PYTHONWARNINGS": "ignore"}
-            if framework == "keras":
-                env["KERAS_BACKEND"] = (record.get("env") or {}).get("keras_backend") or "torch"
-            worker = _Worker(run_dir, script, python_executable(), env)
-            first = worker.reply(load_timeout)
-            if not first.get("ready"):
-                worker.close()
-                raise TryError("the model could not be loaded: " + str(first.get("error")))
-            worker.signature = first.get("signature") or {}
-            self._workers[run_id] = worker
-            while len(self._workers) > self._keep:
-                _, old = self._workers.popitem(last=False)
-                old.close()
+            loading = self._loading.setdefault(run_id, threading.Lock())
+        # one load per run at a time; loading a model (up to minutes) never blocks the
+        # other runs' predictions
+        with loading:
+            with self._lock:
+                got = self._workers.get(run_id)
+                if got is not None and got.alive():
+                    return got
+            worker = self._load(run_dir, record, python_executable, _artifacts, load_timeout)
+            with self._lock:
+                self._workers[run_id] = worker
+                self._workers.move_to_end(run_id)
+                while len(self._workers) > self._keep:
+                    _, old = self._workers.popitem(last=False)
+                    old.close()
             return worker
+
+    @staticmethod
+    def _load(run_dir: Path, record: dict, python_executable, artifacts,  # noqa: ANN001
+              load_timeout: float) -> _Worker:
+        if record.get("status") != "finished":
+            raise TryError(f"the run is {record.get('status') or 'not finished'}; only "
+                           "finished runs can be tried")
+        framework = record.get("framework", "pytorch")
+        try:
+            script, _ = artifacts(run_dir, framework)
+        except Exception as exc:  # noqa: BLE001 — DeployError: what is missing
+            raise TryError(str(exc)) from exc
+        env = {**os.environ, "PYTHONWARNINGS": "ignore"}
+        if framework == "keras":
+            env["KERAS_BACKEND"] = (record.get("env") or {}).get("keras_backend") or "torch"
+        worker = _Worker(run_dir, script, python_executable(), env)
+        first = worker.reply(load_timeout)
+        if not first.get("ready"):
+            worker.close()
+            raise TryError("the model could not be loaded: " + str(first.get("error")))
+        worker.signature = first.get("signature") or {}
+        return worker
 
     def close(self) -> None:
         with self._lock:
@@ -294,6 +311,7 @@ MAX_BATCH_ROWS = 10_000
 _CHUNK = 64
 BATCH_FORMATS = {"records": ".csv", "arrays": ".csv", "texts": ".csv,.txt", "prompt": ".csv,.txt",
                  "images": ".zip", "audio": ".zip", "speech": ".zip"}
+_MAX_UNZIPPED = 2 * 2**30
 _IMAGE_EXT = (".png", ".jpg", ".jpeg", ".bmp", ".gif", ".webp", ".tif", ".tiff")
 
 
@@ -308,8 +326,9 @@ def _number(text: str) -> bool:
 def _cell(text: str):
     """A CSV cell as the model's server would get it in JSON: numbers as numbers."""
     try:
-        return float(text) if text.strip() and text.strip().lower() not in ("nan", "inf") \
-            else (None if not text.strip() else text)
+        if not text.strip() or text.strip().lower() in ("nan", "na", "null"):
+            return None                           # a missing value
+        return float(text)
     except ValueError:
         return text
 
@@ -360,7 +379,7 @@ def batch_items(kind: str, filename: str, data: bytes, folder: Path,
         if not name.endswith(".zip"):
             raise TryError(f"{'images' if kind == 'images' else 'clips'} come as a .zip file")
         wanted = _IMAGE_EXT if kind == "images" else (".wav",)
-        inputs, names = [], []
+        inputs, names, total = [], [], 0
         with zipfile.ZipFile(io.BytesIO(data)) as archive:
             for info in archive.infolist():
                 base = Path(info.filename).name
@@ -368,6 +387,9 @@ def batch_items(kind: str, filename: str, data: bytes, folder: Path,
                     continue
                 if info.file_size > 50 * 2**20:
                     raise TryError(f"{info.filename} is larger than 50 MB")
+                total += info.file_size
+                if total > _MAX_UNZIPPED:
+                    raise TryError(f"the zip unpacks to more than {_MAX_UNZIPPED >> 20} MB")
                 blob = archive.read(info)
                 if kind == "images":
                     inputs.append(base64.b64encode(blob).decode())

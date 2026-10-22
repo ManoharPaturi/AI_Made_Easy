@@ -60,8 +60,9 @@ def _task_label(spec: TrainingSpec) -> str:
 def _requirements(spec: TrainingSpec, framework: str, torchvision: bool) -> str:
     reqs = ["torch", "numpy"] if framework == "pytorch" else ["keras>=3", "numpy"]
     block = spec.dataset["block"]
-    if torchvision:
-        reqs.append("torchvision")
+    if torchvision:   # JPEG and Gaussian noise augmentation (3.6) arrived in torchvision 0.21
+        newer = {"prep.random_jpeg", "prep.gaussian_noise"} & {t for t, _ in spec.image_train}
+        reqs.append("torchvision>=0.21" if newer else "torchvision")
     if block in ("data.csv", "data.text_csv", "data.timeseries_csv"):
         reqs.append("pandas")
     if block == "data.image_folder" or (spec.is_classification and torchvision) \
