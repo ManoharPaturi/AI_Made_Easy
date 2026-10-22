@@ -47,9 +47,34 @@ def pytest_collection_modifyitems(config, items):
                 drop.append(item)
                 continue
         keep.append(item)
+    keep, other = _shard(keep, os.environ.get("AIME_SHARD", ""), slow)
+    drop += other
     if drop:
         config.hook.pytest_deselected(items=drop)
         items[:] = keep
+
+
+def _shard(items: list, spec: str, slow: set) -> tuple[list, list]:
+    """AIME_SHARD=i/n keeps the i-th of n parts, split by file (module fixtures train once
+    per file). Files go to the lightest part, heaviest first; a slow test weighs 20 plain
+    ones. CI splits the Windows suite this way."""
+    if not spec:
+        return items, []
+    index, count = (int(x) for x in spec.split("/"))
+    by_file: dict[str, list] = {}
+    for item in items:
+        by_file.setdefault(item.nodeid.split("::", 1)[0], []).append(item)
+    weight = {f: sum(20 if (i.nodeid in slow or i.get_closest_marker("slow")) else 1
+                     for i in group) for f, group in by_file.items()}
+    loads = [0] * count
+    mine: set[str] = set()
+    for f in sorted(by_file, key=lambda f: (-weight[f], f)):
+        part = loads.index(min(loads))
+        loads[part] += weight[f]
+        if part == index - 1:
+            mine.add(f)
+    keep = [i for i in items if i.nodeid.split("::", 1)[0] in mine]
+    return keep, [i for i in items if i.nodeid.split("::", 1)[0] not in mine]
 
 
 def tiny_classifier_dict(epochs: int = 2, lr: float = 0.05, units: int = 8,

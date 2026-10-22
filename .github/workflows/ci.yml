@@ -33,14 +33,33 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest]
         python: ["3.11", "3.12"]
+        shard: [""]
         include:
+          - os: ubuntu-latest
+            python: "3.13"
+            shard: ""
+          - os: ubuntu-latest
+            python: "3.14"
+            shard: ""
+          # Windows runs the suite in two halves (tests/conftest.py: AIME_SHARD)
           - os: windows-latest
             python: "3.12"
+            shard: "1/2"
+          - os: windows-latest
+            python: "3.12"
+            shard: "2/2"
+    # the shard joins the job name only where there is one, so the required check names
+    # ("test (ubuntu-latest, 3.12)") stay as they are
+    name: test (${{ matrix.os }}, ${{ matrix.python }}${{ matrix.shard && format(', {0}', matrix.shard) || '' }})
     runs-on: ${{ matrix.os }}
-    timeout-minutes: ${{ matrix.os == 'windows-latest' && 120 || 60 }}
+    timeout-minutes: ${{ matrix.os == 'windows-latest' && 90 || 60 }}
     env:
       QT_QPA_PLATFORM: offscreen
       KERAS_BACKEND: torch
+      AIME_SHARD: ${{ matrix.shard }}
+      # a worker that dies prints its stack, and is not replaced: the run ends and names
+      # the test instead of hanging until the job's time limit (3.7, ubuntu 3.11)
+      PYTHONFAULTHANDLER: "1"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -60,9 +79,10 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
-          pip install -e ".[dev,classic,umap,imbalance,explain,keras,mcp-server,serve,export,tuning]" pandas
+          pip install -e ".[dev,classic,umap,imbalance,explain,keras,mcp-server,serve,export,tuning]" "${{ matrix.python == '3.11' && 'pandas<3' || 'pandas>=3' }}"
       - name: Test
-        run: pytest -q -p no:cacheprovider
+        # Python 3.11 keeps pandas 2 covered; the others run pandas 3
+        run: pytest -q -p no:cacheprovider --max-worker-restart=0
       - name: Every sample and recipe validates and generates code
         if: matrix.os == 'ubuntu-latest' && matrix.python == '3.12'
         run: python scripts/sweep_e2e.py

@@ -116,46 +116,21 @@ def test_mcp_impl_functions():
 
 
 def test_mcp_stdio_round_trip():
-    """Real MCP client over stdio: list tools, call list_blocks + validate."""
+    """Real MCP client over stdio: list tools, call list_blocks + validate. The client runs
+    in its own process (tests/fakes/mcp_client.py): on Windows the SDK's stdio client
+    crashed the pytest worker that hosted it."""
     pytest.importorskip("mcp", reason="mcp SDK not installed")
-    if sys.platform == "win32":    # 3.7 CI: the SDK's stdio client crashed the test worker
-        pytest.skip("MCP stdio client crashes the pytest worker on Windows (open in 3.7)")
-    import anyio
-
-    from mcp import ClientSession, StdioServerParameters
-    from mcp.client.stdio import stdio_client
-
-    async def scenario() -> dict:
-        params = StdioServerParameters(
-            command=sys.executable,
-            args=["-m", "ai_made_easy.mcp.server"],
-            cwd=str(Path(__file__).parent.parent),
-        )
-        async with stdio_client(params) as (read, write):
-            async with ClientSession(read, write) as session:
-                await session.initialize()
-                tools = await session.list_tools()
-                names = {t.name for t in tools.tools}
-                assert {"list_blocks", "validate_graph", "generate_code",
-                        "start_training", "get_run_status", "summarize_model",
-                        "expand_architecture", "stop_run"} <= names
-
-                result = await session.call_tool(
-                    "list_blocks", {"category": "Architectures"})
-                payload = json.loads(result.content[0].text)
-                assert payload["count"] == 8
-
-                graph = json.loads((SAMPLES / "mlp_mnist.json").read_text(encoding="utf-8"))
-                result = await session.call_tool(
-                    "validate_graph", {"graph": graph})
-                assert json.loads(result.content[0].text)["valid"] is True
-
-                result = await session.call_tool(
-                    "summarize_model", {"graph": graph})
-                assert json.loads(result.content[0].text)["total_params"] == 101770
-                return {"ok": True, "tools": len(names)}
-
-    assert anyio.run(scenario)["ok"] is True
+    client = Path(__file__).parent / "fakes" / "mcp_client.py"
+    proc = subprocess.run([sys.executable, str(client)], capture_output=True, timeout=300,
+                          encoding="utf-8", errors="replace")
+    assert "RESULT " in proc.stdout, proc.stdout[-2000:] + proc.stderr[-3000:]
+    out = json.loads(proc.stdout.split("RESULT ", 1)[1])
+    assert {"list_blocks", "validate_graph", "generate_code", "start_training",
+            "get_run_status", "summarize_model", "expand_architecture",
+            "stop_run"} <= set(out["tools"])
+    assert out["architectures"] == 8
+    assert out["valid"] is True
+    assert out["params"] == 101770
 
 
 # --------------------------------------------------------------- assistant
