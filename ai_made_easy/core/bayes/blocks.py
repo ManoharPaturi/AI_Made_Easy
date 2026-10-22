@@ -12,6 +12,8 @@ from ai_made_easy.core.spec import BlockDefinition, PortSpec
 CATEGORY = "Bayesian Deep Learning"
 STOCHASTIC = ("bayes.mc_dropout", "bayes.linear", "bayes.conv2d")
 KL_LAYERS = ("bayes.linear", "bayes.conv2d")
+# heads that output Gaussian mixture parameters (the Gaussian head is a one-component one)
+MDN_IDS = ("bayes.mdn", "bayes.gaussian_head")
 CALIBRATION = ("eval.ece", "eval.temperature_scaling", "eval.conformal")
 SAMPLES = P("samples", "int", 30, lo=1, hi=1000,
             help="Forward passes averaged when predicting (the largest value in the design "
@@ -123,6 +125,17 @@ def _layers() -> list[BlockDefinition]:
         torch_helpers=("MDNHead",),
         desc="Predicts a mixture of Gaussians instead of one value: multi-modal targets and "
              "input-dependent noise (trains with the mixture's negative log-likelihood).")
+    gaussian = nn_block(
+        "bayes.gaussian_head", "Gaussian Head (mean + variance)", CATEGORY, family="model",
+        params=(P("targets", "int", 1, lo=1, hi=100, help="Number of target columns"),),
+        shape=lambda s, p: _mdn_shape(s, {**p, "components": 1}),
+        param_fn=lambda s, p: _mdn_params(s, {**p, "components": 1}),
+        torch=lambda c: f"MDNHead({c['input_shape'][0]}, 1, {int(c['targets'])})",
+        torch_helpers=("MDNHead",),
+        desc="Predicts a mean and a variance for each target and trains with the Gaussian "
+             "negative log-likelihood (torch's GaussianNLLLoss, with the variance learned "
+             "per input): the model says how sure it is, so noisy regions get wide "
+             "intervals. A Mixture Density Head with one component.")
     quantile = nn_block(
         "bayes.quantile_head", "Quantile Head", CATEGORY, family="model",
         params=(P("quantiles", "str", "0.05, 0.5, 0.95",
@@ -138,8 +151,8 @@ def _layers() -> list[BlockDefinition]:
              "Conformal Prediction the interval is calibrated (conformalized quantile "
              "regression).")
     out = []
-    for defn in (mc, linear, conv, mdn, quantile):
-        role = "distribution" if defn.type_id in ("bayes.mdn", "bayes.quantile_head") \
+    for defn in (mc, linear, conv, mdn, gaussian, quantile):
+        role = "distribution" if defn.type_id in (*MDN_IDS, "bayes.quantile_head") \
             else "tensor"
         out.append(replace(defn, outputs=(PortSpec("out", role=role),),
                            meta={**(defn.meta or {}), "bayes": True}))

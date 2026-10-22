@@ -134,9 +134,9 @@ _Encoder = {{ spec.class_name }}
 
 
 class {{ spec.class_name }}(nn.Module):
-    """Labelled pairs: the encoder above embeds both items, (batch, 2, ...) -> (batch, 2,
-    embedding). A single item (batch, ...) gets its embedding, which is what export and
-    serving use."""
+    """Labelled pairs or triplets: the encoder above embeds every item, (batch, items, ...)
+    -> (batch, items, embedding). A single item (batch, ...) gets its embedding, which is
+    what export and serving use."""
 
     def __init__(self) -> None:
         super().__init__()
@@ -144,7 +144,7 @@ class {{ spec.class_name }}(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         if x.ndim == len(INPUT_SHAPE) + 2:
-            return self.encoder(x.flatten(0, 1)).reshape(x.shape[0], 2, -1)
+            return self.encoder(x.flatten(0, 1)).reshape(x.shape[0], x.shape[1], -1)
         return self.encoder(x)
 {% endif %}
 '''
@@ -415,7 +415,7 @@ def pick_device() -> torch.device:
 def adapt(out: torch.Tensor, y: torch.Tensor):
     """Align output and target shapes for the loss."""
 {% if pairs %}
-    return out, y            # [batch, 2, embedding] and each pair's 0 / 1 label
+    return out, y            # [batch, items, embedding] and each pair's 0 / 1 label
 {% elif spec.task == "binary" %}
     return out.reshape(-1), y.float().reshape(-1)
 {% elif spec.task == "regression" %}
@@ -551,8 +551,8 @@ def fit(model: nn.Module, train_loader, val_loader, device, log: bool = True):
 {% if mixup %}
     mix = {{ mixup }}
 {% endif %}
-{% if sam %}
-    use_amp = False   # SAM's two passes per step run in full precision
+{% if sam or closure %}
+    use_amp = False   # SAM's two passes / L-BFGS's re-evaluations run in full precision
 {% else %}
     use_amp = MIXED_PRECISION and device.type in ("cuda", "mps")
 {% endif %}
@@ -578,6 +578,29 @@ def fit(model: nn.Module, train_loader, val_loader, device, log: bool = True):
 {% if mixup %}
             xb, yb = mix(xb, yb)
 {% endif %}
+{% if closure %}
+
+            def closure():
+                """The batch's loss and gradients; L-BFGS calls it as often as it needs."""
+                optimizer.zero_grad(set_to_none=True)
+                out, target = adapt(model(xb), yb)
+                loss = loss_fn(out, target)
+                if LOSS_HOOK is not None:
+                    loss = LOSS_HOOK(loss, out, xb, model)
+{% if prob and prob.kl %}
+                loss = loss + kl_scale * kl_penalty(model)
+{% endif %}
+{% if aux_loss %}
+                loss = loss + sum(m.aux_loss() for m in model.modules()
+                                  if hasattr(m, "aux_loss"))
+{% endif %}
+                loss.backward()
+                if GRAD_CLIP > 0:
+                    nn.utils.clip_grad_norm_(model.parameters(), GRAD_CLIP)
+                return loss
+
+            loss = optimizer.step(closure)
+{% else %}
             with torch.autocast(device_type=device.type, dtype=amp_dtype, enabled=use_amp):
                 out, target = adapt(model(xb), yb)
                 loss = loss_fn(out, target)
@@ -590,7 +613,15 @@ def fit(model: nn.Module, train_loader, val_loader, device, log: bool = True):
                 loss = loss + sum(m.aux_loss() for m in model.modules()   # e.g. TabNet sparsity
                                   if hasattr(m, "aux_loss"))
 {% endif %}
-{% if sam %}
+{% endif %}
+{% if closure %}
+{% if ema %}
+            ema.update_parameters(model)
+{% endif %}
+{% if scheduler_step == "batch" %}
+            scheduler.step()
+{% endif %}
+{% elif sam %}
             loss.backward()
             optimizer.first_step()           # to the worst weights nearby
             out2, target2 = adapt(model(xb), yb)

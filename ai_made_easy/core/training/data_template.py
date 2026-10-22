@@ -12,7 +12,7 @@ DATA_TEMPLATE = r'''
 INFERENCE_STATE: dict = {}  # fitted preprocessing, saved with the model for serving
 
 
-{% if d.block in ("data.csv", "data.text_csv", "data.timeseries_csv", "data.pairs") %}
+{% if d.block in ("data.csv", "data.text_csv", "data.timeseries_csv", "data.pairs", "data.triplets") %}
 def read_table(path: str, fmt: str) -> "pd.DataFrame":
     import pandas as pd
 
@@ -161,6 +161,27 @@ def load_raw():
     if not set(np.unique(y).tolist()) <= {-1, 0, 1}:
         raise SystemExit(f"{label} must be 1 or 0 (or -1) for each pair")
     return x, (y > 0).astype(np.int64), {{ ["b ranks higher", "a ranks higher"] if pairs == "ranking" else ["different", "same"] }}
+{% elif d.block == "data.triplets" and not d.path %}
+    # demo triplets: 8 features per item, 2000 triplets from 10 kinds of item
+    rng = np.random.default_rng(0)
+    n = 2000
+    centres = rng.normal(scale=2.0, size=(10, 8))
+    ka = rng.integers(0, 10, n)
+    kn = (ka + rng.integers(1, 10, n)) % 10          # a different kind
+    a, p, q = (centres[k] + rng.normal(scale=0.7, size=(n, 8)) for k in (ka, ka, kn))
+    return np.stack([a, p, q], axis=1).astype(np.float32), np.ones(n, np.int64), \
+        ["negative closer", "positive closer"]
+{% elif d.block == "data.triplets" %}
+    frame = read_table({{ d.path | repr }}, {{ d.format | repr }})
+    ap, pp, np_ = {{ d.anchor_prefix | repr }}, {{ d.positive_prefix | repr }}, {{ d.negative_prefix | repr }}
+    anchor = [c for c in frame.columns if str(c).startswith(ap)]
+    others = [[pre + str(c)[len(ap):] for c in anchor] for pre in (pp, np_)]
+    missing = [c for cols in others for c in cols if c not in frame.columns]
+    if not anchor or missing:
+        raise SystemExit(f"triplets need matching {ap}*, {pp}* and {np_}* columns; "
+                         f"missing: {missing or ap + '*'}")
+    x = np.stack([frame[cols].to_numpy(np.float32) for cols in (anchor, *others)], axis=1)
+    return x, np.ones(len(x), np.int64), ["negative closer", "positive closer"]
 {% elif d.block == "data.numpy" %}
     archive = np.load({{ d.path | repr }})
     x, y = archive[{{ d.x_key | repr }}], archive[{{ d.y_key | repr }}]
@@ -625,8 +646,8 @@ def make_arrays() -> dict[str, tuple[np.ndarray, np.ndarray]]:
         if xs.ndim == 2 and len(INPUT_SHAPE) > 1 and xs.shape[1] == int(np.prod(INPUT_SHAPE)):
             xs = xs.reshape(len(xs), *INPUT_SHAPE)
 {% if pairs %}
-        if xs.shape[1:] != (2, *INPUT_SHAPE):   # each sample is a pair of items
-            raise SystemExit(f"each pair's items have shape {xs.shape[2:]} but the model "
+        if xs.shape[2:] != tuple(INPUT_SHAPE):   # each sample is a pair (or triplet) of items
+            raise SystemExit(f"each {{ 'triplet' if pairs == 'triplet' else 'pair' }}'s items have shape {xs.shape[2:]} but the model "
                              f"expects {tuple(INPUT_SHAPE)}")
 {% else %}
         if xs.shape[1:] != tuple(INPUT_SHAPE):

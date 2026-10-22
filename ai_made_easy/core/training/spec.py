@@ -72,7 +72,10 @@ class TrainingSpec:
 
     @property
     def pairs(self) -> str | None:
-        """Labelled pairs (3.4): "same" (cosine embedding) or "ranking" (margin ranking)."""
+        """Labelled pairs (3.4): "same" (cosine embedding) or "ranking" (margin ranking);
+        labelled triplets (3.6): "triplet"."""
+        if self.dataset.get("block") == "data.triplets" and self.loss:
+            return "triplet"
         if self.dataset.get("block") != "data.pairs" or not self.loss:
             return None
         return "ranking" if self.loss["kind"] == "train.loss_margin_ranking" else "same"
@@ -133,7 +136,8 @@ def collect_spec(graph: Graph) -> TrainingSpec:
         input_dtype=str(head.resolved_params().get("dtype", "float32")),
         output_shape=list(shapes[out_node.instance_id]),
     )
-    mdn = [n for n in chain if n.type_id in ("bayes.mdn", "bayes.quantile_head")]
+    heads = ("bayes.mdn", "bayes.gaussian_head", "bayes.quantile_head")
+    mdn = [n for n in chain if n.type_id in heads]
     if mdn:  # the head emits mixture parameters / quantiles; the targets are `targets` wide
         spec.output_shape = [int(mdn[-1].resolved_params()["targets"])]
 
@@ -160,6 +164,10 @@ def collect_spec(graph: Graph) -> TrainingSpec:
             raise CodegenError("Labelled Pairs trains with a pair loss: Cosine Embedding "
                                "(same or different) or Margin Ranking (which ranks higher)")
         spec.task = "binary"           # each pair: same or not / a above b or not
+    if spec.dataset.get("block") == "data.triplets":
+        if spec.loss["kind"] != "train.loss_triplet":
+            raise CodegenError("Labelled Triplets trains with the Triplet loss")
+        spec.task = "binary"           # each triplet: is the positive the closer one?
     if ds is None:
         spec.dataset = _default_dataset(spec)
         spec.warnings.append("no dataset block: training on synthetic data shaped like "
@@ -314,10 +322,10 @@ def dataset_comment(spec: TrainingSpec) -> str:
         return f"Torchvision {d['dataset']}"
     if block == "data.sklearn":
         return f"scikit-learn {d['dataset']}"
-    if block == "data.pairs" and not d.get("path"):
-        return "Labelled Pairs: generated demo pairs"
+    if block in ("data.pairs", "data.triplets") and not d.get("path"):
+        return f"{dcat.BLOCKS[block].name}: generated demo {block[5:]}"
     if block in ("data.csv", "data.text_csv", "data.timeseries_csv", "data.numpy", "data.json",
-                 "data.pairs"):
+                 "data.pairs", "data.triplets"):
         return f"{dcat.BLOCKS[block].name}: {d.get('path')}"
     if block in ("data.image_folder", "data.text_folder", "data.audio_folder"):
         return f"{dcat.BLOCKS[block].name}: {d.get('root')}"

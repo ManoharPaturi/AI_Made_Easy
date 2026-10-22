@@ -115,6 +115,17 @@ LOSSES: list[Component] = [
         desc="Multi-label classification on logits with multi-hot targets.",
         meta={"task": "multilabel", "target": "float", "input": "logits"}),
     Component(
+        "train.loss_multilabel_margin", "Multi-Label Hinge",
+        (), torch=lambda p: ("lambda pred, target: (torch.relu(1 - pred[:, :, None] + "
+                             "pred[:, None, :]) * (target[:, :, None] * (1 - target[:, None, "
+                             ":]))).sum((1, 2)).div(pred.shape[1]).mean()"),
+        keras=lambda p: ("lambda y, p: ops.mean(ops.sum(ops.relu(1 - p[:, :, None] + "
+                         "p[:, None, :]) * (ops.cast(y, p.dtype)[:, :, None] * "
+                         "(1 - ops.cast(y, p.dtype)[:, None, :])), axis=(1, 2)) / p.shape[1])"),
+        desc="torch's MultiLabelMarginLoss on multi-hot targets: every label an example has "
+             "must score at least 1 above every label it lacks. Multi-label, on scores.",
+        meta={"task": "multilabel", "target": "float", "input": "logits"}),
+    Component(
         "train.loss_mse", "Mean Squared Error", (),
         torch=lambda p: "nn.MSELoss()", keras=lambda p: "keras.losses.MeanSquaredError()",
         desc="Regression: mean of squared errors.",
@@ -453,6 +464,21 @@ OPTIMIZERS: list[Component] = [
              "rest. Fast on transformers and CNNs; Keras 3.10 or later.",
         meta={"torch_helper": "Muon"}),
     Component(
+        "train.lbfgs", "L-BFGS",
+        (_LR(1.0), P("max_iter", "int", 20, lo=1, hi=200, help="Iterations per batch"),
+         P("history_size", "int", 100, lo=1, hi=1000, help="Past updates kept to estimate "
+                                                           "the curvature"),
+         P("line_search", "bool", True, help="Strong-Wolfe line search (steadier)")),
+        torch=lambda p: (f"torch.optim.LBFGS(model.parameters(), lr={p['lr']}, "
+                         f"max_iter={int(p['max_iter'])}, "
+                         f"history_size={int(p['history_size'])}, line_search_fn="
+                         + ("\"strong_wolfe\")" if p.get("line_search") else "None)")),
+        desc="Limited-memory BFGS: a quasi-Newton method that estimates the curvature from "
+             "recent gradients. Converges in few steps on small, smooth problems (tabular "
+             "regression, physics fits); use large batches or the whole dataset as one "
+             "batch. Re-evaluates the loss several times per step; full precision.",
+        meta={"closure": True}),
+    Component(
         "train.lamb", "LAMB",
         (_LR(1e-3), _B1, _B2, _EPS(1e-6), _WD(1e-2)),
         torch=lambda p: (f"Lamb(model.parameters(), lr={p['lr']}, "
@@ -562,13 +588,27 @@ class MarginSoftmaxLoss(nn.Module):
     "TripletLoss": _PROTOTYPES + '''
 
 class TripletLoss(ClassPrototypes):
-    """Batch-hard triplet loss (Hermans et al., 2017) on L2-normalised embeddings."""
+    """Batch-hard triplet loss (Hermans et al., 2017) on L2-normalised embeddings. Labelled
+    triplets [batch, 3, embedding] (anchor, positive, negative) use their own triplets."""
 
     def __init__(self, embed_dim: int, num_classes: int, margin: float = 0.3) -> None:
         super().__init__(embed_dim, num_classes)
         self.margin = margin
 
+    @staticmethod
+    def _gaps(emb: torch.Tensor) -> torch.Tensor:
+        """d(anchor, negative) - d(anchor, positive) per labelled triplet."""
+        e = nn.functional.normalize(emb.float(), dim=-1)
+        return (e[:, 0] - e[:, 2]).norm(dim=1) - (e[:, 0] - e[:, 1]).norm(dim=1)
+
+    def scores(self, emb: torch.Tensor) -> torch.Tensor:
+        if emb.ndim == 3:   # labelled triplets: a logit that says "the positive is closer"
+            return 10.0 * self._gaps(emb)[:, None]
+        return super().scores(emb)
+
     def forward(self, emb: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        if emb.ndim == 3:
+            return torch.relu(self.margin - self._gaps(emb)).mean()
         target = target.long().reshape(-1)
         e = nn.functional.normalize(emb.float(), dim=1)
         dist = torch.cdist(e, e)
