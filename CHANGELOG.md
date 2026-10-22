@@ -43,6 +43,9 @@ this release and what is still open.
 - Try it: loading one run's model no longer makes predictions from other runs wait.
 - Elastic Transform with a sigma too large for the images is a design error that says
   which value fits, instead of a crash during training.
+- Windows: text files (designs, predictions, model cards, generated scripts) are read
+  and written as UTF-8, so names with accents no longer fail or come back garbled. A
+  test keeps every text read and write explicit.
 
 ## 3.5.0
 
