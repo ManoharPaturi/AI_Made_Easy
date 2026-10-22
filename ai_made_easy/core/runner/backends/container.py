@@ -15,7 +15,7 @@ import subprocess
 import threading
 from typing import TYPE_CHECKING
 
-from ai_made_easy.core.runner.backends import BackendError, RemoteBackend
+from ai_made_easy.core.runner.backends import BackendError, RemoteBackend, split_command
 from ai_made_easy.core.runner.backends.bundle import LAUNCHER_NAME
 from ai_made_easy.core.runs.history import FINAL_STATES
 
@@ -32,7 +32,7 @@ def docker_command() -> list[str]:
     """The docker client (``$AIME_DOCKER`` overrides it, e.g. for tests or podman)."""
     override = os.environ.get("AIME_DOCKER")
     if override:
-        return shlex.split(override)
+        return split_command(override)
     found = shutil.which("docker") or shutil.which("podman")
     if not found:
         raise BackendError("no docker client found: install Docker Desktop (or podman)")
@@ -58,7 +58,7 @@ class ContainerBackend(RemoteBackend):
     def test(self) -> dict:
         try:
             proc = subprocess.run([*docker_command(), "version", "--format",
-                                   "{{.Server.Version}}"], capture_output=True, text=True,
+                                   "{{.Server.Version}}"], capture_output=True, encoding="utf-8", errors="replace",
                                   timeout=30)
         except (BackendError, OSError, subprocess.TimeoutExpired) as exc:
             return {"ok": False, "message": str(exc), "accelerator": {}}
@@ -80,7 +80,7 @@ class ContainerBackend(RemoteBackend):
             self.note(run, f"building the training image {tag} (once per set of packages)")
             try:
                 build = subprocess.run([*docker, "build", "-t", tag, "-"], input=text,
-                                       capture_output=True, text=True, timeout=BUILD_TIMEOUT)
+                                       capture_output=True, encoding="utf-8", errors="replace", timeout=BUILD_TIMEOUT)
             except subprocess.TimeoutExpired as exc:
                 raise BackendError(f"the image did not build in {BUILD_TIMEOUT // 60} "
                                    "minutes") from exc
@@ -107,7 +107,7 @@ class ContainerBackend(RemoteBackend):
             if self.options.get("image"):
                 argv.append("--install")
             proc = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                    text=True, bufsize=1)
+                                    encoding="utf-8", errors="replace", bufsize=1)
             run.process = proc
             run.accelerator = {"gpu": "passthrough" if self.options.get("gpus") else ""}
             if run.history is not None:

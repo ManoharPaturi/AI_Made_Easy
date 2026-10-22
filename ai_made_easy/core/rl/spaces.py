@@ -60,7 +60,7 @@ def _probe(env_id: str, module: str, stamp: float, cwd: str) -> dict:
            "PYTHONPATH": os.pathsep.join(filter(None, [cwd, os.environ.get("PYTHONPATH", "")]))}
     try:
         proc = subprocess.run([python_executable(), "-c", PROBE, env_id, module], cwd=cwd,
-                              capture_output=True, text=True, timeout=120, env=env)
+                              capture_output=True, encoding="utf-8", errors="replace", timeout=120, env=env)
     except subprocess.TimeoutExpired:
         return {"error": "creating the environment took longer than 2 minutes"}
     line = next((ln for ln in proc.stdout.splitlines() if ln.startswith("SPACES ")), "")

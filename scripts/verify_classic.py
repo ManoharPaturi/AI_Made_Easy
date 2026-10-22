@@ -196,7 +196,7 @@ def run_graph(graph: Graph, workdir: Path, expect=(), verbose=False) -> str:
         raise AssertionError(f"{graph.name}: invalid graph {errors}")
     code = generate_training(graph, "sklearn")
     script = workdir / f"{graph.name}.py"
-    script.write_text(code)
+    script.write_text(code, encoding="utf-8")
     proc = subprocess.run([sys.executable, script.name], cwd=workdir, capture_output=True,
                           text=True, timeout=600,
                           env={**os.environ, "PYTHONWARNINGS": "ignore"})

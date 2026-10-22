@@ -33,8 +33,11 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest]
         python: ["3.11", "3.12"]
+        include:
+          - os: windows-latest
+            python: "3.12"
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 60
+    timeout-minutes: ${{ matrix.os == 'windows-latest' && 120 || 60 }}
     env:
       QT_QPA_PLATFORM: offscreen
       KERAS_BACKEND: torch
@@ -400,3 +403,38 @@ jobs:
           sleep 15
           kill -0 "$PID" || { cat app.log; exit 1; }
           kill "$PID"
+
+  package-windows:
+    # the Windows desktop bundle builds and starts (3.7)
+    needs: lint
+    runs-on: windows-latest
+    timeout-minutes: 30
+    env:
+      QT_QPA_PLATFORM: offscreen
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install
+        run: pip install -e ".[dev]" pillow
+      - name: Build the desktop bundle
+        shell: bash
+        run: bash scripts/build_app.sh
+      - name: Bundle ships the package sources used by subprocesses
+        shell: bash
+        run: |
+          test -f "dist/AI Made Easy/AI Made Easy.exe"
+          test -f "dist/AI Made Easy/_internal/ai_made_easy/worker/train_worker.py"
+          test -f "dist/AI Made Easy/_internal/ai_made_easy/worker/aime_launch.py"
+          test -f "dist/AI Made Easy/_internal/ai_made_easy/core/tryit.py"
+      - name: The bundled app starts
+        shell: pwsh
+        run: |
+          $env:AIME_HOME = New-Item -ItemType Directory -Path (Join-Path $env:RUNNER_TEMP "aime-home")
+          $p = Start-Process -FilePath "dist/AI Made Easy/AI Made Easy.exe" -PassThru `
+            -RedirectStandardOutput app.log -RedirectStandardError app.err
+          Start-Sleep -Seconds 20
+          if ($p.HasExited) { Get-Content app.log, app.err; exit 1 }
+          Stop-Process -Id $p.Id

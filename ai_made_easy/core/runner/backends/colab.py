@@ -93,7 +93,7 @@ def drive_file_id(path: Path) -> str:
     if sys.platform == "darwin":
         try:
             out = subprocess.run(["xattr", "-p", "com.google.drivefs.item-id#S", str(path)],
-                                 capture_output=True, text=True, timeout=5)
+                                 capture_output=True, encoding="utf-8", errors="replace", timeout=5)
         except (OSError, subprocess.TimeoutExpired):
             return ""
         return out.stdout.strip() if out.returncode == 0 else ""

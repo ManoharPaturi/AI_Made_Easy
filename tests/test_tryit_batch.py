@@ -42,7 +42,7 @@ def trained(tmp_path_factory):
                  ("train.trainer", {"epochs": 1, "batch_size": 8, "device": "cpu"})])
     table = root / "table.csv"
     table.write_text("size,weight,label\n" + "\n".join(
-        f"{i % 7},{(i * 3) % 5},{'big' if i % 7 > 3 else 'small'}" for i in range(120)))
+        f"{i % 7},{(i * 3) % 5},{'big' if i % 7 > 3 else 'small'}" for i in range(120)), encoding="utf-8")
     tab = chain("tab", "2", [("core.dense", {"units": 8}), ("core.relu", {}),
                              ("core.dense", {"units": 2})],
                 [("data.csv", {"path": str(table), "target_column": "label"}),
@@ -184,10 +184,10 @@ def test_desktop_try_dialog_predicts_a_file_and_shows_grad_cam(runs, tmp_path):
     wait(lambda: dialog.predict_btn.isEnabled())
     assert dialog.file_btn.isEnabled() and dialog.explain_box.isHidden()
     source, target = tmp_path / "in.csv", tmp_path / "out.csv"
-    source.write_text("\n".join(",".join("0.1" for _ in range(16)) for _ in range(4)))
+    source.write_text("\n".join(",".join("0.1" for _ in range(16)) for _ in range(4)), encoding="utf-8")
     dialog.predict_file(source, target)
     wait(lambda: "predictions saved" in dialog.result.toPlainText())
-    assert len(_rows(target.read_text())) == 4
+    assert len(_rows(target.read_text(encoding="utf-8"))) == 4
     dialog.deleteLater()
 
     dialog = TryDialog(None, api.manager().history, runs["images"])

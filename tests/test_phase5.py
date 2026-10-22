@@ -99,7 +99,7 @@ def test_onnx_export_creates_file(tmp_path: Path):
         g.add_edge(Edge(a, "out", b, g.nodes[b].definition().inputs[0].name))
     script = tmp_path / "export.py"
     onnx_path = tmp_path / "tiny.onnx"
-    script.write_text(generate_onnx_export(g, str(onnx_path)))
+    script.write_text(generate_onnx_export(g, str(onnx_path)), encoding="utf-8")
     result = subprocess.run([sys.executable, script.name], cwd=tmp_path,
                             capture_output=True, text=True, timeout=300)
     assert result.returncode == 0, result.stdout + result.stderr
@@ -121,7 +121,7 @@ def test_torchscript_round_trip(tmp_path: Path):
         g.add_edge(Edge(a, "out", b, g.nodes[b].definition().inputs[0].name))
     script = tmp_path / "export.py"
     jit_path = tmp_path / "tiny_ts.pt"
-    script.write_text(generate_torchscript_export(g, str(jit_path)))
+    script.write_text(generate_torchscript_export(g, str(jit_path)), encoding="utf-8")
     result = subprocess.run([sys.executable, script.name], cwd=tmp_path,
                             capture_output=True, text=True, timeout=300)
     assert result.returncode == 0, result.stdout + result.stderr

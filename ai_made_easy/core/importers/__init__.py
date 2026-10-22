@@ -97,7 +97,7 @@ def import_model(kind: str, *, source: str, attr: str = "", input_shape: list[in
             from ai_made_easy.core.runner.manager import python_executable
 
             proc = subprocess.run([python or python_executable(), "-m", _WORKERS[kind], str(req)],
-                                  capture_output=True, text=True, timeout=timeout, env=env)
+                                  capture_output=True, encoding="utf-8", errors="replace", timeout=timeout, env=env)
         except subprocess.TimeoutExpired as exc:
             raise ModelImportError(f"the import took longer than {timeout:.0f}s") from exc
     marker = "IMPORT-RESULT "

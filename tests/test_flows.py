@@ -159,7 +159,7 @@ def _short(sample: str, epochs: int, n_samples: int) -> dict:
 @needs_torch
 def test_spline_flow_learns_the_checkerboard(tmp_path):
     run, script = _run(_short(SAMPLES[0], 25, 6000), tmp_path)
-    metrics = json.loads((run / "metrics.json").read_text())
+    metrics = json.loads((run / "metrics.json").read_text(encoding="utf-8"))
     assert metrics["nll"] < metrics["baseline_nll"] - 0.4
     assert metrics["nll"] > math.log(8) - 0.2                # cannot beat the true entropy
     assert (run / "eval_samples" / "density.png").exists()
@@ -187,13 +187,13 @@ def test_csv_density(layers, tmp_path):
     y = np.sin(2 * x) + rng.normal(0, 0.1, 3000)
     z = rng.exponential(1.0, 3000)
     rows = "".join(f"{a},{b},{c}\n" for a, b, c in zip(x, y, z, strict=True))
-    (tmp_path / "points.csv").write_text("x,y,z\n" + rows)
+    (tmp_path / "points.csv").write_text("x,y,z\n" + rows, encoding="utf-8")
     data = chain("3", layers, [
         n("data", "data.csv", path=str(tmp_path / "points.csv"), feature_columns="x,y,z"),
         n("opt", "train.adam", lr=0.003), n("tr", "train.trainer", epochs=20, batch_size=128)])
     assert not [m for m in messages(data) if "Set the Input" in m]
     run, script = _run(data, tmp_path)
-    metrics = json.loads((run / "metrics.json").read_text())
+    metrics = json.loads((run / "metrics.json").read_text(encoding="utf-8"))
     assert metrics["nll"] < metrics["baseline_nll"] - 0.3     # the curve and the skew
     out = _infer(run, script, [{"x": 0.0, "y": 0.0, "z": 0.5}, {"sample": 2}])
     assert math.isfinite(out[0]["log_density"]) and len(out[1]["samples"][0]) == 3
@@ -215,7 +215,7 @@ def test_flow_run_deploys(tmp_path, isolated_home):
         assert mgr.history.epochs(run_id)
         result = build_package(mgr.history.path(run_id), tmp_path / "pkg")
         assert result.verified, result.log[-3000:]
-        meta = json.loads((tmp_path / "pkg/metadata.json").read_text())
+        meta = json.loads((tmp_path / "pkg/metadata.json").read_text(encoding="utf-8"))
         assert meta["task"] == "density_estimation" and meta["input_kind"] == "density"
     finally:
         api.set_manager(None)

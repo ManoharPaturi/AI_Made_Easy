@@ -85,7 +85,7 @@ def test_detect_tables(tmp_path):
     facts = recipes.detect(reviews_csv(tmp_path))
     assert (facts.kind, facts.text_column, facts.target) == ("text_table", "review",
                                                              "sentiment")
-    (tmp_path / "book.txt").write_text("once upon a time " * 20)
+    (tmp_path / "book.txt").write_text("once upon a time " * 20, encoding="utf-8")
     assert recipes.detect(tmp_path / "book.txt").task == "language_modeling"
     assert recipes.detect(tmp_path / "nope.csv").error
     assert recipes.detect(None).demo
@@ -101,7 +101,7 @@ def test_detect_folders(tmp_path):
     (coco / "ann.json").write_text(json.dumps({
         "images": [{"id": 1, "file_name": "a.png"}],
         "annotations": [{"image_id": 1, "category_id": 1, "bbox": [0, 0, 2, 2]}],
-        "categories": [{"id": 1, "name": "cat"}]}))
+        "categories": [{"id": 1, "name": "cat"}]}), encoding="utf-8")
     facts = recipes.detect(coco)
     assert facts.kind == "coco" and facts.classes == ["cat"] and facts.task == "detection"
     seg = tmp_path / "seg"
@@ -262,7 +262,7 @@ def test_api_and_cli(tmp_path):
                           capture_output=True, text=True, timeout=300)
     assert proc.returncode == 0, proc.stderr[-2000:]
     assert "using Gradient Boosting" in proc.stderr or "using Random Forest" in proc.stderr
-    saved = Graph.from_dict(json.loads(project.read_text()))
+    saved = Graph.from_dict(json.loads(project.read_text(encoding="utf-8")))
     assert not [i for i in saved.validate() if i.severity == "error"]
     proc = subprocess.run([sys.executable, "-m", "ai_made_easy.cli", "recipes", "--task",
                            "regression"], capture_output=True, text=True, timeout=300)
@@ -307,7 +307,7 @@ def test_worker_exit_codes(tmp_path, code, returncode):
     from ai_made_easy.core.runner.manager import worker_script_path
 
     script = tmp_path / "train.py"
-    script.write_text(f"raise SystemExit({code})\n")
+    script.write_text(f"raise SystemExit({code})\n", encoding="utf-8")
     proc = subprocess.run([sys.executable, str(worker_script_path()), str(script)],
                           capture_output=True, text=True, timeout=120)
     from ai_made_easy.core.runner.protocol import parse_event

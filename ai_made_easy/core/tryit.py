@@ -139,7 +139,7 @@ class _Worker:
     def __init__(self, run_dir: Path, script: Path, python: str, env: dict) -> None:
         self.proc = subprocess.Popen(
             [python, "-u", "-c", _WORKER, str(run_dir), str(script)], cwd=run_dir,
-            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, encoding="utf-8", errors="replace",
             env=env)
         self._replies: queue.Queue = queue.Queue()
         self._err: list[str] = []

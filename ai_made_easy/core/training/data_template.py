@@ -55,7 +55,7 @@ def read_wav(path: str, sample_rate: int, n_samples: int) -> np.ndarray:
 
 {% endif %}
 def load_raw():
-    """Load {{ comment }}. Returns (features, targets, class names or None)."""
+    r"""Load {{ comment }}. Returns (features, targets, class names or None)."""
 {% if d.block == "data.synthetic" %}
     rng = np.random.default_rng({{ d.seed }})
     n = {{ d.n_samples }}
@@ -388,7 +388,7 @@ def clean_text(text: str) -> str:
 
 
 def encode_texts(train_texts: list[str], groups: list[list[str]]) -> list[np.ndarray]:
-    """{{ tok.method }} tokenization to [{{ tok.max_length }}] int64 ids (0 = pad, 1 = unknown)."""
+    r"""{{ tok.method }} tokenization to [{{ tok.max_length }}] int64 ids (0 = pad, 1 = unknown)."""
 {% if tok.method == "huggingface" %}
     return [encode_batch(texts) for texts in groups]
 
@@ -428,7 +428,7 @@ def encode_batch(texts: list[str]) -> np.ndarray:
 
 
 def audio_features(waves: np.ndarray) -> np.ndarray:
-    """{{ feat.kind }} features: (N, samples) -> (N, *INPUT_SHAPE)."""
+    r"""{{ feat.kind }} features: (N, samples) -> (N, *INPUT_SHAPE)."""
 {% if feat.kind == "waveform" %}
     return waves[:, None, :].astype(np.float32)
 {% else %}

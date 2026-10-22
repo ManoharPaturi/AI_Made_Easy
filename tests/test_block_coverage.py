@@ -50,11 +50,11 @@ def train(data: dict | Graph, workdir: Path) -> tuple[dict, Path]:
     done = subprocess.run([sys.executable, script.name], cwd=workdir, capture_output=True,
                           text=True, timeout=1200)
     assert done.returncode == 0, done.stdout[-2000:] + done.stderr[-3000:]
-    return json.loads((workdir / "metrics.json").read_text()), script
+    return json.loads((workdir / "metrics.json").read_text(encoding="utf-8")), script
 
 
 def serve(workdir: Path, script: Path, items: list, *args) -> list:
-    (workdir / "items.json").write_text(json.dumps(items))   # too long for a command line
+    (workdir / "items.json").write_text(json.dumps(items), encoding="utf-8")   # too long for a command line
     code = (f"import sys, json; sys.path.insert(0, '.'); import {script.stem} as m; "
             f"m.load_predictor('.', *{args!r}); items = json.load(open('items.json')); "
             f"print('OUT ' + json.dumps(m.infer(items)))")
@@ -131,7 +131,7 @@ def test_yolo_style_detector_trains_and_serves(tmp_path):
             n["params"].update(n_images=240)
     metrics, script = train(data, tmp_path)
     assert metrics["map50"] > 0.5                       # three epochs from scratch
-    assert "BOX_LOSS = ('giou', 5.0)" in script.read_text()
+    assert "BOX_LOSS = ('giou', 5.0)" in script.read_text(encoding="utf-8")
     out = serve(tmp_path, script, [np.zeros((128, 128, 3), np.uint8).tolist()])
     assert set(out[0]) >= {"boxes", "scores", "labels"}
 
@@ -149,7 +149,7 @@ def test_mask2former_trains_with_its_own_loss(tmp_path):
                               "(lr = 1e-4)"]             # and no cross-entropy default
     metrics, script = train(data, tmp_path)
     assert 0 <= metrics["miou"] <= 1
-    assert "own.segmentation_loss" in script.read_text()
+    assert "own.segmentation_loss" in script.read_text(encoding="utf-8")
     data["nodes"][0]["params"]["shape"] = "3, 72, 72"
     assert any("multiples of 32" in m for m in messages(data))
 
@@ -268,7 +268,7 @@ def test_multivariate_normal_rules(tmp_path):
 @pytest.mark.skipif(not has("pymc"), reason="needs pymc")
 def test_lkj_recovers_correlated_group_effects(tmp_path):
     metrics, _script = train(_varying_slopes(tmp_path), tmp_path / "run")
-    report = (tmp_path / "run" / "eval_samples" / "report.txt").read_text()
+    report = (tmp_path / "run" / "eval_samples" / "report.txt").read_text(encoding="utf-8")
     corr = next(float(line.split()[1]) for line in report.splitlines()
                 if line.startswith("chol_corr[1]"))
     assert corr < -0.3                                   # the true correlation is -0.7
@@ -283,7 +283,7 @@ def test_mmhc_recovers_the_student_skeleton(tmp_path):
     data = t.student((t.node("rows", "data.network_sample", n_rows=5000, seed=1),
                       t.node("sl", "pgm.structure_learning", method="mmhc")))
     run, _stdout, _s = t._run(data, tmp_path)
-    metrics = json.loads((run / "metrics.json").read_text())
+    metrics = json.loads((run / "metrics.json").read_text(encoding="utf-8"))
     assert metrics["skeleton_errors"] == 0 and metrics["shd"] <= 1
 
 
@@ -319,7 +319,7 @@ def test_time_varying_regression_coefficients(parts, tmp_path):
     sales = (50 + 0.1 * np.arange(n) + 3 * np.sin(2 * np.pi * np.arange(n) / 12)
              + np.linspace(-2, -6, n) * price + rng.normal(0, 0.4, n))
     (tmp_path / "sales.csv").write_text("sales,price\n" + "".join(
-        f"{s:.4f},{p:.4f}\n" for s, p in zip(sales, price, strict=True)))
+        f"{s:.4f},{p:.4f}\n" for s, p in zip(sales, price, strict=True)), encoding="utf-8")
     model = ([t.n("t", "ssm.trend", kind="local linear trend"), t.n("s", "ssm.seasonal")]
              if parts == "structural" else
              [t.n("a", "ssm.arima", p=1, d=1, q=0, season=12, seasonal_d=1)])
@@ -332,7 +332,7 @@ def test_time_varying_regression_coefficients(parts, tmp_path):
         run = tmp_path / str(varying)
         run.mkdir()
         run, script = t._run(data, run)
-        metrics = json.loads((run / "metrics.json").read_text())
+        metrics = json.loads((run / "metrics.json").read_text(encoding="utf-8"))
         maes[varying] = metrics["mae"]
     assert metrics["coef_price_first"] == pytest.approx(-2.0, abs=0.5)
     assert metrics["coef_price_last"] == pytest.approx(-5.6, abs=0.8)

@@ -101,8 +101,14 @@ def _violations(tree: ast.Module, where: str, first_line: int = 1) -> list[str]:
 
 
 def _sources() -> list[Path]:
-    return [p for p in sorted(PACKAGE.rglob("*.py"))
-            if not any(p.is_relative_to(s) for s in SKIP)]
+    """The package, and (3.7) the tests and scripts: on Windows a helper that writes a
+    generated script in the code page makes it unreadable to Python."""
+    root = PACKAGE.parent
+    files = [*PACKAGE.rglob("*.py"), *(root / "tests").rglob("*.py"),
+             *(root / "scripts").rglob("*.py")]
+    return [p for p in sorted(files)
+            if not any(p.is_relative_to(s) for s in (*SKIP, root / "tests" / "golden"))
+            and p.name != "test_encoding.py"]     # its examples are violations on purpose
 
 
 def test_text_io_names_its_encoding():
@@ -143,3 +149,17 @@ def test_checker_catches_each_form():
     ''')
     lines = sorted(int(v.split(":")[1]) for v in _violations(ast.parse(src), "t"))
     assert lines == [3, 4, 5, 6, 7, 8, 9, 20, 24]
+
+
+def test_child_process_output_is_decoded_as_utf8():
+    """``text=True`` decodes a child's output in the locale code page (cp1252 on Windows);
+    the app's children write UTF-8 (PYTHONIOENCODING, set when the package is imported)."""
+    import ai_made_easy  # noqa: F401
+    import os
+
+    assert os.environ["PYTHONIOENCODING"] == "utf-8"
+    bad = [f"{path.relative_to(PACKAGE.parent)}:{n}"
+           for path in PACKAGE.rglob("*.py") if "static" not in path.parts
+           for n, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1)
+           if "text=True" in line or "universal_newlines=True" in line]
+    assert not bad, "use encoding=\"utf-8\", errors=\"replace\" instead of text=True:\n" + "\n".join(bad)

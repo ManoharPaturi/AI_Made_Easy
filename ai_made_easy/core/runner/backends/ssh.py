@@ -20,7 +20,12 @@ import threading
 import time
 from typing import TYPE_CHECKING
 
-from ai_made_easy.core.runner.backends import BackendError, RemoteBackend, device_for_gpu
+from ai_made_easy.core.runner.backends import (
+    BackendError,
+    RemoteBackend,
+    device_for_gpu,
+    split_command,
+)
 from ai_made_easy.core.runner.backends.bundle import LAUNCHER_NAME, unpack_outputs
 from ai_made_easy.core.runs.history import FINAL_STATES
 
@@ -69,7 +74,7 @@ def ssh_command() -> list[str]:
     """The ssh client (``$AIME_SSH`` overrides it, e.g. for tests)."""
     override = os.environ.get("AIME_SSH")
     if override:
-        return shlex.split(override)
+        return split_command(override)
     found = shutil.which("ssh")
     if not found:
         raise BackendError("no ssh client found: install OpenSSH")
@@ -229,7 +234,7 @@ class SSHBackend(RemoteBackend):
         while code is None:
             command = f"{shlex.quote(self.python)} - {self._dir(run.run_id)} {run.remote_offset}"
             proc = subprocess.Popen(self._argv(command), stdin=subprocess.PIPE,
-                                    stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                                    stdout=subprocess.PIPE, stderr=subprocess.PIPE, encoding="utf-8", errors="replace",
                                     bufsize=1)
             run.process = proc
             assert proc.stdin is not None and proc.stdout is not None

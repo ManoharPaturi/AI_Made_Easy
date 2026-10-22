@@ -17,17 +17,17 @@ tomllib = pytest.importorskip("tomllib")  # Python 3.11+
 
 
 def _pyproject() -> dict:
-    return tomllib.loads((ROOT / "pyproject.toml").read_text())
+    return tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
 
 
 def test_one_version_everywhere():
     version = _pyproject()["project"]["version"]
     assert ai_made_easy.__version__ == version
-    assert json.loads((ROOT / "web/package.json").read_text())["version"] == version
-    assert json.loads((ROOT / "web/package-lock.json").read_text())["version"] == version
+    assert json.loads((ROOT / "web/package.json").read_text(encoding="utf-8"))["version"] == version
+    assert json.loads((ROOT / "web/package-lock.json").read_text(encoding="utf-8"))["version"] == version
     assert f'"CFBundleShortVersionString": "{version}"' in \
-        (ROOT / "packaging/ai_made_easy.spec").read_text()
-    assert f"\n## {version}\n" in (ROOT / "CHANGELOG.md").read_text()
+        (ROOT / "packaging/ai_made_easy.spec").read_text(encoding="utf-8")
+    assert f"\n## {version}\n" in (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
 
 
 def _norm(name: str) -> str:
@@ -80,5 +80,5 @@ def test_families_doc_quotes_the_rules():
     pipeline = [m for _s, m in rule_messages(ROOT / "ai_made_easy/core/pipelines/rules.py")]
     assert "Ensemble: every member must do the same task" in pipeline
     assert "Distill: the student outputs … but the teacher …" in pipeline
-    text = (ROOT / "docs/FAMILIES.md").read_text()
+    text = (ROOT / "docs/FAMILIES.md").read_text(encoding="utf-8")
     assert "## Graphical model" in text and "Ensemble: every member must do the same task" in text

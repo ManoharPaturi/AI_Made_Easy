@@ -320,7 +320,7 @@ def test_feature_importance_finds_the_informative_feature(tmp_path, monkeypatch)
     if errors:
         pytest.skip(f"table design needs adjusting here: {errors}")
     _train_here(graph, tmp_path, monkeypatch)
-    explained = json.loads((tmp_path / "explain.json").read_text())
+    explained = json.loads((tmp_path / "explain.json").read_text(encoding="utf-8"))
     names = [f["name"] for f in explained["features"]]
     assert names[0] == "signal"
     assert set(names) == {"signal", "noise", "colour=blue", "colour=red"}
@@ -344,7 +344,7 @@ def test_explain_and_diff_endpoints(client):
     h = api.manager().history
     rec = h.create(tiny_classifier_dict())
     (h.path(rec.run_id) / "explain.json").write_text(json.dumps(
-        {"method": "permutation", "features": [{"name": "x", "importance": 0.3, "std": 0.01}]}))
+        {"method": "permutation", "features": [{"name": "x", "importance": 0.3, "std": 0.01}]}), encoding="utf-8")
     got = client.get(f"/api/runs/{rec.run_id}/explain").json()
     assert got["features"][0]["name"] == "x"
     other = h.create(tiny_classifier_dict())
@@ -370,7 +370,7 @@ def test_aime_new_picks_the_task_from_the_data(tmp_path, isolated_home):
                           timeout=300)
     assert proc.returncode == 0, proc.stderr
     assert "task: " in proc.stderr and "from the data" in proc.stderr
-    design = json.loads(out.read_text())
+    design = json.loads(out.read_text(encoding="utf-8"))
     assert any(n["type"] in ("data.csv", "data.table") or n["type"].startswith("data.")
                for n in design["nodes"])
     bare = subprocess.run([sys.executable, "-m", "ai_made_easy.cli", "new"],

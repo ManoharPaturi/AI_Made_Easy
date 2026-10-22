@@ -422,7 +422,7 @@ def build_package(run_dir: Path | str, out_dir: Path | str, *, formats: tuple[st
         from ai_made_easy.core.runner.manager import python_executable
 
         proc = subprocess.run([python or python_executable(), "export_formats.py"], cwd=out_dir,
-                              capture_output=True, text=True, timeout=timeout, env=run_env)
+                              capture_output=True, encoding="utf-8", errors="replace", timeout=timeout, env=run_env)
         result.log = proc.stdout + proc.stderr
         if "EXPORT-DONE" not in proc.stdout:
             raise DeployError("the packaged model could not be loaded:\n" + result.log[-3000:])
@@ -434,7 +434,9 @@ def build_package(run_dir: Path | str, out_dir: Path | str, *, formats: tuple[st
         if fmt in blocked:
             result.formats[fmt] = {"ok": False, "error": blocked[fmt]}
     meta["signature"] = signature
-    meta["exports"] = {k: v.get("file") for k, v in result.formats.items() if v.get("ok")}
+    # relative paths with / on every OS: the package moves between machines
+    meta["exports"] = {k: Path(v["file"]).as_posix() if v.get("file") else v.get("file")
+                       for k, v in result.formats.items() if v.get("ok")}
     (out_dir / "metadata.json").write_text(json.dumps(meta, indent=1, default=str), encoding="utf-8")
 
     metrics_rows = "".join(f"| {k} | {v:.4g} |\n" for k, v in list(meta["metrics"].items())[:8]

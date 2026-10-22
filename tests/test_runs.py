@@ -27,7 +27,7 @@ def test_history_create_update_list_delete(tmp_path):
     rec = h.get(a.run_id)
     assert rec.epochs_done == 2
     assert rec.best_metrics == {"val_loss": 0.9, "accuracy": 0.7}  # lr is not a metric
-    (h.path(a.run_id) / "metrics.json").write_text(json.dumps({"accuracy": 0.66, "cm": [[1]]}))
+    (h.path(a.run_id) / "metrics.json").write_text(json.dumps({"accuracy": 0.66, "cm": [[1]]}), encoding="utf-8")
     rec = h.finalize(a.run_id, "finished", 0)
     assert rec.final_metrics == {"accuracy": 0.66} and rec.duration is not None
     assert len(h.epochs(a.run_id)) == 2
@@ -115,7 +115,7 @@ def _crash_script(out):
     from pathlib import Path
 
     path = Path(out) / "crash.py"
-    path.write_text("raise RuntimeError('boom')\n")
+    path.write_text("raise RuntimeError('boom')\n", encoding="utf-8")
     return path
 
 

@@ -105,11 +105,11 @@ def test_tables_offer_unsupervised_tasks(tmp_path):
 
 def _run(graph: Graph, workdir) -> dict:  # noqa: ANN001
     script = workdir / "train.py"
-    script.write_text(generate_classic(graph))
+    script.write_text(generate_classic(graph), encoding="utf-8")
     done = subprocess.run([sys.executable, script.name], cwd=workdir, capture_output=True,
                           text=True, timeout=300)
     assert done.returncode == 0, done.stderr[-2000:]
-    return json.loads((workdir / "metrics.json").read_text())
+    return json.loads((workdir / "metrics.json").read_text(encoding="utf-8"))
 
 
 def test_clustering_and_anomaly_scripts_train(tmp_path):
@@ -177,7 +177,7 @@ def test_project_lists_show_classic_tasks(tmp_path):
     from ai_made_easy.ui.services.project_service import recent_kind
 
     path = tmp_path / "forest.json"
-    path.write_text(json.dumps(old))
+    path.write_text(json.dumps(old), encoding="utf-8")
     assert recent_kind(path) == "Classic ML pipeline · Binary classification"
-    (tmp_path / "broken.json").write_text("{")
+    (tmp_path / "broken.json").write_text("{", encoding="utf-8")
     assert recent_kind(tmp_path / "broken.json") == ""

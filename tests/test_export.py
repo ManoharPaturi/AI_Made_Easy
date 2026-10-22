@@ -86,7 +86,7 @@ def test_samples_from_a_run_and_random():
 # ------------------------------------------------------------------ rules and options
 
 def _sample(name: str) -> Graph:
-    return Graph.from_dict(json.loads((SAMPLES / f"{name}.json").read_text()))
+    return Graph.from_dict(json.loads((SAMPLES / f"{name}.json").read_text(encoding="utf-8")))
 
 
 def test_export_kinds_and_blockers():
@@ -131,7 +131,7 @@ def test_export_design_rule():
     speech = _sample("keyword_spotting")
     budget.set_budget(speech, device="cpu_laptop")   # runs ONNX: nothing blocked there
     assert not [i for i in speech.validate() if "export" in i.message]
-    pooled = json.loads((SAMPLES / "graph_classification_gin.json").read_text())
+    pooled = json.loads((SAMPLES / "graph_classification_gin.json").read_text(encoding="utf-8"))
     node = next(n for n in pooled["nodes"] if n["id"] == "gin_1")
     node["type"], node["params"] = "graph.topk_pool", {"ratio": 0.5}
     issues = Graph.from_dict(pooled).validate()
@@ -146,7 +146,7 @@ def _pytorch_samples() -> list[str]:
 
     out = []
     for path in sorted(SAMPLES.glob("*.json")):
-        graph = Graph.from_dict(json.loads(path.read_text()))
+        graph = Graph.from_dict(json.loads(path.read_text(encoding="utf-8")))
         if framework_of(graph) == "pytorch" and len(blockers(graph)) < len(ex.FORMATS["pytorch"]):
             out.append(path.stem)
     return out
@@ -192,7 +192,7 @@ def test_every_sample_round_trips(name, fmt, tmp_path):
         pytest.skip(f"needs {_FORMAT_NEEDS[fmt]}")
     if fmt.startswith("executorch") and name in _SLOW and not os.environ.get("AIME_SLOW"):
         pytest.skip("slow ExecuTorch lowering (set AIME_SLOW=1)")
-    graph = Graph.from_dict(json.loads((SAMPLES / f"{name}.json").read_text()))
+    graph = Graph.from_dict(json.loads((SAMPLES / f"{name}.json").read_text(encoding="utf-8")))
     blocked = blockers(graph)
     if fmt in blocked:
         assert blocked[fmt][0], "a blocked format needs a reason"
@@ -273,7 +273,7 @@ def test_package_checks_exports_on_the_runs_samples(mgr, tmp_path):
     assert onnx["metrics"]["top1_agreement"] == 1.0 and "accuracy" in onnx["metrics"]
     q = result.formats["onnx_int8"]
     assert q["ok"] and q["metrics"]["top1_agreement"] >= 0.9
-    meta = json.loads((tmp_path / "pkg/metadata.json").read_text())
+    meta = json.loads((tmp_path / "pkg/metadata.json").read_text(encoding="utf-8"))
     assert meta["export_kind"] == "tensor" and meta["exports"]["onnx"] == "exports/model.onnx"
     if HAS["executorch"]:
         et, et8 = result.formats["executorch"], result.formats["executorch_int8"]
@@ -301,7 +301,7 @@ def test_detector_package_exports_onnx(mgr, tmp_path):
     assert onnx["ok"], onnx.get("error")
     assert onnx["metrics"]["matched_detections"] >= ex.DETECTION_MATCH
     assert "NMS" in result.formats["executorch"]["error"]     # skipped by the design rule
-    meta = json.loads((tmp_path / "pkg/metadata.json").read_text())
+    meta = json.loads((tmp_path / "pkg/metadata.json").read_text(encoding="utf-8"))
     assert meta["export_kind"] == "detector" and "[1, D, 6]" in meta["export_note"]
     import onnxruntime as ort
 
@@ -316,7 +316,7 @@ def test_detector_package_exports_onnx(mgr, tmp_path):
 def test_graph_package_exports_onnx_for_any_graph_size(mgr, tmp_path):
     from ai_made_easy.core.deploy import build_package
 
-    data = json.loads((SAMPLES / "graph_node_classification.json").read_text())
+    data = json.loads((SAMPLES / "graph_node_classification.json").read_text(encoding="utf-8"))
     next(n for n in data["nodes"] if n["type"] == "train.trainer")["params"]["epochs"] = 2
     run = _train(mgr, data)
     result = build_package(run, tmp_path / "pkg", formats=("onnx", "torchscript"))
@@ -358,7 +358,7 @@ def test_format_routes(tmp_path, isolated_home):
 
     from ai_made_easy.server.app import create_app
 
-    graph = json.loads((SAMPLES / "shapes_detection.json").read_text())
+    graph = json.loads((SAMPLES / "shapes_detection.json").read_text(encoding="utf-8"))
     graph.setdefault("meta", {})["budget"] = {"device": "raspberry_pi_5"}
     with TestClient(create_app(token="", projects_dir=tmp_path)) as client:
         rows = {r["id"]: r for r in client.post("/api/export/formats",
@@ -372,12 +372,12 @@ def test_format_routes(tmp_path, isolated_home):
 def test_desktop_deploy_dialog_shows_reasons_and_suggestions(qtbot, tmp_path, isolated_home):
     from ai_made_easy.ui.features.deploy import DeployDialog
 
-    graph = json.loads((SAMPLES / "shapes_detection.json").read_text())
+    graph = json.loads((SAMPLES / "shapes_detection.json").read_text(encoding="utf-8"))
     graph.setdefault("meta", {})["budget"] = {"device": "raspberry_pi_5"}
     run = tmp_path / "run"
     run.mkdir()
     (run / "run.json").write_text(json.dumps({"run_id": "r1", "framework": "pytorch",
-                                              "graph": graph, "status": "finished"}))
+                                              "graph": graph, "status": "finished"}), encoding="utf-8")
     dialog = DeployDialog(None, run, "pytorch", "det")
     qtbot.addWidget(dialog)
     checks = dialog.format_checks

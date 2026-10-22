@@ -103,7 +103,7 @@ def _infer(folder: Path, script: Path, items: list) -> list:
 ], ids=["ppo", "dqn"])
 def test_discrete_agents_beat_random(algo, params, tmp_path):
     run, script = _run(agent(4, "CartPole-v1", algo, params), tmp_path)
-    metrics = json.loads((run / "metrics.json").read_text())
+    metrics = json.loads((run / "metrics.json").read_text(encoding="utf-8"))
     assert metrics["mean_reward"] > 5 * metrics["random_reward"]          # random: ~20
     assert list((run / "samples").glob("epoch_*.png"))                   # live reward curve
     out = _infer(run, script, [[0.0, 0.0, 0.05, 0.0], {"observation": [0, 0, -0.05, 0]}])
@@ -119,7 +119,7 @@ def test_continuous_agent_swings_the_pendulum(tmp_path):
         if node["type"] == "rl.sac":
             node["params"].update(total_timesteps=12000, evaluations=2)
     run, script = _run(data, tmp_path)
-    metrics = json.loads((run / "metrics.json").read_text())
+    metrics = json.loads((run / "metrics.json").read_text(encoding="utf-8"))
     assert metrics["mean_reward"] > metrics["random_reward"] + 300        # random: ~-1100
     action = _infer(run, script, [[1.0, 0.0, 0.0]])[0]["action"]
     assert len(action) == 1 and -2.0 <= action[0] <= 2.0
@@ -145,7 +145,7 @@ def test_agent_deploys(tmp_path, isolated_home):
         assert mgr.history.epochs(run_id)                    # the reward curve
         result = build_package(mgr.history.path(run_id), tmp_path / "pkg")
         assert result.verified, result.log[-3000:]
-        meta = json.loads((tmp_path / "pkg/metadata.json").read_text())
+        meta = json.loads((tmp_path / "pkg/metadata.json").read_text(encoding="utf-8"))
         assert meta["task"] == "reinforcement_learning" and meta["input_kind"] == "observations"
     finally:
         api.set_manager(None)

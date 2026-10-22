@@ -145,7 +145,7 @@ def test_subprocesses_use_python_executable():
         rel = path.relative_to(ROOT / "ai_made_easy").as_posix()
         if rel.startswith("server/static") or any(rel.startswith(a) for a in allowed):
             continue
-        if pattern.search(path.read_text()):
+        if pattern.search(path.read_text(encoding="utf-8")):
             offenders.append(rel)
     assert offenders == []
 

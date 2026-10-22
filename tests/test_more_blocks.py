@@ -169,7 +169,7 @@ def test_integrated_gradients_finds_the_informative_feature(tmp_path, monkeypatc
                    ("eval.integrated_gradients", {"steps": 16})])
     code, _ = _run(graph, tmp_path, monkeypatch)
     assert "torch.autograd.grad" in code
-    explained = json.loads((tmp_path / "explain.json").read_text())
+    explained = json.loads((tmp_path / "explain.json").read_text(encoding="utf-8"))
     assert explained["method"] == "integrated_gradients"
     assert explained["features"][0]["name"] == "signal"
 

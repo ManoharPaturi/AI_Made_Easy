@@ -128,7 +128,7 @@ def test_json_dataset_trains(tmp_path: Path):
     import numpy as np
 
     rng = np.random.default_rng(1)
-    with open(tmp_path / "data.jsonl", "w") as fh:
+    with open(tmp_path / "data.jsonl", "w", encoding="utf-8") as fh:
         for _ in range(120):
             y = int(rng.integers(0, 2))
             x = rng.normal(loc=y * 4.0, scale=1.0, size=6)
@@ -149,7 +149,7 @@ def test_json_dataset_trains(tmp_path: Path):
     out = _train_run(g, tmp_path)
     assert "epoch 2/2" in out
     # focal loss class must have been emitted
-    script = (tmp_path / "tiny_train_pytorch.py").read_text()
+    script = (tmp_path / "tiny_train_pytorch.py").read_text(encoding="utf-8")
     assert "class FocalLoss(nn.Module):" in script
     assert "torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.9)" in script
 
