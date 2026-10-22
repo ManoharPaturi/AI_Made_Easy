@@ -143,7 +143,7 @@ def _triplets_csv(path: Path, n_rows: int = 600) -> Path:
     cols = [f"{pre}f{i}" for pre in ("a_", "p_", "n_") for i in range(4)]
     rows = [",".join(cols)]
     rows += [",".join(str(v) for item in items for v in item[r]) for r in range(n_rows)]
-    path.write_text("\n".join(rows))
+    path.write_text("\n".join(rows), encoding="utf-8")
     return path
 
 
@@ -163,7 +163,7 @@ def test_labelled_triplets_train_an_encoder(from_file, tmp_path, monkeypatch, ca
     assert "reshape(x.shape[0], x.shape[1], -1)" in code
     out = capsys.readouterr().out
     assert _test_metric(out, "accuracy") > 0.9, out[-1500:]
-    assert json.loads((tmp_path / "classes.json").read_text()) == ["negative closer",
+    assert json.loads((tmp_path / "classes.json").read_text(encoding="utf-8")) == ["negative closer",
                                                                    "positive closer"]
 
 
@@ -195,7 +195,7 @@ def test_lbfgs_has_no_keras_form_and_family_trainers_refuse_it():
     with pytest.raises(CodegenError, match="L-BFGS"):
         generate_training(plain, "keras")
     data = json.loads((Path(__file__).resolve().parents[1] / "ai_made_easy" / "samples"
-                       / "demand_forecasting.json").read_text())
+                       / "demand_forecasting.json").read_text(encoding="utf-8"))
     from ai_made_easy.core.training.catalog import OPTIMIZER_IDS
 
     data["nodes"] = [nd for nd in data["nodes"] if nd["type"] not in OPTIMIZER_IDS]

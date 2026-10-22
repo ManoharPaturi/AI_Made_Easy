@@ -8,7 +8,7 @@ import sys
 args = sys.argv[1:]
 log = os.environ.get("FAKE_DOCKER_LOG")
 if log:
-    with open(log, "a") as fh:
+    with open(log, "a", encoding="utf-8") as fh:
         fh.write(" ".join(args) + "\n")
 if args[0] == "version":
     print("27.0-fake")

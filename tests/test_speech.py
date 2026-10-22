@@ -123,14 +123,14 @@ def test_metrics_hand_cases(rt):
 def test_manifest_reader(rt, tmp_path):
     for i, name in enumerate(("a", "b", "c")):
         rt["write_wav"](tmp_path / f"{name}.wav", np.full(4000, 0.1 * i, np.float32), 8000)
-    (tmp_path / "m.csv").write_text("path,label\na.wav,Go Up!\nb.wav,no\nc.wav,yes\n")
+    (tmp_path / "m.csv").write_text("path,label\na.wav,Go Up!\nb.wav,no\nc.wav,yes\n", encoding="utf-8")
     records, names = rt["read_manifest"](tmp_path / "m.csv", "transcripts", "path", "label",
                                          ";", rt["ALPHABET"], 16000, 0.5)
     assert records[0]["label"] == "go up" and records[0]["wave"].shape == (8000,)
     records, names = rt["read_manifest"](tmp_path / "m.csv", "keywords", "path", "label",
                                          ";", rt["ALPHABET"], 8000, 0.5)
     assert names == ["Go Up!", "no", "yes"] and records[2]["label"] == 2
-    (tmp_path / "t.csv").write_text("file,tags\na.wav,dog; car\nb.wav,car\n")
+    (tmp_path / "t.csv").write_text("file,tags\na.wav,dog; car\nb.wav,car\n", encoding="utf-8")
     records, names = rt["read_manifest"](tmp_path / "t.csv", "tags", "file", "tags", ";",
                                          "", 8000, 0.5)
     assert names == ["car", "dog"] and records[0]["label"] == [0, 1]
@@ -195,7 +195,7 @@ def test_profile_speech(rt, tmp_path):
     p = profile_dataset("data.synthetic_speech", {**defaults, "n_clips": 40})
     assert p.task == "keyword_spotting" and len(p.classes) == 6
     rt["write_wav"](tmp_path / "a.wav", np.zeros(24000, np.float32), 8000)
-    (tmp_path / "m.csv").write_text("path,label\na.wav,Hello World 2\nmissing.wav,hi\n")
+    (tmp_path / "m.csv").write_text("path,label\na.wav,Hello World 2\nmissing.wav,hi\n", encoding="utf-8")
     manifest = {p.name: p.default for p in get_registry().get("data.speech_csv").params}
     manifest.update(path="m.csv", task="transcripts")
     p = profile_dataset("data.speech_csv", manifest, tmp_path)
@@ -213,7 +213,7 @@ def _train(data: dict, tmp_path: Path) -> Path:
 
     code = generate_training(Graph.from_dict(data), "pytorch")
     assert "Needs:  torch, numpy, pillow" in code
-    (tmp_path / "train.py").write_text(code)
+    (tmp_path / "train.py").write_text(code, encoding="utf-8")
     proc = subprocess.run([sys.executable, "train.py"], cwd=tmp_path, capture_output=True,
                           text=True, timeout=600)
     assert proc.returncode == 0, proc.stdout[-2000:] + proc.stderr[-3000:]
@@ -237,7 +237,7 @@ def _infer(folder: Path, items: list) -> list:
 def test_speech_tasks_train_and_serve(task, layers, samples, rt, tmp_path):
     data = design(layers, {"task": task, "duration": samples / 16000}, samples=samples)
     run = _train(data, tmp_path)
-    metrics = json.loads((run / "metrics.json").read_text())
+    metrics = json.loads((run / "metrics.json").read_text(encoding="utf-8"))
     expected = {"keywords": {"accuracy", "macro_f1", "confusion"}, "tags": {"map", "f1"},
                 "transcripts": {"cer", "wer"}}[task]
     assert expected <= set(metrics)
@@ -264,9 +264,9 @@ def test_speech_run_deploys(tmp_path, isolated_home):
         assert "accuracy" in mgr.history.get(run_id).final_metrics
         result = build_package(mgr.history.path(run_id), tmp_path / "pkg")
         assert result.verified, result.log[-3000:]
-        meta = json.loads((tmp_path / "pkg/metadata.json").read_text())
+        meta = json.loads((tmp_path / "pkg/metadata.json").read_text(encoding="utf-8"))
         assert meta["task"] == "keyword_spotting" and meta["input_kind"] == "speech"
-        reqs = (tmp_path / "pkg/requirements.txt").read_text()
+        reqs = (tmp_path / "pkg/requirements.txt").read_text(encoding="utf-8")
         assert "torch" in reqs and "numpy" in reqs
         assert api.run_samples(run_id)["samples"]
     finally:

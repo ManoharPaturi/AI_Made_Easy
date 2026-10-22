@@ -65,7 +65,7 @@ def test_rules_and_fixes(tmp_path):
                      extra=[n("o", "rec.objective", objective="bpr")])
     assert any("set objective to mse" in m for m in messages(ratings))
     (tmp_path / "log.csv").write_text("u,i\n" + "".join(f"a{k % 7},b{k % 11}\n"
-                                                       for k in range(40)))
+                                                       for k in range(40)), encoding="utf-8")
     csv = design(2, "rec.mf", {"n_users": 3, "n_items": 11},
                  {"path": str(tmp_path / "log.csv"), "user_column": "u", "item_column": "i"},
                  data_type="data.interactions_csv")
@@ -140,7 +140,7 @@ def test_models_beat_popularity(model, width, objective, epochs, tmp_path):
                                        n("opt", "train.adam", lr=0.01),
                                        n("tr", "train.trainer", epochs=epochs, batch_size=512)])
     run, script = _run(data, tmp_path)
-    metrics = json.loads((run / "metrics.json").read_text())
+    metrics = json.loads((run / "metrics.json").read_text(encoding="utf-8"))
     assert metrics["ndcg_at_10"] > 1.2 * metrics["popular_ndcg_at_10"]
     out = _infer(run, script, [{"user": "3", "k": 3}, {"user": "stranger", "k": 2},
                                {"user": "3", "items": ["1", "2"]}])
@@ -155,7 +155,7 @@ def test_rating_regression(tmp_path):
                   [n("o", "rec.objective", objective="mse"), n("opt", "train.adam", lr=0.01),
                    n("tr", "train.trainer", epochs=15, batch_size=512)])
     run, _script = _run(data, tmp_path)
-    assert json.loads((run / "metrics.json").read_text())["rmse"] < 0.95   # std ~1.3
+    assert json.loads((run / "metrics.json").read_text(encoding="utf-8"))["rmse"] < 0.95   # std ~1.3
 
 
 @needs_torch
@@ -180,7 +180,7 @@ def test_recommender_deploys(sample, tmp_path, isolated_home):
         assert mgr.history.epochs(run_id)
         result = build_package(mgr.history.path(run_id), tmp_path / "pkg")
         assert result.verified, result.log[-3000:]
-        meta = json.loads((tmp_path / "pkg/metadata.json").read_text())
+        meta = json.loads((tmp_path / "pkg/metadata.json").read_text(encoding="utf-8"))
         assert meta["task"] == "recommendation" and meta["input_kind"] == "ranking"
     finally:
         api.set_manager(None)

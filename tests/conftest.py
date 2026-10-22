@@ -32,7 +32,7 @@ def pytest_collection_modifyitems(config, items):
     """Leave the slow tests out of a plain run; CI sets AIME_TESTS=all. A test named on the
     command line (file.py::test) always runs."""
     try:
-        with open(_SLOW_LIST) as fh:
+        with open(_SLOW_LIST, encoding="utf-8") as fh:
             slow = {ln.strip() for ln in fh if ln.strip() and not ln.startswith("#")}
     except OSError:
         slow = set()

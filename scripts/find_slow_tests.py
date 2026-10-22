@@ -23,7 +23,7 @@ def main() -> int:
     parser.add_argument("--threshold", type=float, default=10.0)
     args = parser.parse_args()
     slow: dict[str, float] = {}
-    for line in args.log.read_text().splitlines():
+    for line in args.log.read_text(encoding="utf-8").splitlines():
         m = LINE.match(line)
         if m and m.group(2) != "teardown" and float(m.group(1)) >= args.threshold:
             slow[m.group(3)] = max(slow.get(m.group(3), 0.0), float(m.group(1)))
@@ -31,7 +31,7 @@ def main() -> int:
     out.write_text(
         "# Tests a plain `pytest` skips: AIME_TESTS=all (or --run-slow) runs them, as CI\n"
         f"# does. Written by scripts/find_slow_tests.py (>= {args.threshold:g} s).\n"
-        + "".join(f"{nodeid}\n" for nodeid in sorted(slow)))
+        + "".join(f"{nodeid}\n" for nodeid in sorted(slow)), encoding="utf-8")
     print(f"wrote {out.relative_to(ROOT)}: {len(slow)} slow tests "
           f"({sum(slow.values()) / 60:.0f} min)")
     return 0

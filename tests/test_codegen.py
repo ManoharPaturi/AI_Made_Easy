@@ -171,5 +171,5 @@ def test_generated_script_runs_as_subprocess(tmp_path: Path):
 def test_export_writes_file(tmp_path: Path):
     out = export(make_mlp(), "keras", tmp_path)
     assert out.exists()
-    assert "keras.Sequential" not in out.read_text()  # functional API now
-    assert "build_model" in out.read_text()
+    assert "keras.Sequential" not in out.read_text(encoding="utf-8")  # functional API now
+    assert "build_model" in out.read_text(encoding="utf-8")

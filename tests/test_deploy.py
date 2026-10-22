@@ -80,10 +80,10 @@ def test_package_serves_predictions_and_exports(mgr, tmp_path):
     for name in ("app.py", "Dockerfile", "requirements.txt", "README.md", "metadata.json",
                  "model/model_def.py", "model/inference_state.pkl", "exports/model.onnx"):
         assert (pkg / name).exists(), name
-    meta = json.loads((pkg / "metadata.json").read_text())
+    meta = json.loads((pkg / "metadata.json").read_text(encoding="utf-8"))
     assert meta["task"] == "multiclass" and meta["input_kind"] == "arrays"
     assert meta["signature"]["input_shape"] == [16]
-    reqs = (pkg / "requirements.txt").read_text()
+    reqs = (pkg / "requirements.txt").read_text(encoding="utf-8")
     assert "torch==" in reqs and "fastapi" in reqs
     sample = [[0.5] * 16, [-1.0] * 16]
     health, metadata, ok, bad, empty = call(pkg, [
@@ -220,7 +220,7 @@ def test_classic_pipeline_package(mgr, tmp_path):
     result = build_package(run, pkg)
     assert result.metadata["framework"] == "sklearn"
     assert result.metadata["signature"]["columns"] == ["color", "size", "weight"]  # id dropped
-    assert "scikit-learn==" in (pkg / "requirements.txt").read_text()
+    assert "scikit-learn==" in (pkg / "requirements.txt").read_text(encoding="utf-8")
     (reply,) = call(pkg, [["post", "/predict", {"inputs": [
         {"color": "red", "size": 3.0, "weight": 10.0, "id": 5}]}, {}]])
     assert reply["status"] == 200 and reply["body"]["predictions"][0]["label"] in ("yes", "no")
@@ -231,7 +231,7 @@ def test_package_errors(mgr, tmp_path):
     with pytest.raises(DeployError, match="not available"):
         build_package(run, tmp_path / "a", formats=("tflite",))
     (tmp_path / "busy").mkdir()
-    (tmp_path / "busy" / "x").write_text("x")
+    (tmp_path / "busy" / "x").write_text("x", encoding="utf-8")
     with pytest.raises(DeployError, match="not empty"):
         build_package(run, tmp_path / "busy")
     with pytest.raises(DeployError, match="not a run folder"):

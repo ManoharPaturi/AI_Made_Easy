@@ -194,7 +194,7 @@ def hf_entry(model_id: str) -> dict:
 
 
 def _write(name: str, rows: list[dict]) -> None:
-    (OUT / f"{name}.json").write_text(json.dumps(rows, indent=1) + "\n")
+    (OUT / f"{name}.json").write_text(json.dumps(rows, indent=1) + "\n", encoding="utf-8")
     print(f"wrote {len(rows)} entries to {OUT / (name + '.json')}")
 
 

@@ -34,7 +34,7 @@ CASES = [
 
 
 def _render(sample: str, framework: str, kind: str) -> str:
-    graph = Graph.from_dict(json.loads((SAMPLES / sample).read_text()))
+    graph = Graph.from_dict(json.loads((SAMPLES / sample).read_text(encoding="utf-8")))
     if kind == "train":
         return generate_training(graph, framework)
     return generate(graph, framework)
@@ -46,13 +46,13 @@ def test_golden(sample: str, framework: str, kind: str) -> None:
     actual = _render(sample, framework, kind)
     if os.environ.get("UPDATE_GOLDEN"):
         GOLDEN.mkdir(exist_ok=True)
-        golden_path.write_text(actual)
+        golden_path.write_text(actual, encoding="utf-8")
         pytest.skip("golden updated")
     assert golden_path.exists(), (
         f"missing golden {golden_path.name} — run UPDATE_GOLDEN=1 pytest "
         f"tests/test_golden.py to create it"
     )
-    assert actual == golden_path.read_text(), (
+    assert actual == golden_path.read_text(encoding="utf-8"), (
         f"generated output changed vs {golden_path.name} — if intentional, "
         f"regenerate with UPDATE_GOLDEN=1"
     )

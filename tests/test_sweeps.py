@@ -148,7 +148,7 @@ def test_cli_sweep_end_to_end(tmp_path, isolated_home):
     import sys
 
     project = tmp_path / "p.json"
-    project.write_text(json.dumps(tiny_classifier_dict(epochs=1)))
+    project.write_text(json.dumps(tiny_classifier_dict(epochs=1)), encoding="utf-8")
     env = {**os.environ, "AIME_HOME": str(isolated_home)}
     out = subprocess.run([sys.executable, "-m", "ai_made_easy.cli", "sweep", str(project),
                           "--list-params"], capture_output=True, text=True, env=env,

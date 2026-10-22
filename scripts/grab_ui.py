@@ -145,7 +145,7 @@ def _churn_design():
     path = folder / "churn.csv"
     frame.to_csv(path, index=False)
     data = json.loads((Path(__file__).parent.parent / "ai_made_easy" / "samples" /
-                       "iris_mlp.json").read_text())
+                       "iris_mlp.json").read_text(encoding="utf-8"))
     for node in data["nodes"]:
         if node["type"] == "data.sklearn":
             node.update(type="data.csv", params={"path": str(path), "target_column": "churn"})

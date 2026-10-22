@@ -63,7 +63,7 @@ def test_every_sample_validates_after_migration():
     from ai_made_easy.core.api import SAMPLES_DIR
 
     for path in sorted(SAMPLES_DIR.glob("*.json")):
-        data = json.loads(path.read_text())
+        data = json.loads(path.read_text(encoding="utf-8"))
         graph = Graph.from_dict(data)
         errors = [i.message for i in graph.validate() if i.severity == "error"
                   and "not installed" not in i.message]
@@ -103,14 +103,14 @@ def test_server_lists_family_and_task(tmp_path):
 
     projects = tmp_path / "projects"
     projects.mkdir()
-    (projects / "old.json").write_text(json.dumps(_v2_file("iris_mlp.json")))
-    (projects / "broken.json").write_text("{not json")
+    (projects / "old.json").write_text(json.dumps(_v2_file("iris_mlp.json")), encoding="utf-8")
+    (projects / "broken.json").write_text("{not json", encoding="utf-8")
     with TestClient(create_app(token="", projects_dir=projects)) as client:
         from ai_made_easy.core import api
 
         assert client.put("/api/projects/bn", json=api.read_sample("student_network.json")) \
             .status_code == 200
-        saved = json.loads((projects / "bn.json").read_text())
+        saved = json.loads((projects / "bn.json").read_text(encoding="utf-8"))
         assert (saved["schema_version"], saved["family"]) == (3, "pgm")
         rows = {r["name"]: r for r in client.get("/api/projects").json()["projects"]}
     assert (rows["old"]["family"], rows["old"]["task"]) == \
