@@ -478,6 +478,17 @@ def sweep_analysis(sweep_id: str) -> dict:
     return {"sweep_id": sweep_id, **analyze(sweep_store().get(sweep_id))}
 
 
+def sweep_again(sweep_id: str) -> dict:
+    """A follow-up sweep narrowed around the best trials (3.7): the spec, the design and
+    what changed, for review before starting it."""
+    from ai_made_easy.core.sweep_analysis import narrowed
+
+    try:
+        return {"sweep_id": sweep_id, **narrowed(sweep_store().get(sweep_id))}
+    except ValueError as exc:
+        raise ApiError(str(exc)) from exc
+
+
 def sweep_best_graph(sweep_id: str) -> dict:
     from ai_made_easy.core.sweeps import SweepError, best_graph
 

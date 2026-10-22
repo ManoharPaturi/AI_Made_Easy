@@ -288,6 +288,35 @@ class RunActions:
             self.act_experiments()
             self.status_message.emit("Sweep started — trials appear in Experiments ▸ Sweeps")
 
+    def _sweep_again(self, sweep_id: str) -> None:
+        """A follow-up sweep narrowed around the best trials (3.7), on the sweep's own
+        design, shown in the sweep dialog for review before it starts."""
+        from ai_made_easy.core.graph import Graph
+        from ai_made_easy.core.sweep_analysis import narrowed
+        from ai_made_easy.core.sweeps import sweepable_params
+
+        if self.experiment_service.is_running() or self.run_store.is_running:
+            self.status_message.emit("Wait for the current run or sweep to finish")
+            return
+        try:
+            proposal = narrowed(self.experiment_service.sweeps.get(sweep_id))
+        except (KeyError, ValueError) as exc:
+            self.status_message.emit(str(exc))
+            return
+        graph = Graph.from_dict(proposal["graph"])
+        changes = "; ".join(f"{c['label']}: {_span(c['before'])} → {_span(c['after'])}"
+                            for c in proposal["changes"])
+        dialog = SweepDialog(self.window, sweepable_params(graph),
+                             [proposal["spec"].get("metric", "val_loss")])
+        dialog.prefill(proposal["spec"], f"{proposal['note']} {changes}".strip())
+        if dialog.exec() != QtWidgets.QDialog.DialogCode.Accepted or dialog.spec() is None:
+            return
+        spec = dict(dialog.spec())
+        on = self.training_page.run_on.selected()
+        spec["on"] = "" if on == "local" else on
+        if self.experiment_service.start_sweep(graph, spec, self.project_store.name):
+            self.status_message.emit("Sweep started near the best trials")
+
     def _on_sweep_finished(self, sweep_id: str, state: str) -> None:
         self.status_message.emit(f"Sweep {state}")
 
@@ -363,3 +392,9 @@ class RunActions:
         if ok:
             history.update(run_id, tags=[t.strip() for t in text.split(",") if t.strip()])
             self._refresh_experiments()
+
+
+def _span(values: list) -> str:
+    if len(values) == 2 and all(isinstance(v, (int, float)) for v in values):
+        return f"{values[0]:g}–{values[1]:g}"
+    return " / ".join(str(v) for v in values)

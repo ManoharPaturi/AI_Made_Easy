@@ -1,25 +1,42 @@
 // Sweeps and AutoML on the Experiments page: start a sweep, trials, the Pareto front, and
-// (3.6) which settings mattered: parameter importance and a parallel-coordinates chart.
+// (3.6) which settings mattered: parameter importance and a parallel-coordinates chart;
+// (3.7) which pairs matter together, a heatmap of the strongest pair, and sweeping again
+// around the best trials.
 import { useCallback, useEffect, useState } from "react";
 
 import { api } from "../../api";
 import { metric, Modal, StatusChip } from "../../components/Modal";
 import { useStore } from "../../state";
 import { RunOnSelect, useRunOn } from "../../components/Backends";
-import type { SweepAnalysis, SweepAxis, SweepParam, SweepRecord, SweepTrial } from "../../types";
+import type { SweepAgain, SweepAnalysis, SweepAxis, SweepParam, SweepRecord, SweepTrial } from "../../types";
 
 
-export function SweepModal({ onClose, onStarted }: { onClose: () => void; onStarted: () => void }) {
+/** The sweep form; ``base`` (3.7) pre-fills it from a narrowed follow-up of an earlier sweep,
+ * whose own design the new trials train. */
+export function SweepModal({ onClose, onStarted, base }: {
+  onClose: () => void; onStarted: () => void; base?: SweepAgain }) {
   const { project, name, notify } = useStore();
   const [params, setParams] = useState<SweepParam[]>([]);
   const [chosen, setChosen] = useState<Record<string, SweepParam>>({});
-  const [metricName, setMetricName] = useState("val_loss");
-  const [strategy, setStrategy] = useState("random");
-  const [trials, setTrials] = useState(6);
-  const [skipBudget, setSkipBudget] = useState(true);
+  const [metricName, setMetricName] = useState(base?.spec.metric ?? "val_loss");
+  const [strategy, setStrategy] = useState(base?.spec.strategy ?? "random");
+  const [trials, setTrials] = useState(base?.spec.max_trials ?? 6);
+  const [skipBudget, setSkipBudget] = useState(base?.spec.skip_over_budget ?? true);
   const [on] = useRunOn();
+  const graph = () => base?.graph ?? project();
   useEffect(() => {
-    api.sweepParams(project()).then((r) => setParams(r.params)).catch((e) => notify(String(e.message), true));
+    api.sweepParams(graph()).then((r) => {
+      setParams(r.params);
+      if (!base) return;
+      const picked: Record<string, SweepParam> = {};
+      for (const d of base.spec.dimensions) {
+        const p = r.params.find((q) => q.node === d.node && q.param === d.param);
+        if (p) picked[p.key] = d.kind === "choice" || d.values?.length
+          ? { ...p, values: d.values ?? p.values }
+          : { ...p, low: d.low ?? p.low, high: d.high ?? p.high, log: d.log ?? p.log };
+      }
+      setChosen(picked);
+    }).catch((e) => notify(String(e.message), true));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const start = async () => {
@@ -27,7 +44,7 @@ export function SweepModal({ onClose, onStarted }: { onClose: () => void; onStar
       ? { node: p.node, param: p.param, kind: "choice", values: p.values }
       : { node: p.node, param: p.param, kind: p.kind, low: p.low, high: p.high, log: p.log }));
     try {
-      await api.startSweep(project(), { dimensions, metric: metricName, strategy,
+      await api.startSweep(graph(), { dimensions, metric: metricName, strategy,
                                         max_trials: trials, skip_over_budget: skipBudget,
                                         on: on === "local" ? "" : on }, name);
       notify("Sweep started");
@@ -40,8 +57,16 @@ export function SweepModal({ onClose, onStarted }: { onClose: () => void; onStar
   const update = (key: string, patch: Partial<SweepParam>) =>
     setChosen((c) => ({ ...c, [key]: { ...c[key], ...patch } }));
   return (
-    <Modal title="New hyperparameter sweep" onClose={onClose} actions={
+    <Modal title={base ? "Sweep again near the best" : "New hyperparameter sweep"} onClose={onClose} actions={
       <button className="primary" disabled={!Object.keys(chosen).length} onClick={start}>Start sweep</button>}>
+      {base && (
+        <div data-testid="sweep-again-changes" style={{ marginBottom: 10 }}>
+          <p className="dim">{base.note} Review the ranges, then start.</p>
+          <ul>{base.changes.map((c) => (
+            <li key={c.key}>{c.label}: {c.before.map(String).join(c.before.length === 2 && typeof c.before[0] === "number" ? "–" : " / ")}
+              {" → "}<strong>{c.after.map(String).join(c.after.length === 2 && typeof c.after[0] === "number" ? "–" : " / ")}</strong></li>))}
+          </ul>
+        </div>)}
       <div className="toolbar" style={{ marginBottom: 10 }}>
         <label>Objective <input value={metricName} onChange={(e) => setMetricName(e.target.value)}
                                 style={{ width: 120 }} /></label>
@@ -69,7 +94,7 @@ export function SweepModal({ onClose, onStarted }: { onClose: () => void; onStar
                   return next;
                 })} /></td>
                 <td>{p.block} · {p.param} <span className="muted">({String(p.current)})</span></td>
-                <td>{p.kind === "choice" ? (p.values ?? []).map(String).join(" / ") : (
+                <td>{p.kind === "choice" ? (c.values ?? []).map(String).join(" / ") : (
                   <span className="toolbar">
                     <input type="number" disabled={!on} value={c.low} style={{ width: 90 }}
                            onChange={(e) => update(p.key, { low: Number(e.target.value) })} />–
@@ -209,6 +234,53 @@ export function ImportanceBars({ analysis }: { analysis: SweepAnalysis }) {
     </div>);
 }
 
+/** The forest's predicted score over the two settings that matter most together (3.7). */
+export function PairHeatmap({ analysis }: { analysis: SweepAnalysis }) {
+  const h = analysis.heatmap;
+  if (!h || !h.z.length) return null;
+  const flat = h.z.flat();
+  const lo = Math.min(...flat), hi = Math.max(...flat);
+  const good = (v: number) => {
+    const t = hi === lo ? 0.5 : (v - lo) / (hi - lo);
+    return analysis.direction === "min" ? 1 - t : t;
+  };
+  const cell = 34, left = 70, top = 8;
+  const width = left + h.x.length * cell + 8, height = top + h.y.length * cell + 40;
+  return (
+    <figure className="pair-heatmap" data-testid="pair-heatmap">
+      <svg width={width} height={height} role="img"
+           aria-label={`Predicted ${analysis.metric} over ${h.x_label} and ${h.y_label}`}>
+        {h.z.map((row, yi) => row.map((v, xi) => (
+          <rect key={`${xi}-${yi}`} x={left + xi * cell} y={top + (h.y.length - 1 - yi) * cell}
+                width={cell - 2} height={cell - 2} rx={3}
+                style={{ fill: "var(--accent)", fillOpacity: 0.12 + 0.88 * good(v) }}>
+            <title>{`${h.x_label} ${String(h.x[xi])}, ${h.y_label} ${String(h.y[yi])}: ${metric(v)}`}</title>
+          </rect>)))}
+        {h.x.map((v, xi) => (
+          <text key={`x${xi}`} x={left + xi * cell + cell / 2 - 1} y={top + h.y.length * cell + 12}
+                textAnchor="middle" fontSize="10" fill="var(--text-dim)">{String(v)}</text>))}
+        {h.y.map((v, yi) => (
+          <text key={`y${yi}`} x={left - 6} y={top + (h.y.length - 1 - yi) * cell + cell / 2 + 3}
+                textAnchor="end" fontSize="10" fill="var(--text-dim)">{String(v)}</text>))}
+        <text x={left + (h.x.length * cell) / 2} y={height - 4} textAnchor="middle"
+              fontSize="11" fill="var(--text)">{h.x_label}</text>
+      </svg>
+      <figcaption className="muted">{h.y_label} (rows) × {h.x_label}: the forest's predicted
+        {" "}{analysis.metric}; darker is better.</figcaption>
+    </figure>);
+}
+
+export function PairList({ analysis }: { analysis: SweepAnalysis }) {
+  const pairs = (analysis.interactions ?? []).filter((p) => p.share >= 0.05).slice(0, 3);
+  if (!pairs.length) return null;
+  return (
+    <ul className="pair-list" data-testid="interactions">
+      {pairs.map((p) => (
+        <li key={p.keys.join("|")}>{p.labels.join(" × ")}: {(p.share * 100).toFixed(0)}% together
+          {" "}<span className="muted">(beyond what each explains alone)</span></li>))}
+    </ul>);
+}
+
 function SweepInsights({ sweepId, trials }: { sweepId: string; trials: number }) {
   const [analysis, setAnalysis] = useState<SweepAnalysis | null>(null);
   useEffect(() => {
@@ -222,6 +294,10 @@ function SweepInsights({ sweepId, trials }: { sweepId: string; trials: number })
         {" "}({analysis.direction === "min" ? "lower" : "higher"} is better); the best is highlighted.</p>
       <ParallelChart analysis={analysis} />
       <ImportanceBars analysis={analysis} />
+      {analysis.method === "forest" && <p className="muted" style={{ fontSize: 12 }}>
+        From a random forest fitted to the trials (functional ANOVA, as in fANOVA).</p>}
+      <PairList analysis={analysis} />
+      <PairHeatmap analysis={analysis} />
     </div>);
 }
 
@@ -230,6 +306,14 @@ export function Sweeps() {
   const [sweeps, setSweeps] = useState<SweepRecord[]>([]);
   const [open, setOpen] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
+  const [again, setAgain] = useState<SweepAgain | null>(null);
+  const sweepAgain = async (id: string) => {
+    try {
+      setAgain(await api.sweepAgain(id));
+    } catch (e) {
+      notify(String((e as Error).message), true);
+    }
+  };
   const refresh = useCallback(() => {
     api.sweeps().then((r) => setSweeps(r.sweeps)).catch(() => undefined);
   }, []);
@@ -282,7 +366,14 @@ export function Sweeps() {
       {!sweeps.length && <div className="empty">No sweeps yet.</div>}
       {sweep && (
         <>
-          <h3>Trials of {sweep.name}</h3>
+          <div className="toolbar">
+            <h3 style={{ marginRight: "auto" }}>Trials of {sweep.name}</h3>
+            {!sweep.spec.automl && sweep.state !== "running"
+              && sweep.trials.filter((t) => t.state === "finished").length >= 4 && (
+              <button onClick={() => sweepAgain(sweep.sweep_id)}
+                      title="A new sweep with each range narrowed to where the best trials were">
+                Sweep again near the best…</button>)}
+          </div>
           {!!sweep.spec.objectives?.length && (
             <>
               <p className="dim">◆ Pareto front: no other trial is better on {sweep.spec.metric} and
@@ -310,6 +401,7 @@ export function Sweeps() {
         </>
       )}
       {creating && <SweepModal onClose={() => setCreating(false)} onStarted={refresh} />}
+      {again && <SweepModal base={again} onClose={() => setAgain(null)} onStarted={refresh} />}
     </>
   );
 }

@@ -149,3 +149,150 @@ def test_automl_trials_with_different_settings_keep_their_lines():
     assert _numeric_trend({0: [1.0, 1.1], 1: [0.2], 2: [1.0]}, {0: [4, 4], 1: [16], 2: [64]},
                           "min") == "best at 16"
     assert axes["max_depth"]["kind"] == "number" and axes["lr"]["kind"] == "number"
+
+
+# ------------------------------------------------------------------ 3.7: interactions
+
+def _interacting(n: int = 40, seed: int = 0) -> dict:
+    """The score depends on lr × dropout together (an XOR-like pattern: either both high
+    or both low is good), a little on width on its own, and not on the seed."""
+    rng = random.Random(seed)
+    trials = []
+    for i in range(n):
+        lr, drop = rng.uniform(0, 1), rng.uniform(0, 1)
+        width, seed_v = rng.choice([32, 64, 128]), rng.randint(0, 9)
+        score = (1.0 if (lr > 0.5) == (drop > 0.5) else 0.0) + 0.002 * width
+        trials.append({"number": i, "values": {"opt.lr": lr, "drop.p": drop,
+                                                "dense.units": width, "trainer.seed": seed_v},
+                       "state": "finished", "score": score, "run_id": f"r{i}"})
+    dims = [{"node": "opt", "param": "lr", "kind": "float", "low": 0.0, "high": 1.0},
+            {"node": "drop", "param": "p", "kind": "float", "low": 0.0, "high": 1.0},
+            {"node": "dense", "param": "units", "kind": "choice", "values": [32, 64, 128]},
+            {"node": "trainer", "param": "seed", "kind": "int", "low": 0, "high": 9}]
+    return {"spec": {"metric": "accuracy", "direction": "max", "dimensions": dims,
+                     "strategy": "random", "max_trials": n},
+            "graph": {"name": "g"}, "trials": trials}
+
+
+def test_the_forest_finds_a_pair_that_only_matters_together():
+    pytest.importorskip("sklearn")
+    got = analyze(_interacting())
+    assert got["method"] == "forest"
+    top = got["interactions"][0]
+    assert set(top["keys"]) == {"opt.lr", "drop.p"} and top["share"] > 0.2
+    others = [p["share"] for p in got["interactions"][1:]]
+    assert all(s < top["share"] / 2 for s in others)
+    seed = next(p for p in got["importance"] if p["key"] == "trainer.seed")
+    assert seed["importance"] < 0.1
+    h = got["heatmap"]
+    assert {h["x_key"], h["y_key"]} == {"opt.lr", "drop.p"}
+    assert len(h["z"]) == len(h["y"]) and all(len(r) == len(h["x"]) for r in h["z"])
+    corners = [h["z"][0][0], h["z"][-1][-1], h["z"][0][-1], h["z"][-1][0]]
+    assert min(corners[:2]) > max(corners[2:])                    # both low / both high win
+
+
+def test_few_trials_keep_the_simple_reading():
+    got = analyze(_sweep(n=8))
+    assert got["method"] == "eta2" and got["interactions"] == [] and got["heatmap"] is None
+
+
+def test_sweeping_again_narrows_to_the_best_trials():
+    from ai_made_easy.core.sweep_analysis import narrowed
+
+    rec = _sweep(n=40).to_dict()
+    rec["spec"]["dimensions"] = [
+        {"node": "opt", "param": "lr", "kind": "float", "low": 1e-4, "high": 1e-1, "log": True},
+        {"node": "opt", "param": "kind", "kind": "choice", "values": ["adam", "sgd"]},
+        {"node": "trainer", "param": "batch_size", "kind": "choice", "values": [16, 32, 64]}]
+    got = narrowed(rec)
+    dims = {f"{d['node']}.{d['param']}": d for d in got["spec"]["dimensions"]}
+    lr = dims["opt.lr"]
+    assert 1e-4 <= lr["low"] < 1e-2 < lr["high"] <= 1e-1          # around the optimum
+    assert lr["high"] / lr["low"] < 1e3 / 2                       # narrower than before
+    assert dims["opt.kind"]["values"] == ["adam"]                 # sgd costs 1.0
+    assert got["graph"] == rec["graph"] and got["changes"]
+    assert {c["key"] for c in got["changes"]} >= {"opt.lr", "opt.kind"}
+    assert got["spec"]["metric"] == "val_loss"
+
+
+def test_sweeping_again_needs_trials_and_ranges():
+    from ai_made_easy.core.sweep_analysis import narrowed
+
+    with pytest.raises(ValueError, match="at least"):
+        narrowed(_sweep(n=2))
+    with pytest.raises(ValueError, match="AutoML"):
+        narrowed({"spec": {"automl": True}, "trials": []})
+
+
+def test_the_server_proposes_a_narrowed_sweep(isolated_home):
+    pytest.importorskip("fastapi")
+    from fastapi.testclient import TestClient
+
+    from ai_made_easy.server.app import create_app
+
+    rec = _sweep(n=20)
+    rec.spec["dimensions"] = [{"node": "opt", "param": "lr", "kind": "float", "low": 1e-4,
+                               "high": 1e-1, "log": True}]
+    SweepStore().save(rec)
+    SweepStore().save(_sweep(n=2).__class__("sw-2", "tiny", graph={}, trials=[],
+                                            spec={"metric": "val_loss"}))
+    client = TestClient(create_app())
+    got = client.get("/api/sweeps/sw-1/again")
+    assert got.status_code == 200
+    body = got.json()
+    assert body["spec"]["dimensions"][0]["low"] > 1e-4 and body["changes"][0]["key"] == "opt.lr"
+    bad = client.get("/api/sweeps/sw-2/again")
+    assert bad.status_code == 400 and "at least" in bad.json()["detail"]
+
+
+def test_the_desktop_shows_pairs_and_sweeps_again(isolated_home):
+    pytest.importorskip("PySide6")
+    pytest.importorskip("sklearn")
+    from PySide6 import QtCore, QtWidgets
+
+    from ai_made_easy.ui.app import _ensure_qt_plugin_path
+
+    _ensure_qt_plugin_path()
+    QtCore.QCoreApplication.setOrganizationName("aime-tests")
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    from ai_made_easy.core.sweep_analysis import narrowed
+    from ai_made_easy.ui.context import AppContext
+    from ai_made_easy.ui.features.experiments import SweepDialog
+    from ai_made_easy.ui.workbench import Workbench
+
+    context = AppContext()
+    win = Workbench(context)
+    context._boot()
+    app.processEvents()
+    try:
+        data = _interacting()
+        rec = SweepRecord("sw-x", "pairs", spec=data["spec"], graph=data["graph"],
+                          trials=data["trials"], state="finished")
+        page = context.experiments_page
+        page.set_sweeps([rec])
+        page.sweeps_table.selectRow(0)
+        assert "Together: " in page.importance_label.text()
+        assert not page.pair_plot.isHidden() and page.pair_image.image is not None
+        assert page.sweep_again_btn.isEnabled() and not page.stop_sweep_btn.isEnabled()
+
+        proposal = narrowed(rec)
+        params = [{"key": "opt.lr", "node": "opt", "param": "lr", "block": "Adam",
+                   "current": 0.5, "kind": "float", "low": 0.0, "high": 1.0, "log": False},
+                  {"key": "dense.units", "node": "dense", "param": "units", "block": "Dense",
+                   "current": 64, "kind": "choice", "values": [32, 64, 128]}]
+        dialog = SweepDialog(win, params, ["accuracy"])
+        dialog.prefill(proposal["spec"], proposal["note"])
+        spec = dialog.build_spec()
+        want = {f"{d['node']}.{d['param']}": d for d in proposal["spec"]["dimensions"]}
+        got = {f"{d['node']}.{d['param']}": d for d in spec["dimensions"]}
+        assert set(got) == {"opt.lr", "dense.units"}
+        assert got["opt.lr"]["low"] == pytest.approx(want["opt.lr"]["low"])
+        assert got["opt.lr"]["high"] == pytest.approx(want["opt.lr"]["high"])
+        assert got["dense.units"]["values"] == want["dense.units"]["values"]
+        assert spec["metric"] == "accuracy" and spec["direction"] == "max"
+        dialog.close()
+    finally:
+        context.experiment_service.shutdown()
+        context.project_store.mark_clean()
+        win.close()
+        win.deleteLater()
