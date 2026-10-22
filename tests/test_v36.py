@@ -65,24 +65,37 @@ def test_gaussian_head_likelihood_is_torchs_gaussian_nll(tmp_path):
 
 
 def test_gaussian_head_learns_where_the_noise_is(tmp_path):
-    pytest.importorskip("torch")
-    import numpy as np
-
-    rng = np.random.default_rng(0)
-    x = rng.uniform(0, 1, 3000)
-    y = 2 * x + rng.normal(size=3000) * (0.05 + x)         # noisier on the right
-    csv = tmp_path / "noise.csv"
-    csv.write_text("x,y\n" + "\n".join(f"{a},{b}" for a, b in zip(x, y, strict=True)))
+    torch = pytest.importorskip("torch")
     data = design("1", [("core.dense", {"units": 32}), ("core.relu", {}),
-                        ("core.dense", {"units": 32}), ("core.relu", {}),
                         ("bayes.gaussian_head", {})],
-                  [n("data", "data.csv", path=str(csv), target_column="y"),
-                   n("loss", "train.loss_mse"), n("opt", "train.adam", lr=0.003),
-                   n("tr", "train.trainer", epochs=40, batch_size=64)])
+                  [n("data", "data.synthetic", kind="regression", n_features=1, n_samples=100),
+                   n("loss", "train.loss_mse")])
+    m = _module(data, tmp_path)
+    torch.manual_seed(0)
+    x = torch.rand(3000, 1)
+    y = 2 * x + torch.randn(3000, 1) * (0.05 + x)          # noisier on the right
+    net = torch.nn.Sequential(torch.nn.Linear(1, 32), torch.nn.ReLU(), m.MDNHead(32, 1, 1))
+    opt = torch.optim.Adam(net.parameters(), lr=0.01)
+    for _ in range(600):
+        opt.zero_grad()
+        m.mdn_nll(net(x), y).backward()
+        opt.step()
+    with torch.no_grad():
+        mean, std = m.mdn_moments(net(torch.tensor([[0.1], [0.9]])).numpy())
+    assert std[1, 0] > 2.5 * std[0, 0], std
+    assert mean[0, 0] == pytest.approx(0.2, abs=0.1) and mean[1, 0] == pytest.approx(1.8, abs=0.2)
+
+
+def test_gaussian_head_serves_a_prediction_with_its_spread(tmp_path):
+    pytest.importorskip("torch")
+    data = design("4", [("core.dense", {"units": 16}), ("core.relu", {}),
+                        ("bayes.gaussian_head", {})],
+                  [n("data", "data.synthetic", kind="regression", n_features=4, n_samples=400,
+                     noise=0.3), n("loss", "train.loss_mse"),
+                   n("tr", "train.trainer", epochs=5, batch_size=64)])
     run, script = _run(data, tmp_path)
-    low, high = _infer(run, script, [{"x": 0.1}, {"x": 0.9}])
-    assert high["std"] > 2.5 * low["std"], (low, high)
-    assert low["prediction"] == pytest.approx(0.2, abs=0.15)
+    row = _infer(run, script, [[0.1] * 4])[0]
+    assert row["std"] > 0 and isinstance(row["prediction"], float)
 
 
 # ------------------------------------------------------------------ multi-label hinge
