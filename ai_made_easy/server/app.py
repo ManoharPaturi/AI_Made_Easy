@@ -15,6 +15,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import json
+import threading
 import logging
 import os
 import re
@@ -106,6 +107,7 @@ def _data_url(path: str) -> str:
 def create_app(*, token: str | None = None, projects_dir: str | Path | None = None) -> FastAPI:
     token = (token if token is not None else os.environ.get("AIME_WEB_TOKEN")) or None
     projects = Path(projects_dir) if projects_dir else subdir("projects")
+    save_lock = threading.Lock()
     projects.mkdir(parents=True, exist_ok=True)
     try:  # runs a crashed server or app left "running" would be followed forever
         api.manager().history.mark_interrupted()
@@ -261,7 +263,8 @@ def create_app(*, token: str | None = None, projects_dir: str | Path | None = No
             raise HTTPException(400, f"not a valid project: {exc}") from exc
         tmp = file.with_name(f"{file.stem}.{uuid.uuid4().hex[:8]}.tmp")  # one per save
         tmp.write_text(json.dumps(graph, indent=1), encoding="utf-8")
-        tmp.replace(file)
+        with save_lock:     # Windows refuses to replace a file another save is replacing
+            tmp.replace(file)
         return {"saved": name}
 
     @app.delete("/api/projects/{name}", dependencies=guard)
