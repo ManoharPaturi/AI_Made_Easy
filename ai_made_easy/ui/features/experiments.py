@@ -378,7 +378,11 @@ class ExperimentsPage(QtWidgets.QWidget):
         left.setStretchFactor(1, 2)
         left.setSizes([110, 220])
         split.addWidget(left)
-        split.addWidget(self.trials_table)
+        right = QtWidgets.QSplitter(QtCore.Qt.Orientation.Vertical)   # trials, then insights
+        right.addWidget(self.trials_table)
+        right.addWidget(self._build_insights())
+        right.setSizes([260, 240])
+        split.addWidget(right)
         split.setSizes([380, 520])
         box.addWidget(split, 1)
         self.new_sweep_btn.clicked.connect(self.new_sweep_requested.emit)
@@ -386,6 +390,82 @@ class ExperimentsPage(QtWidgets.QWidget):
         self.apply_best_btn.clicked.connect(lambda: self._emit_sweep(self.apply_best_requested))
         self._update_sweep_buttons()
         return page
+
+    def _build_insights(self) -> QtWidgets.QWidget:
+        """Which settings mattered (3.6): a parallel-coordinates plot of the finished trials
+        and each parameter's importance."""
+        box = QtWidgets.QWidget()
+        lay = QtWidgets.QVBoxLayout(box)
+        lay.setContentsMargins(0, 4, 0, 0)
+        title = QtWidgets.QLabel("Which settings mattered")
+        title.setObjectName("sectionTitle")
+        lay.addWidget(title)
+        self.parallel_plot = pg.PlotWidget(background=None)
+        self.parallel_plot.setAccessibleName("Parallel coordinates of the trials")
+        self.parallel_plot.setMinimumHeight(140)
+        self.parallel_plot.getAxis("left").setStyle(showValues=False)
+        self.parallel_plot.setMouseEnabled(x=False, y=False)
+        lay.addWidget(self.parallel_plot, 1)
+        self.importance_label = QtWidgets.QLabel()
+        self.importance_label.setObjectName("blockMeta")
+        self.importance_label.setWordWrap(True)
+        self.importance_label.setTextFormat(QtCore.Qt.TextFormat.PlainText)
+        self.importance_label.setAccessibleName("Parameter importance")
+        lay.addWidget(self.importance_label)
+        self.insights = box
+        box.setVisible(False)
+        return box
+
+    def _show_insights(self, sweep) -> None:  # noqa: ANN001
+        from ai_made_easy.core.sweep_analysis import analyze
+
+        info = analyze(sweep) if sweep is not None else None
+        self.insights.setVisible(bool(info and info["rows"]))
+        self.parallel_plot.clear()
+        if not info or not info["rows"]:
+            return
+        self.insights_info = info
+        axes = [*info["axes"], {"key": "", "label": info["metric"], "kind": "number",
+                                **(info["score_axis"] or {"min": 0, "max": 1}),
+                                "log": False}]
+
+        def pos(axis: dict, v) -> float | None:  # noqa: ANN001
+            import math
+
+            if axis["kind"] == "choice":
+                n = len(axis["choices"])
+                if v is None or str(v) not in axis["choices"]:
+                    return None
+                return axis["choices"].index(str(v)) / (n - 1) if n > 1 else 0.5
+            if not isinstance(v, (int, float)):
+                return None
+            lo, hi = axis["min"], axis["max"]
+            if hi == lo:
+                return 0.5
+            return (math.log(v / lo) / math.log(hi / lo)) if axis.get("log") else (v - lo) / (
+                hi - lo)
+
+        lo, hi = (info["score_axis"]["min"], info["score_axis"]["max"])
+        for row in sorted(info["rows"], key=lambda r: r["best"]):
+            points = [(i, pos(a, row["score"] if not a["key"] else row["values"].get(a["key"])))
+                      for i, a in enumerate(axes)]
+            points = [(i, y) for i, y in points if y is not None]   # AutoML: per-recipe keys
+            if len(points) < 2:
+                continue
+            good = 1.0 if hi == lo else (row["score"] - lo) / (hi - lo)
+            good = 1 - good if info["direction"] == "min" else good
+            pen = (pg.mkPen("#e8833a", width=3) if row["best"]
+                   else pg.mkPen((140, 140, 150, int(50 + 150 * good)), width=1.5))
+            self.parallel_plot.plot([i for i, _ in points], [y for _, y in points], pen=pen)
+        self.parallel_plot.getAxis("bottom").setTicks(
+            [[(i, a["label"]) for i, a in enumerate(axes)]])
+        self.parallel_plot.setYRange(-0.05, 1.05)
+        lines = [f"{p['label']:<28} {'█' * max(1, round(p['importance'] * 20))} "
+                 f"{p['importance'] * 100:.0f}%" + (f"  — {p['trend']}" if p["trend"] else "")
+                 for p in info["importance"]]
+        if info["note"]:
+            lines.append(info["note"])
+        self.importance_label.setText("\n".join(lines))
 
     def _emit_sweep(self, signal) -> None:  # noqa: ANN001
         sweep = self.selected_sweep()
@@ -445,6 +525,7 @@ class ExperimentsPage(QtWidgets.QWidget):
 
             front = {r["number"] for r in leaderboard(sweep) if r["pareto"]}
         self._plot_pareto(sweep, objectives, front)
+        self._show_insights(sweep)
         table = self.trials_table
         table.setSortingEnabled(False)
         table.setRowCount(len(trials))
@@ -718,6 +799,10 @@ class CompareDialog(QtWidgets.QDialog):
         rows += [("Best epoch", k, v) for k, v in data["best_metrics"].items()
                  if any(x is not None for x in v)]
         rows += [("Parameter", k, v) for k, v in data["params"].items()]
+        if any(data.get("design") or []):
+            rows += [("Run", "design vs the first", ["—" if i == 0 else
+                                                       (d["summary"] if d else "not saved")
+                                                       for i, d in enumerate(data["design"])])]
         rows += [("Run", "status", data["status"]),
                  ("Run", "duration", [_duration(d) for d in data["duration"]]),
                  ("Run", "data" if data["same_data"] else "data (DIFFERENT)",

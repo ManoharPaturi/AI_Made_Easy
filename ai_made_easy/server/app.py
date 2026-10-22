@@ -539,6 +539,10 @@ def create_app(*, token: str | None = None, projects_dir: str | Path | None = No
     def stop_sweep(sweep_id: str) -> dict:
         return api.stop_sweep(sweep_id)
 
+    @app.get("/api/sweeps/{sweep_id}/analysis", dependencies=guard)
+    def sweep_analysis(sweep_id: str) -> dict:
+        return api.sweep_analysis(sweep_id)
+
     @app.get("/api/sweeps/{sweep_id}/best", dependencies=guard)
     def sweep_best(sweep_id: str) -> dict:
         return {"graph": api.sweep_best_graph(sweep_id)}

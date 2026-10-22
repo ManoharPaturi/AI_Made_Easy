@@ -471,6 +471,13 @@ def wait_sweep(sweep_id: str, timeout: float = 3600.0) -> dict:
     return get_sweep(sweep_id)
 
 
+def sweep_analysis(sweep_id: str) -> dict:
+    """Which settings mattered: parameter importance and the parallel-coordinates data."""
+    from ai_made_easy.core.sweep_analysis import analyze
+
+    return {"sweep_id": sweep_id, **analyze(sweep_store().get(sweep_id))}
+
+
 def sweep_best_graph(sweep_id: str) -> dict:
     from ai_made_easy.core.sweeps import SweepError, best_graph
 
