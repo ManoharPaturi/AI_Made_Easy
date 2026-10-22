@@ -3,6 +3,10 @@
 The form follows what the model takes: one field per column for tables, a text box, an
 image or WAV file, or a JSON list for everything else. Loading and predicting run on a
 worker thread, so the window stays responsive.
+
+3.6: "Predict a file…" runs the model on every input of a file (a CSV, a text file or a zip
+of images or clips) and saves the predictions as CSV; image classifiers can show their
+Grad-CAM heatmap next to the prediction.
 """
 from __future__ import annotations
 
@@ -11,7 +15,7 @@ import json
 import threading
 from pathlib import Path
 
-from PySide6 import QtCore, QtWidgets
+from PySide6 import QtCore, QtGui, QtWidgets
 
 _FILE_KINDS = {"images": ("Images (*.png *.jpg *.jpeg *.bmp *.webp)", "an image"),
                "audio": ("WAV audio (*.wav)", "a WAV clip"),
@@ -41,6 +45,7 @@ def describe_prediction(pred: dict) -> str:
 class TryDialog(QtWidgets.QDialog):
     _loaded = QtCore.Signal(object, str)     # form | None, error
     _answered = QtCore.Signal(object, str)   # result | None, error
+    _filed = QtCore.Signal(object, str)      # file result | None, error
 
     def __init__(self, parent, history, run_id: str, service=None):  # noqa: ANN001
         super().__init__(parent)
@@ -65,14 +70,29 @@ class TryDialog(QtWidgets.QDialog):
         self.form_box = QtWidgets.QWidget()
         self.form = QtWidgets.QFormLayout(self.form_box)
         layout.addWidget(self.form_box)
+        self.explain_box = QtWidgets.QCheckBox("Show where the model looked (Grad-CAM)")
+        self.explain_box.setVisible(False)
+        layout.addWidget(self.explain_box)
+        results = QtWidgets.QHBoxLayout()
         self.result = QtWidgets.QPlainTextEdit(readOnly=True)
         self.result.setAccessibleName("Prediction")
         self.result.setPlaceholderText("The prediction appears here.")
-        layout.addWidget(self.result, 1)
+        results.addWidget(self.result, 1)
+        self.cam = QtWidgets.QLabel()
+        self.cam.setAccessibleName("Grad-CAM heatmap")
+        self.cam.setVisible(False)
+        results.addWidget(self.cam)
+        layout.addLayout(results, 1)
         buttons = QtWidgets.QDialogButtonBox()
         self.predict_btn = buttons.addButton("Predict",
                                              QtWidgets.QDialogButtonBox.ButtonRole.AcceptRole)
         self.predict_btn.setEnabled(False)
+        self.file_btn = buttons.addButton("Predict a file…",
+                                          QtWidgets.QDialogButtonBox.ButtonRole.ActionRole)
+        self.file_btn.setEnabled(False)
+        self.file_btn.setToolTip("Every input of a file at once; the predictions are saved "
+                                 "as CSV")
+        self.file_btn.clicked.connect(self._choose_batch)
         buttons.addButton(QtWidgets.QDialogButtonBox.StandardButton.Close)
         buttons.rejected.connect(self.reject)
         self.predict_btn.clicked.connect(self.predict)
@@ -80,6 +100,7 @@ class TryDialog(QtWidgets.QDialog):
 
         self._loaded.connect(self._on_loaded)
         self._answered.connect(self._on_answered)
+        self._filed.connect(self._on_filed)
         threading.Thread(target=self._load, daemon=True).start()
 
     # ------------------------------------------------------------------ loading
@@ -121,6 +142,11 @@ class TryDialog(QtWidgets.QDialog):
             self.json.setAccessibleName("Inputs as a JSON list")
             self.form.addRow("Inputs (JSON list)", self.json)
         self.predict_btn.setEnabled(True)
+        self.explain_box.setVisible(bool(info.get("can_explain")))
+        self.file_btn.setEnabled(bool(info.get("batch_formats")))
+        if info.get("batch_formats"):
+            self.file_btn.setToolTip(f"Every input of a {info['batch_formats']} file at once; "
+                                     "the predictions are saved as CSV")
 
     def _choose_file(self) -> None:
         kind = (self.form_info or {}).get("input_kind", "")
@@ -156,14 +182,15 @@ class TryDialog(QtWidgets.QDialog):
             return
         self.predict_btn.setEnabled(False)
         self.result.setPlainText("Predicting…")
-        threading.Thread(target=self._ask, args=(inputs,), daemon=True).start()
+        explain = not self.explain_box.isHidden() and self.explain_box.isChecked()
+        threading.Thread(target=self._ask, args=(inputs, explain), daemon=True).start()
 
-    def _ask(self, inputs: list) -> None:
+    def _ask(self, inputs: list, explain: bool = False) -> None:
         from ai_made_easy.core import tryit
 
         try:
             self._answered.emit(tryit.predict(self._service, self._history, self._run_id,
-                                              inputs), "")
+                                              inputs, explain=explain), "")
         except Exception as exc:  # noqa: BLE001 — shown in the dialog
             self._answered.emit(None, str(exc))
 
@@ -171,6 +198,55 @@ class TryDialog(QtWidgets.QDialog):
         self.predict_btn.setEnabled(True)
         if result is None:
             self.result.setPlainText(f"⚠ {error}")
+            self.cam.setVisible(False)
             return
+        cams = [p.pop("gradcam") for p in result["predictions"]
+                if isinstance(p, dict) and "gradcam" in p]
         text = "\n\n".join(describe_prediction(p) for p in result["predictions"])
         self.result.setPlainText(f"{text}\n\n{result['latency_ms']} ms")
+        self.cam.setVisible(bool(cams))
+        if cams:
+            image = QtGui.QImage.fromData(base64.b64decode(cams[0]))
+            self.cam.setPixmap(QtGui.QPixmap.fromImage(image).scaled(
+                224, 224, QtCore.Qt.AspectRatioMode.KeepAspectRatio,
+                QtCore.Qt.TransformationMode.SmoothTransformation))
+
+    # ------------------------------------------------------------------ a whole file
+    def _choose_batch(self) -> None:
+        formats = (self.form_info or {}).get("batch_formats", "")
+        pattern = " ".join(f"*{ext}" for ext in formats.split(","))
+        path, _ = QtWidgets.QFileDialog.getOpenFileName(self, "Predict a file", "",
+                                                        f"Inputs ({pattern})")
+        if not path:
+            return
+        out, _ = QtWidgets.QFileDialog.getSaveFileName(
+            self, "Save the predictions", str(Path(path).with_name(
+                f"{Path(path).stem}_predictions.csv")), "CSV (*.csv)")
+        if out:
+            self.predict_file(Path(path), Path(out))
+
+    def predict_file(self, source: Path, target: Path) -> None:
+        """Predict every input in ``source`` and write the CSV to ``target`` (in the
+        background; the result box says when it is done)."""
+        self.file_btn.setEnabled(False)
+        self.result.setPlainText(f"Predicting every input in {source.name}…")
+        threading.Thread(target=self._ask_file, args=(source, target), daemon=True).start()
+
+    def _ask_file(self, source: Path, target: Path) -> None:
+        from ai_made_easy.core import tryit
+
+        try:
+            got = tryit.predict_file(self._service, self._history, self._run_id, source.name,
+                                     source.read_bytes())
+            target.write_text(got["csv"], encoding="utf-8")
+            self._filed.emit({**got, "target": str(target)}, "")
+        except Exception as exc:  # noqa: BLE001 — shown in the dialog
+            self._filed.emit(None, str(exc))
+
+    def _on_filed(self, result: dict | None, error: str) -> None:
+        self.file_btn.setEnabled(True)
+        if result is None:
+            self.result.setPlainText(f"⚠ {error}")
+            return
+        self.result.setPlainText(f"{result['rows']} predictions saved to {result['target']} "
+                                 f"({result['latency_ms'] / 1000:.1f} s)")
