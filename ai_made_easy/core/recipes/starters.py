@@ -380,6 +380,11 @@ starter("tiny_llama", "tiny_llama", "language_modeling", "small", "text", "Tiny 
         "positions and SwiGLU feed-forward blocks.",
         swaps={"corpus": _corpus}, knobs=TRAIN_KNOBS(1e-3, 30), priority=-0.1,
         strengths="the architecture of today's open LLMs, small enough to read")
+starter("tiny_rwkv", "tiny_rwkv", "language_modeling", "small", "text", "Tiny RWKV",
+        "A small RWKV language model: a recurrent network that trains like a transformer "
+        "(time mixing with a learned decay, then channel mixing).",
+        swaps={"corpus": _corpus}, knobs=TRAIN_KNOBS(1e-3, 30), priority=-0.2,
+        strengths="constant memory per generated token, like an RNN")
 starter("seq2seq_transformer", "reverse_seq2seq", "sequence_to_sequence", "medium", "text",
         "Encoder-decoder transformer", "Reads the source sequence and writes the target "
         "(translation, summarisation, rewriting).", swaps={"pairs": _pairs},

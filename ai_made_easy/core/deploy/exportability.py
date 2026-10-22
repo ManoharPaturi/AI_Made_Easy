@@ -59,6 +59,15 @@ _BLOCKS = {
                                                            "follow Mask2Former's integer "
                                                            "index tensors: use ExecuTorch "
                                                            "float or ONNX"),
+    # 3.7
+    "seq.rwkv_block": Blocker(ON_DEVICE, "the RWKV recurrence runs as a loop with running "
+                              "maxima that the ExecuTorch runtime rejects: export to ONNX or "
+                              "TorchScript"),
+    "seq.hyena": Blocker(ON_DEVICE, "the Hyena long convolution uses FFTs (complex numbers), "
+                         "which ExecuTorch can't run: export to ONNX or TorchScript"),
+    "vision.deform_conv2d": Blocker(("onnx", "onnx_int8", *ON_DEVICE), "deformable "
+                                    "convolution is a torchvision operator that only "
+                                    "TorchScript can carry"),
     "graph.topk_pool": Blocker(("onnx", "onnx_int8"), _POOL),
     "graph.sag_pool": Blocker(("onnx", "onnx_int8"), _POOL),
 }

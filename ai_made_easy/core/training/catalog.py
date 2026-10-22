@@ -332,6 +332,90 @@ LOSSES += [
              "sales, rainfall. The model outputs the log of the mean.",
         meta={"task": "regression", "target": "float", "input": "raw"}),
 ]
+# 3.7: more classification and regression losses, and two self-supervised ones
+LOSSES += [
+    Component(
+        "train.loss_poly", "PolyLoss (Poly-1)",
+        (P("epsilon", "float", 1.0, lo=-1.0, hi=10.0,
+           help="Weight of the extra (1 − p) term; 0 = plain cross-entropy"),),
+        torch=lambda p: (f"lambda pred, target: nn.functional.cross_entropy(pred, target) + "
+                         f"{float(p['epsilon'])} * (1 - pred.softmax(-1).gather(1, "
+                         "target.long().reshape(-1, 1))).mean()"),
+        keras=lambda p: ("lambda y, p: keras.losses.sparse_categorical_crossentropy(y, p, "
+                         f"from_logits=True) + {float(p['epsilon'])} * (1 - ops.sum(ops.one_hot("
+                         "ops.cast(ops.reshape(y, (-1,)), 'int32'), ops.shape(p)[-1]) * "
+                         "ops.softmax(p), axis=-1))"),
+        desc="Cross-entropy plus ε × (1 − probability of the true class) (Leng et al., "
+             "2022): one knob that often beats cross-entropy and focal loss. ε = 1 is the "
+             "paper's default; try −1 for large, clean datasets.",
+        meta={"task": "multiclass", "target": "int", "input": "logits"}),
+    Component(
+        "train.loss_asymmetric", "Asymmetric Loss (multi-label)",
+        (P("gamma_neg", "float", 4.0, lo=0.0, hi=10.0, help="Focusing on negative labels"),
+         P("gamma_pos", "float", 0.0, lo=0.0, hi=10.0, help="Focusing on positive labels"),
+         P("clip", "float", 0.05, lo=0.0, hi=0.5,
+           help="Negatives below this probability count as solved")),
+        torch=lambda p: (f"AsymmetricLoss(gamma_neg={float(p['gamma_neg'])}, "
+                         f"gamma_pos={float(p['gamma_pos'])}, clip={float(p['clip'])})"),
+        keras=lambda p: (
+            "lambda y, p: (lambda s, y: ops.mean(-(y * ops.power(1 - s, "
+            f"{float(p['gamma_pos'])}) * ops.log(ops.maximum(s, 1e-8)) + (1 - y) * ops.power("
+            f"ops.maximum(s - {float(p['clip'])}, 0), {float(p['gamma_neg'])}) * ops.log("
+            f"ops.maximum(1 - ops.maximum(s - {float(p['clip'])}, 0), 1e-8)))))"
+            "(ops.sigmoid(p), ops.cast(y, p.dtype))"),
+        desc="Multi-label loss that treats the many negative labels differently from the "
+             "few positive ones (Ridnik et al., 2021): easy negatives are discounted and "
+             "very easy ones ignored. Tagging with many possible labels.",
+        meta={"task": "multilabel", "target": "float", "input": "logits",
+              "torch_helper": "AsymmetricLoss"}),
+    Component(
+        "train.loss_charbonnier", "Charbonnier",
+        (P("epsilon", "float", 1e-3, lo=1e-9, hi=1.0, help="Smoothing near zero error"),),
+        torch=lambda p: (f"lambda pred, target: torch.sqrt((pred - target) ** 2 + "
+                         f"{float(p['epsilon'])} ** 2).mean()"),
+        keras=lambda p: (f"lambda y, p: ops.mean(ops.sqrt(ops.square(p - y) + "
+                         f"{float(p['epsilon'])} ** 2))"),
+        desc="A smooth absolute error, √(error² + ε²): robust like L1 and differentiable at "
+             "zero. The usual loss for image restoration (super-resolution, deblurring).",
+        meta={"task": "regression", "target": "float", "input": "raw"}),
+    Component(
+        "train.loss_ssim", "SSIM (+ L1)",
+        (P("alpha", "float", 0.84, lo=0.0, hi=1.0,
+           help="Share of 1 − SSIM; the rest is mean absolute error"),
+         P("window", "int", 7, lo=3, hi=15, help="Window size (odd)")),
+        torch=lambda p: f"SSIMLoss(alpha={float(p['alpha'])}, window={int(p['window'])})",
+        desc="1 − structural similarity, mixed with L1 (Zhao et al., 2017): compares local "
+             "brightness, contrast and structure, so restored images look sharper than with "
+             "MSE. Images out, images as targets [C, H, W]; other shapes compare whole "
+             "signals.",
+        meta={"task": "regression", "target": "float", "input": "raw",
+              "torch_helper": "SSIMLoss"},
+        checks=lambda p: ([] if int(p["window"]) % 2 else
+                          [("error", "SSIM window must be odd (3, 5, 7, …)")])),
+    Component(
+        "train.loss_vicreg", "VICReg (self-supervised)",
+        (_CLASSES, P("invariance", "float", 25.0, lo=0.0, help="Weight: the two views agree"),
+         P("variance", "float", 25.0, lo=0.0, help="Weight: every feature keeps varying"),
+         P("covariance", "float", 1.0, lo=0.0, help="Weight: features stay decorrelated")),
+        torch=lambda p: (f"VICRegLoss(EMBED_DIM, NUM_CLASSES, invariance={p['invariance']}, "
+                         f"variance={p['variance']}, covariance={p['covariance']})"),
+        desc="Variance-Invariance-Covariance regularization (Bardes et al., 2022): two "
+             "augmentations of an image should embed alike, while each feature keeps "
+             "varying across the batch and features stay uncorrelated, so nothing collapses. "
+             "No negatives, so small batches work. Images, with augmentation.",
+        meta={**_METRIC_META, "torch_helper": "VICRegLoss", "views": 2}),
+    Component(
+        "train.loss_barlow_twins", "Barlow Twins (self-supervised)",
+        (_CLASSES, P("off_diagonal", "float", 5e-3, lo=0.0, hi=1.0,
+                     help="Weight of decorrelating different features")),
+        torch=lambda p: (f"BarlowTwinsLoss(EMBED_DIM, NUM_CLASSES, "
+                         f"off_diagonal={p['off_diagonal']})"),
+        desc="Barlow Twins (Zbontar et al., 2021): the cross-correlation between the "
+             "embeddings of two augmentations of the same images should be the identity: "
+             "each feature agrees across views and differs from the others. Images, with "
+             "augmentation.",
+        meta={**_METRIC_META, "torch_helper": "BarlowTwinsLoss", "views": 2}),
+]
 METRIC_LOSS_IDS = tuple(c.type_id for c in LOSSES if c.meta.get("metric"))
 PAIR_LOSS_IDS = ("train.loss_cosine_embedding", "train.loss_margin_ranking")
 
@@ -600,6 +684,41 @@ OPTIMIZERS += [
              "old gradients keep helping for thousands of steps, so long runs reach a lower "
              "loss. Use a warm-up for alpha and beta3 when training from scratch.",
         meta={"torch_helper": "AdEMAMix"}),
+]
+# 3.7
+OPTIMIZERS += [
+    Component(
+        "train.prodigy", "Prodigy (learning-rate free)",
+        (_LR(1.0), _B1, _B2, P("d_coef", "float", 1.0, lo=0.01, hi=100.0,
+                               help="Scales the learning rate Prodigy finds"),
+         _EPS(1e-8), _WD(0.0)),
+        torch=lambda p: (f"Prodigy(model.parameters(), lr={p['lr']}, "
+                         f"betas=({p['beta1']}, {p['beta2']}), d_coef={p['d_coef']}, "
+                         f"eps={p['eps']}, weight_decay={p['weight_decay']})"),
+        desc="Adam that estimates its own step size while it trains (Mishchenko & Defazio, "
+             "2023): leave lr at 1 and it finds the right scale, so there is no learning "
+             "rate to tune. Pair it with a cosine schedule.",
+        meta={"torch_helper": "Prodigy"}),
+    Component(
+        "train.cautious_adamw", "Cautious AdamW",
+        (_LR(1e-3), _B1, _B2, _EPS(1e-8), _WD(0.01)),
+        torch=lambda p: (f"CautiousAdamW(model.parameters(), lr={p['lr']}, "
+                         f"betas=({p['beta1']}, {p['beta2']}), eps={p['eps']}, "
+                         f"weight_decay={p['weight_decay']})"),
+        desc="AdamW that skips the parts of a step pointing against the current gradient "
+             "(Liang et al., 2024): a one-line change that speeds up training of language "
+             "and vision models.",
+        meta={"torch_helper": "CautiousAdamW"}),
+    Component(
+        "train.yogi", "Yogi",
+        (_LR(1e-2), _B1, _B2, _EPS(1e-3), _WD(0.0)),
+        torch=lambda p: (f"Yogi(model.parameters(), lr={p['lr']}, "
+                         f"betas=({p['beta1']}, {p['beta2']}), eps={p['eps']}, "
+                         f"weight_decay={p['weight_decay']})"),
+        desc="Adam whose second moment changes additively, not multiplicatively (Zaheer et "
+             "al., 2018), so a burst of large gradients does not shrink the step for long. "
+             "Steadier on sparse or noisy gradients.",
+        meta={"torch_helper": "Yogi"}),
 ]
 
 _PROTOTYPES = '''\
@@ -1185,6 +1304,245 @@ class LookaheadAdamW(torch.optim.AdamW):
                     p.copy_(state["slow"])
         return loss
 ''',
+    # 3.7
+    "AsymmetricLoss": '''\
+class AsymmetricLoss(nn.Module):
+    """Asymmetric loss for multi-label logits (Ridnik et al., 2021): focal terms with
+    separate gammas for positives and negatives, and a probability margin that ignores
+    easy negatives."""
+
+    def __init__(self, gamma_neg: float = 4.0, gamma_pos: float = 0.0,
+                 clip: float = 0.05) -> None:
+        super().__init__()
+        self.gamma_neg, self.gamma_pos, self.clip = gamma_neg, gamma_pos, clip
+
+    def forward(self, logits: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        p = torch.sigmoid(logits)
+        target = target.to(p.dtype)
+        neg = (p - self.clip).clamp(min=0) if self.clip > 0 else p
+        pos_term = target * (1 - p) ** self.gamma_pos * torch.log(p.clamp(min=1e-8))
+        neg_term = (1 - target) * neg ** self.gamma_neg * torch.log((1 - neg).clamp(min=1e-8))
+        return -(pos_term + neg_term).mean()
+''',
+    "SSIMLoss": '''\
+class SSIMLoss(nn.Module):
+    """alpha x (1 - SSIM) + (1 - alpha) x L1 (Zhao et al., 2017). SSIM uses uniform
+    windows on images [N, C, H, W]; other shapes compare each example's whole signal."""
+
+    def __init__(self, alpha: float = 0.84, window: int = 7) -> None:
+        super().__init__()
+        self.alpha, self.window = alpha, window
+
+    def ssim(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+        lo = torch.minimum(x.min(), y.min()).detach()
+        rng = (torch.maximum(x.max(), y.max()).detach() - lo).clamp(min=1e-6)
+        c1, c2 = (0.01 * rng) ** 2, (0.03 * rng) ** 2
+        if x.dim() == 4 and min(x.shape[-2:]) >= self.window:
+            pool = lambda t: nn.functional.avg_pool2d(t, self.window, 1)
+        else:
+            x, y = x.reshape(len(x), 1, -1), y.reshape(len(y), 1, -1)
+            pool = lambda t: t.mean(-1, keepdim=True)
+        mx, my = pool(x), pool(y)
+        vx, vy, cov = pool(x * x) - mx ** 2, pool(y * y) - my ** 2, pool(x * y) - mx * my
+        s = ((2 * mx * my + c1) * (2 * cov + c2)) / ((mx ** 2 + my ** 2 + c1) * (vx + vy + c2))
+        return s.mean()
+
+    def forward(self, pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        target = target.to(pred.dtype).reshape(pred.shape)
+        l1 = (pred - target).abs().mean()
+        return self.alpha * (1 - self.ssim(pred, target)) + (1 - self.alpha) * l1
+''',
+    "VICRegLoss": _PROTOTYPES + '''
+
+def twin_views(emb: torch.Tensor, target: torch.Tensor, paired: bool):
+    """The two views of a paired batch (first half, second half). An unpaired batch (the
+    test set) pairs each example with its class's mean embedding instead."""
+    n = len(emb)
+    if paired and n % 2 == 0 and n > 1:
+        return emb[: n // 2], emb[n // 2:]
+    means = torch.zeros_like(emb)
+    for c in target.unique():
+        means[target == c] = emb[target == c].mean(0)
+    return emb, means
+
+
+class VICRegLoss(ClassPrototypes):
+    """VICReg (Bardes et al., 2022): invariance (MSE between the views), variance (each
+    feature's std across the batch kept above 1) and covariance (off-diagonal covariance
+    pushed to 0)."""
+
+    def __init__(self, embed_dim: int, num_classes: int, invariance: float = 25.0,
+                 variance: float = 25.0, covariance: float = 1.0) -> None:
+        super().__init__(embed_dim, num_classes)
+        self.weights = (invariance, variance, covariance)
+        self.paired = True
+
+    def forward(self, emb: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        target = target.long().reshape(-1)
+        emb = emb.float()
+        if self.training:
+            self.update(emb, target)
+        a, b = twin_views(emb, target, self.paired)
+        inv = nn.functional.mse_loss(a, b)
+        var = cov = emb.new_zeros(())
+        if len(a) > 1:
+            for z in (a, b):
+                z = z - z.mean(0)
+                var = var + torch.relu(1 - torch.sqrt(z.var(0) + 1e-4)).mean() / 2
+                c = z.t() @ z / (len(z) - 1)
+                off = c - torch.diag(torch.diag(c))
+                cov = cov + off.pow(2).sum() / z.shape[1] / 2
+        wi, wv, wc = self.weights
+        return wi * inv + wv * var + wc * cov
+''',
+    "BarlowTwinsLoss": _PROTOTYPES + '''
+
+def twin_views(emb: torch.Tensor, target: torch.Tensor, paired: bool):
+    """The two views of a paired batch (first half, second half). An unpaired batch (the
+    test set) pairs each example with its class's mean embedding instead."""
+    n = len(emb)
+    if paired and n % 2 == 0 and n > 1:
+        return emb[: n // 2], emb[n // 2:]
+    means = torch.zeros_like(emb)
+    for c in target.unique():
+        means[target == c] = emb[target == c].mean(0)
+    return emb, means
+
+
+class BarlowTwinsLoss(ClassPrototypes):
+    """Barlow Twins (Zbontar et al., 2021): the cross-correlation of the standardized
+    embeddings of the two views is pushed towards the identity matrix."""
+
+    def __init__(self, embed_dim: int, num_classes: int, off_diagonal: float = 5e-3) -> None:
+        super().__init__(embed_dim, num_classes)
+        self.off_diagonal = off_diagonal
+        self.paired = True
+
+    def forward(self, emb: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        target = target.long().reshape(-1)
+        emb = emb.float()
+        if self.training:
+            self.update(emb, target)
+        a, b = twin_views(emb, target, self.paired)
+        if len(a) < 2:
+            return (emb * 0).sum()
+        a = (a - a.mean(0)) / (a.std(0) + 1e-5)
+        b = (b - b.mean(0)) / (b.std(0) + 1e-5)
+        c = a.t() @ b / len(a)
+        diag = torch.diagonal(c)
+        return (1 - diag).pow(2).sum() + self.off_diagonal * (c.pow(2).sum() - diag.pow(2).sum())
+''',
+    "Prodigy": '''\
+class Prodigy(torch.optim.Optimizer):
+    """Prodigy (Mishchenko & Defazio, 2023): Adam whose step size d is estimated on the
+    fly from how far the weights have moved along the gradients. Keep lr at 1."""
+
+    def __init__(self, params, lr: float = 1.0, betas=(0.9, 0.999), d_coef: float = 1.0,
+                 eps: float = 1e-8, weight_decay: float = 0.0, d0: float = 1e-6) -> None:
+        super().__init__(params, dict(lr=lr, betas=betas, d_coef=d_coef, eps=eps,
+                                      weight_decay=weight_decay, d=d0, d0=d0, d_numerator=0.0))
+
+    @torch.no_grad()
+    def step(self, closure=None):
+        loss = closure() if closure is not None else None
+        for group in self.param_groups:
+            b1, b2 = group["betas"]
+            b3 = b2 ** 0.5
+            d, d0, lr = group["d"], group["d0"], group["lr"]
+            dlr = d * lr
+            numerator = group["d_numerator"] * b3
+            denom = 0.0
+            for p in group["params"]:
+                if p.grad is None:
+                    continue
+                g, state = p.grad, self.state[p]
+                if not state:
+                    state["p0"] = p.detach().clone()
+                    state["s"], state["m"], state["v"] = (torch.zeros_like(p) for _ in range(3))
+                numerator += (d / d0) * dlr * float(torch.dot(g.flatten(),
+                                                              (state["p0"] - p).flatten()))
+                state["m"].mul_(b1).add_(g, alpha=d * (1 - b1))
+                state["v"].mul_(b2).addcmul_(g, g, value=d * d * (1 - b2))
+                state["s"].mul_(b3).add_(g, alpha=(d / d0) * dlr)
+                denom += float(state["s"].abs().sum())
+            group["d_numerator"] = numerator
+            if denom > 0:
+                group["d"] = d = max(d, group["d_coef"] * numerator / denom)
+            dlr = d * lr
+            for p in group["params"]:
+                if p.grad is None:
+                    continue
+                state = self.state[p]
+                if group["weight_decay"]:
+                    p.add_(p, alpha=-group["weight_decay"] * dlr)
+                p.addcdiv_(state["m"], state["v"].sqrt().add_(d * group["eps"]), value=-dlr)
+        return loss
+''',
+    "CautiousAdamW": '''\
+class CautiousAdamW(torch.optim.Optimizer):
+    """Cautious AdamW (Liang et al., 2024): AdamW, but each coordinate of the update is
+    applied only where it agrees in sign with the current gradient (rescaled so the
+    average step size is kept)."""
+
+    def __init__(self, params, lr: float = 1e-3, betas=(0.9, 0.999), eps: float = 1e-8,
+                 weight_decay: float = 0.01) -> None:
+        super().__init__(params, dict(lr=lr, betas=betas, eps=eps, weight_decay=weight_decay))
+
+    @torch.no_grad()
+    def step(self, closure=None):
+        loss = closure() if closure is not None else None
+        for group in self.param_groups:
+            b1, b2 = group["betas"]
+            for p in group["params"]:
+                if p.grad is None:
+                    continue
+                g, state = p.grad, self.state[p]
+                if not state:
+                    state["step"], state["m"], state["v"] = 0, torch.zeros_like(p), torch.zeros_like(p)
+                state["step"] += 1
+                t, m, v = state["step"], state["m"], state["v"]
+                m.mul_(b1).add_(g, alpha=1 - b1)
+                v.mul_(b2).addcmul_(g, g, value=1 - b2)
+                update = (m / (1 - b1 ** t)) / ((v / (1 - b2 ** t)).sqrt() + group["eps"])
+                mask = (update * g > 0).to(g.dtype)
+                mask = mask / mask.mean().clamp(min=1e-3)
+                p.mul_(1 - group["lr"] * group["weight_decay"])
+                p.add_(update * mask, alpha=-group["lr"])
+        return loss
+''',
+    "Yogi": '''\
+class Yogi(torch.optim.Optimizer):
+    """Yogi (Zaheer et al., 2018): Adam with an additive second-moment update,
+    v <- v - (1 - beta2) * sign(v - g^2) * g^2."""
+
+    def __init__(self, params, lr: float = 1e-2, betas=(0.9, 0.999), eps: float = 1e-3,
+                 weight_decay: float = 0.0) -> None:
+        super().__init__(params, dict(lr=lr, betas=betas, eps=eps, weight_decay=weight_decay))
+
+    @torch.no_grad()
+    def step(self, closure=None):
+        loss = closure() if closure is not None else None
+        for group in self.param_groups:
+            b1, b2 = group["betas"]
+            for p in group["params"]:
+                if p.grad is None:
+                    continue
+                g, state = p.grad, self.state[p]
+                if group["weight_decay"]:
+                    g = g.add(p, alpha=group["weight_decay"])
+                if not state:
+                    state["step"] = 0
+                    state["m"] = torch.zeros_like(p)
+                    state["v"] = torch.full_like(p, 1e-6)
+                state["step"] += 1
+                t, m, v = state["step"], state["m"], state["v"]
+                g2 = g * g
+                m.mul_(b1).add_(g, alpha=1 - b1)
+                v.addcmul_(torch.sign(v - g2), g2, value=-(1 - b2))
+                denom = (v / (1 - b2 ** t)).sqrt().add_(group["eps"])
+                p.addcdiv_(m, denom, value=-group["lr"] / (1 - b1 ** t))
+        return loss
+''',
 }
 
 
@@ -1434,6 +1792,20 @@ METRICS: list[Component] = [
     Component("eval.msle", "Mean Squared Log Error",
               desc="Squared error of log(1 + value): relative errors for positive targets.",
               meta={"tasks": {"regression"}, "key": "msle"}),
+    # 3.7
+    Component("eval.concordance", "Concordance (Lin's CCC)",
+              desc="Agreement between predictions and targets (−1..1): like Pearson "
+                   "correlation, but also penalizes a shift or a different scale.",
+              meta={"tasks": {"regression"}, "key": "ccc"}),
+    Component("eval.psnr", "PSNR",
+              desc="Peak signal-to-noise ratio in dB, from the MSE and the targets' range: "
+                   "higher is better (image restoration, ~30 dB looks good).",
+              meta={"tasks": {"regression"}, "key": "psnr"}),
+    Component("eval.ssim", "SSIM",
+              desc="Structural similarity of predicted and target images (−1..1, 1 = "
+                   "identical), from local brightness, contrast and structure in 7×7 "
+                   "windows. Image outputs; for other shapes it compares whole signals.",
+              meta={"tasks": {"regression"}, "key": "ssim"}),
 ]
 
 

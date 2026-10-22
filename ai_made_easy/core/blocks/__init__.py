@@ -40,5 +40,6 @@ from ai_made_easy.core.blocks import (  # noqa: F401
     pipelines,
     library,
     library36,
+    library37,
     modern,
 )
