@@ -97,7 +97,7 @@ def test_rules(tmp_path):
     many = design([n("t", "ssm.trend")], data={}, data_type="data.synthetic_series")
     assert any("fit one series" in m for m in messages(many))
     (tmp_path / "s.csv").write_text("sales,price\n" + "".join(f"{i},{i % 3}\n"
-                                                              for i in range(80)))
+                                                              for i in range(80)), encoding="utf-8")
     csv = design([n("t", "ssm.trend"), n("r", "ssm.regression", columns="price,promo")],
                  {"target_column": "units", "horizon": 8},
                  {"path": str(tmp_path / "s.csv")}, "data.timeseries_csv")
@@ -132,7 +132,7 @@ def _infer(folder: Path, script: Path, items: list) -> list:
 @pytest.mark.parametrize("sample", SAMPLES)
 def test_forecasts_beat_seasonal_naive(sample, tmp_path):
     run, script = _run(api.read_sample(sample), tmp_path)
-    metrics = json.loads((run / "metrics.json").read_text())
+    metrics = json.loads((run / "metrics.json").read_text(encoding="utf-8"))
     assert metrics["mae"] < 0.8 * metrics["naive_mae"] and metrics["mase"] < 1
     assert metrics["coverage"] >= 0.75
     assert (run / "eval_samples" / "forecast.png").exists()
@@ -154,14 +154,14 @@ def test_regression_component(tmp_path):
     price = rng.uniform(1, 3, 200)
     sales = 50 + 0.1 * np.arange(200) - 6 * price + rng.normal(0, 0.5, 200)
     (tmp_path / "sales.csv").write_text("sales,price\n" + "".join(
-        f"{s:.4f},{p:.4f}\n" for s, p in zip(sales, price, strict=True)))
+        f"{s:.4f},{p:.4f}\n" for s, p in zip(sales, price, strict=True)), encoding="utf-8")
     data = design([n("t", "ssm.trend", kind="local linear trend"),
                    n("r", "ssm.regression", columns="price")],
                   {"horizon": 20}, {"path": str(tmp_path / "sales.csv"),
                                     "target_columns": "sales"}, "data.timeseries_csv")
     assert Graph.from_dict(data).validate() == []
     run, script = _run(data, tmp_path)
-    metrics = json.loads((run / "metrics.json").read_text())
+    metrics = json.loads((run / "metrics.json").read_text(encoding="utf-8"))
     assert metrics["mae"] < 1.0
     state = __import__("pickle").loads((run / "ssm_ssm.pkl").read_bytes())
     beta = dict(zip(state["param_names"], state["params"], strict=True))["beta.x1"]
@@ -189,7 +189,7 @@ def test_ssm_run_deploys(tmp_path, isolated_home):
         assert mgr.history.epochs(run_id)                    # likelihood per iteration
         result = build_package(mgr.history.path(run_id), tmp_path / "pkg")
         assert result.verified, result.log[-3000:]
-        meta = json.loads((tmp_path / "pkg/metadata.json").read_text())
+        meta = json.loads((tmp_path / "pkg/metadata.json").read_text(encoding="utf-8"))
         assert meta["task"] == "state_space_forecasting" and meta["input_kind"] == "series"
     finally:
         api.set_manager(None)

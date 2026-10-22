@@ -64,11 +64,11 @@ def test_end_to_end_train_then_inspect(tmp_path):
         generate_inspect, generate_training)
 
     g = _conv_net([("tr", "train.trainer", {"epochs": 1, "batch_size": 16})])
-    (tmp_path / "train_run.py").write_text(generate_training(g, "pytorch"))
+    (tmp_path / "train_run.py").write_text(generate_training(g, "pytorch"), encoding="utf-8")
     r = subprocess.run([sys.executable, "train_run.py"], cwd=tmp_path,
                        capture_output=True, text=True, timeout=300)
     assert r.returncode == 0, r.stderr[-500:]
-    preds = json.loads((tmp_path / "predictions.json").read_text())
+    preds = json.loads((tmp_path / "predictions.json").read_text(encoding="utf-8"))
     assert preds and "probs" in preds[0] and "true" in preds[0]
     assert (tmp_path / "mistakes.json").exists()
     # non-file image datasets get sample PNG dumps for the Mistake Museum
@@ -76,12 +76,12 @@ def test_end_to_end_train_then_inspect(tmp_path):
     assert any((tmp_path / "samples").glob("*.png"))
     assert preds[0]["file"] and (tmp_path / preds[0]["file"]).exists()
 
-    (tmp_path / "aime_inspect_run.py").write_text(generate_inspect(g))
+    (tmp_path / "aime_inspect_run.py").write_text(generate_inspect(g), encoding="utf-8")
     r2 = subprocess.run([sys.executable, "aime_inspect_run.py", "0"],
                         cwd=tmp_path, capture_output=True, text=True,
                         timeout=120)
     assert r2.returncode == 0, r2.stderr[-500:]
-    result = json.loads((tmp_path / "inspect.json").read_text())
+    result = json.loads((tmp_path / "inspect.json").read_text(encoding="utf-8"))
     assert result["top"] and result["top"][0]["prob"] >= 0
     import numpy as np
     cam = np.load(tmp_path / "cam.npy")
@@ -102,13 +102,13 @@ def test_model_card_fills_from_artifacts(tmp_path):
         {"index": 0, "true": 0, "probs": [0.9, 0.1], "file": None},
         {"index": 1, "true": 1, "probs": [0.8, 0.2], "file": None},
         {"index": 2, "true": 1, "probs": [0.3, 0.7], "file": None},
-    ]))
+    ]), encoding="utf-8")
     (tmp_path / "mistakes.json").write_text(json.dumps([
         {"index": 1, "true": 1, "probs": [0.8, 0.2], "file": None},
         {"index": 4, "true": 1, "probs": [0.6, 0.4], "file": None},
-    ]))
-    (tmp_path / "metrics.json").write_text(json.dumps({"accuracy": 0.6667, "f1": 0.5}))
-    (tmp_path / "classes.json").write_text(json.dumps(["cat", "dog"]))
+    ]), encoding="utf-8")
+    (tmp_path / "metrics.json").write_text(json.dumps({"accuracy": 0.6667, "f1": 0.5}), encoding="utf-8")
+    (tmp_path / "classes.json").write_text(json.dumps(["cat", "dog"]), encoding="utf-8")
     card = build_card("My Model", "Synthetic classification data",
                       {"epochs": 3}, tmp_path,
                       intended_use="sorting pet photos", limitations="not night photos")
@@ -147,7 +147,7 @@ def test_inspect_dialog_renders_artifacts(tmp_path):
     (tmp_path / "inspect.json").write_text(json.dumps(
         {"image": None, "single": False,
          "top": [{"class": 1, "prob": 0.9},
-                 {"class": 0, "prob": 0.1}]}))
+                 {"class": 0, "prob": 0.1}]}), encoding="utf-8")
     from ai_made_easy.ui.features.inspect_view import InspectDialog
 
     dlg = InspectDialog(None, tmp_path)

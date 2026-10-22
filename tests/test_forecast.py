@@ -153,7 +153,7 @@ def test_read_forecast_table(rt, tmp_path):
     pytest.importorskip("pandas")
     path = tmp_path / "s.csv"
     path.write_text("date,store,sales,promo\n2024-01-02,b,3,1\n2024-01-01,b,2,0\n"
-                    "2024-01-01,a,5,0\n")
+                    "2024-01-01,a,5,0\n", encoding="utf-8")
     out = rt["read_forecast_table"](path, "csv", "date", "sales", "store", "", "promo")
     assert [s["id"] for s in out] == ["a", "b"]
     assert out[1]["target"].tolist() == [2, 3] and out[1]["future"][:, 0].tolist() == [0, 1]
@@ -235,7 +235,7 @@ def test_profile_forecast_datasets(tmp_path):
             if store == "b" and day == 5:
                 continue
             rows.append(f"2024-02-{day:02d},{store},{3 + 4 * (day % 7 == 0)}")
-    (tmp_path / "s.csv").write_text("\n".join(rows))
+    (tmp_path / "s.csv").write_text("\n".join(rows), encoding="utf-8")
     csv = {p.name: p.default for p in get_registry().get("data.forecast_csv").params}
     csv.update(path="s.csv", target_column="sales", id_column="store", window=7, horizon=3,
                season_length=1)
@@ -257,7 +257,7 @@ def _train(data: dict, tmp_path: Path) -> tuple[Path, str]:
     from ai_made_easy.core.training.generate import generate_training
 
     script = tmp_path / "train.py"
-    script.write_text(generate_training(Graph.from_dict(data), "pytorch"))
+    script.write_text(generate_training(Graph.from_dict(data), "pytorch"), encoding="utf-8")
     proc = subprocess.run([sys.executable, str(script)], cwd=tmp_path, capture_output=True,
                           text=True, timeout=600)
     assert proc.returncode == 0, proc.stdout[-2000:] + proc.stderr[-3000:]
@@ -283,7 +283,7 @@ def _infer(folder: Path, items: list) -> list:
 ], ids=["point", "quantile", "negbin", "student_t"])
 def test_heads_train_and_serve(model, params, counts, tmp_path):
     run, stdout = _train(design(model, params, data={"counts": counts}), tmp_path)
-    metrics = json.loads((run / "metrics.json").read_text())
+    metrics = json.loads((run / "metrics.json").read_text(encoding="utf-8"))
     assert {"mae", "mase", "smape", "wape", "crps", "naive_mase", "mae_by_step"} <= set(metrics)
     assert len(metrics["mae_by_step"]) == 12
     if params["head"] != "point":
@@ -311,7 +311,7 @@ def test_generic_layers_train(tmp_path):
                      {"from": "f/out", "to": "lin/in"}, {"from": "lin/out", "to": "out/in"}]
     assert not [i for i in issues(data) if i.severity == "error"]
     run, _ = _train(data, tmp_path)
-    assert "mase" in json.loads((run / "metrics.json").read_text())
+    assert "mase" in json.loads((run / "metrics.json").read_text(encoding="utf-8"))
 
 
 def test_forecast_run_deploys(tmp_path, isolated_home):
@@ -330,7 +330,7 @@ def test_forecast_run_deploys(tmp_path, isolated_home):
         assert "mase" in record.final_metrics
         result = build_package(mgr.history.path(run_id), tmp_path / "pkg")
         assert result.verified, result.log[-3000:]
-        meta = json.loads((tmp_path / "pkg/metadata.json").read_text())
+        meta = json.loads((tmp_path / "pkg/metadata.json").read_text(encoding="utf-8"))
         assert meta["task"] == "forecasting" and meta["input_kind"] == "series"
         assert api.run_samples(run_id)["samples"]
     finally:

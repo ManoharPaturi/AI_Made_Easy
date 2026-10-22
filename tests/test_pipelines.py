@@ -116,7 +116,7 @@ def test_design_references(tmp_path):
     assert designs.resolve("embedded:teacher", graph).name == "digits_teacher"
     assert designs.resolve("sample:iris_mlp.json", graph).name == "iris_mlp"
     path = tmp_path / "mine.json"
-    path.write_text(json.dumps(sample("iris_mlp.json")))
+    path.write_text(json.dumps(sample("iris_mlp.json")), encoding="utf-8")
     assert designs.resolve("mine.json", graph, base=tmp_path).name == "iris_mlp"
     with pytest.raises(designs.DesignError, match="not found"):
         designs.resolve("missing.json", graph, base=tmp_path)
@@ -184,7 +184,7 @@ def test_distill_quantize_register_and_resume(tmp_path, isolated_home):
     # the quantized stage is a deployable run folder
     result = build_package(rows["quantize"]["output"]["model_dir"], tmp_path / "pkg")
     assert result.verified, result.log[-2000:]
-    model_def = (tmp_path / "pkg/model/model_def.py").read_text()
+    model_def = (tmp_path / "pkg/model/model_def.py").read_text(encoding="utf-8")
     assert 'QUANTIZE = "dynamic_int8"' in model_def
 
 
@@ -222,7 +222,7 @@ def test_api_cli_and_web(tmp_path, isolated_home):
     data = pipeline([stage("t", "pipeline.train", design="embedded:student", epochs=2),
                      stage("e", "pipeline.evaluate")], [("t", "e")])
     path = tmp_path / "p.json"
-    path.write_text(json.dumps(data))
+    path.write_text(json.dumps(data), encoding="utf-8")
     proc = subprocess.run([sys.executable, "-m", "ai_made_easy.cli", "pipeline", "run",
                            str(path)], capture_output=True, text=True, timeout=600)
     assert proc.returncode == 0, proc.stdout[-2000:] + proc.stderr[-2000:]

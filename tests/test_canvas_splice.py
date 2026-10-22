@@ -69,7 +69,7 @@ def test_save_selection_roundtrip(qapp, tmp_path: Path, monkeypatch):
     for n in (first_conv, relu, pool):
         n.set_selected(True)
     path = canvas.save_selection_as_template("my block")
-    data = json.loads(path.read_text())
+    data = json.loads(path.read_text(encoding="utf-8"))
     assert data["name"] == "my block"
     assert len(data["nodes"]) == 3
     assert data["entry"] == first_conv.id

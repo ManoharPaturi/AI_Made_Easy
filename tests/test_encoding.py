@@ -101,8 +101,14 @@ def _violations(tree: ast.Module, where: str, first_line: int = 1) -> list[str]:
 
 
 def _sources() -> list[Path]:
-    return [p for p in sorted(PACKAGE.rglob("*.py"))
-            if not any(p.is_relative_to(s) for s in SKIP)]
+    """The package, and (3.7) the tests and scripts: on Windows a helper that writes a
+    generated script in the code page makes it unreadable to Python."""
+    root = PACKAGE.parent
+    files = [*PACKAGE.rglob("*.py"), *(root / "tests").rglob("*.py"),
+             *(root / "scripts").rglob("*.py")]
+    return [p for p in sorted(files)
+            if not any(p.is_relative_to(s) for s in (*SKIP, root / "tests" / "golden"))
+            and p.name != "test_encoding.py"]     # its examples are violations on purpose
 
 
 def test_text_io_names_its_encoding():

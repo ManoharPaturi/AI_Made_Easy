@@ -74,7 +74,7 @@ def test_worker_streams_epochs_from_real_training(tmp_path: Path):
 
 def test_worker_reports_crashes_as_error_events(tmp_path: Path):
     bad = tmp_path / "bad_script.py"
-    bad.write_text("raise RuntimeError('boom')\n")
+    bad.write_text("raise RuntimeError('boom')\n", encoding="utf-8")
     proc = subprocess.run(
         [sys.executable, str(worker_script_path()), str(bad)],
         capture_output=True, text=True, timeout=60, cwd=tmp_path,

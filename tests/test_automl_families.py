@@ -128,7 +128,7 @@ def test_automl_beats_its_baseline_round(api, task, candidates, package, trials,
         x[:20] += 6
         rows = ["a,b,c,d,label"] + [",".join(f"{v:.4f}" for v in r) + f",{int(i < 20)}"
                                     for i, r in enumerate(x)]
-        (tmp_path / "events.csv").write_text("\n".join(rows) + "\n")
+        (tmp_path / "events.csv").write_text("\n".join(rows) + "\n", encoding="utf-8")
         spec.update(path=str(tmp_path / "events.csv"), target="label")
     started, rows = _search(api, spec)
     metric, direction = automl.TASK_METRICS[task]
@@ -172,7 +172,7 @@ def test_classic_runs_measure_their_costs(isolated_home):
     mgr = RunManager()
     run_id = mgr.start(_design("random_forest", "multiclass", n_estimators=50), "sklearn")
     assert mgr.wait(run_id, timeout=600)["state"] == "finished"
-    costs = json.loads((mgr.history.path(run_id) / "costs.json").read_text())
+    costs = json.loads((mgr.history.path(run_id) / "costs.json").read_text(encoding="utf-8"))
     assert costs["predict_ms"] > 0 and costs["model_mb"] > 0
 
 

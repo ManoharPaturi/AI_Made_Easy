@@ -112,7 +112,7 @@ def test_support_and_data_rules(tmp_path):
     data["edges"] = [x for x in data["edges"] if x["to"] != "y/sigma"] + [e("b", "y/sigma")]
     assert any("y.sigma must be positive but b can be real" in i[2] for i in issues(data))
     (tmp_path / "d.csv").write_text("group,x,y\n" + "".join(f"g{i % 2},{i},{i * 0.5 - 2}\n"
-                                                          for i in range(20)))
+                                                          for i in range(20)), encoding="utf-8")
     counts = hier("count")
     counts["nodes"] = [x for x in counts["nodes"] if x["type"] != "data.synthetic_groups"] + \
         [n("data", "data.csv", path=str(tmp_path / "d.csv"))]
@@ -197,8 +197,8 @@ def _infer(folder: Path, script: Path, items: list) -> list:
 @needs_pymc
 def test_hierarchical_regression_recovers_the_truth(tmp_path):
     run, _out, script = _run(hier(draws=400), tmp_path)
-    metrics = json.loads((run / "metrics.json").read_text())
-    summary = {r["name"]: r for r in json.loads((run / "summary.json").read_text())}
+    metrics = json.loads((run / "metrics.json").read_text(encoding="utf-8"))
+    summary = {r["name"]: r for r in json.loads((run / "summary.json").read_text(encoding="utf-8"))}
     assert summary["b"]["lower_94"] < 2.0 < summary["b"]["upper_94"]
     assert metrics["mean_sigma"] == pytest.approx(0.5, abs=0.08)
     assert metrics["divergences"] == 0 and metrics["max_r_hat"] < 1.05
@@ -217,7 +217,7 @@ def test_hierarchical_regression_recovers_the_truth(tmp_path):
 ])
 def test_likelihoods_and_methods(outcome, method, key, tmp_path):
     run, _o, script = _run(hier(outcome, method), tmp_path)
-    metrics = json.loads((run / "metrics.json").read_text())
+    metrics = json.loads((run / "metrics.json").read_text(encoding="utf-8"))
     assert key in metrics
     if outcome == "binary":
         assert metrics[key] > 0.7
@@ -253,8 +253,8 @@ def test_ppl_run_deploys(tmp_path, isolated_home):
         assert mgr.history.get(run_id).framework == "pymc"
         result = build_package(mgr.history.path(run_id), tmp_path / "pkg")
         assert result.verified, result.log[-3000:]
-        meta = json.loads((tmp_path / "pkg/metadata.json").read_text())
+        meta = json.loads((tmp_path / "pkg/metadata.json").read_text(encoding="utf-8"))
         assert meta["task"] == "bayesian_modeling" and meta["input_kind"] == "records"
-        assert "pymc" in (tmp_path / "pkg/requirements.txt").read_text()
+        assert "pymc" in (tmp_path / "pkg/requirements.txt").read_text(encoding="utf-8")
     finally:
         api.set_manager(None)

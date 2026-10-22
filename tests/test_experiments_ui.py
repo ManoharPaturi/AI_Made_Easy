@@ -44,7 +44,7 @@ def _fake_run(history, lr, acc, project):
         history.append_epoch(rec.run_id, {"type": "epoch", "epoch": epoch, "total": 2,
                                           "metrics": {"val_loss": 1.0 / epoch,
                                                       "accuracy": acc * epoch / 2}})
-    (history.path(rec.run_id) / "metrics.json").write_text(json.dumps({"accuracy": acc}))
+    (history.path(rec.run_id) / "metrics.json").write_text(json.dumps({"accuracy": acc}), encoding="utf-8")
     history.finalize(rec.run_id, "finished", 0)
     return rec.run_id
 

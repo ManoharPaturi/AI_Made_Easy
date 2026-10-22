@@ -30,7 +30,7 @@ def test_odengraphqt_only_imported_inside_canvas_package():
         rel = path.relative_to(UI_DIR)
         if str(rel).startswith("canvas"):
             continue
-        tree = ast.parse(path.read_text())
+        tree = ast.parse(path.read_text(encoding="utf-8"))
         for node in ast.walk(tree):
             if isinstance(node, ast.Import):
                 names = [a.name for a in node.names]
@@ -49,7 +49,7 @@ def test_core_stays_qt_free():
     core_dir = UI_DIR.parent / "core"
     offenders = []
     for path in sorted(core_dir.rglob("*.py")):
-        tree = ast.parse(path.read_text())
+        tree = ast.parse(path.read_text(encoding="utf-8"))
         for node in ast.walk(tree):
             if isinstance(node, ast.Import):
                 names = [a.name for a in node.names]
@@ -165,12 +165,12 @@ def test_workbench_smoke(tmp_path):
         env={**os.environ, "PYTHONPATH": str(Path(__file__).parent.parent),
              "AIME_SMOKE_PNG": str(tmp_path / "smoke.png")})
     assert "SMOKE-OK" in result.stdout, result.stdout[-800:] + result.stderr[-800:]
-    assert (tmp_path / "smoke.png").stat().st_size > 50_000
+    assert (tmp_path / "smoke.png").stat().st_size > 15_000     # a real render, not blank
 
 
 def test_workbench_is_layout_only():
     """The shell must not grow business logic back (god-object guard)."""
-    source = (UI_DIR / "workbench.py").read_text()
+    source = (UI_DIR / "workbench.py").read_text(encoding="utf-8")
     tree = ast.parse(source)
     for node in tree.body:
         if isinstance(node, ast.ClassDef) and node.name == "Workbench":

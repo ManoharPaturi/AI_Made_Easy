@@ -162,7 +162,7 @@ def test_registry_mirrors_and_mlflow_models_open_as_designs(home, tmp_path):
     art = tmp_path / "art" / "model"
     (art / "data").mkdir(parents=True)
     torch.save(model, art / "data" / "model.pth")
-    (art / "MLmodel").write_text("flavors:\n  pytorch:\n    model_data: data\n")
+    (art / "MLmodel").write_text("flavors:\n  pytorch:\n    model_data: data\n", encoding="utf-8")
     client = mlflow.MlflowClient(tracking_uri=tracking.mlflow_uri())
     exp = client.create_experiment("imports", artifact_location=(tmp_path / "mlart").as_uri())
     run = client.create_run(exp)
@@ -221,7 +221,7 @@ def test_hub_push_pull_round_trip_predicts(home, tmp_path, monkeypatch):
     pushed = api.push_to_hub("me/tiny-mlp", run_id=run_id)
     assert pushed["private"] and fake.repos["me/tiny-mlp"]["type"] == "model"
     repo = tmp_path / "hubstore" / "model" / "me" / "tiny-mlp"
-    card = (repo / "README.md").read_text()
+    card = (repo / "README.md").read_text(encoding="utf-8")
     assert card.startswith("---\nlibrary_name: pytorch\ntags:\n- ai-made-easy\n")
     assert "# Model card" in card and "aime hub pull me/tiny-mlp" in card
     assert {"aime.json", "run.json", "design.json"} <= {p.name for p in repo.iterdir()}
@@ -234,7 +234,7 @@ def test_hub_push_pull_round_trip_predicts(home, tmp_path, monkeypatch):
 
     space = api.deploy_to_space("me/tiny-api", run_id=run_id)
     assert fake.repos["me/tiny-api"] == {"type": "space", "private": True, "sdk": "docker"}
-    readme = (tmp_path / "hubstore" / "space" / "me" / "tiny-api" / "README.md").read_text()
+    readme = (tmp_path / "hubstore" / "space" / "me" / "tiny-api" / "README.md").read_text(encoding="utf-8")
     assert readme.startswith("---\ntitle: tiny-api\nsdk: docker\napp_port: 8000\n")
     assert space["url"] == "https://huggingface.co/spaces/me/tiny-api"
 
@@ -251,7 +251,7 @@ def test_hub_errors_name_the_fix(home, tmp_path, monkeypatch):
     with pytest.raises(hub.HubError, match="not a run folder"):
         hub.push_model(run, "me/x")
     (tmp_path / "model" / "me" / "other").mkdir(parents=True)
-    (tmp_path / "model" / "me" / "other" / "model.safetensors").write_text("x")
+    (tmp_path / "model" / "me" / "other" / "model.safetensors").write_text("x", encoding="utf-8")
     with pytest.raises(hub.HubError, match="not pushed by AI Made Easy"):
         hub.pull_model("me/other")
 
@@ -274,7 +274,7 @@ class FakeKaggle:
                 zf.writestr("test.csv", rows.replace(",label", "").replace(",0\n", "\n"))
                 zf.writestr("sample_submission.csv", "id,label\n")
         else:
-            (dest / "rows.csv").write_text(rows)
+            (dest / "rows.csv").write_text(rows, encoding="utf-8")
 
     def submit(self, competition, file, message):  # noqa: ANN001
         return type("R", (), {"message": f"{competition}: {Path(file).name} ({message})"})()
@@ -379,7 +379,7 @@ def test_cli_tools(home, tmp_path, monkeypatch):
     status = aime("tracking")
     assert status.returncode == 0 and "tracking: off" in status.stdout
     project = tmp_path / "p.json"
-    project.write_text(json.dumps({**tiny_classifier_dict(), "meta": {"tracking": "wandb"}}))
+    project.write_text(json.dumps({**tiny_classifier_dict(), "meta": {"tracking": "wandb"}}), encoding="utf-8")
     assert "tracking: wandb" in aime("tracking", str(project)).stdout
     exported = aime("runs", "export", "-o", str(tmp_path / "none.csv"))
     assert exported.returncode == 0 and "wrote 0 row(s)" in exported.stdout

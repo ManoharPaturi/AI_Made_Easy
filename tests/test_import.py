@@ -205,7 +205,7 @@ def test_cli_import(tmp_path):
                           capture_output=True, text=True, timeout=600)
     assert proc.returncode == 0, proc.stderr[-2000:]
     assert "identical" in proc.stdout
-    graph = Graph.from_dict(json.loads(out.read_text()))
+    graph = Graph.from_dict(json.loads(out.read_text(encoding="utf-8")))
     assert any(n.type_id == "core.concatenate" for n in graph.nodes.values())
 
 

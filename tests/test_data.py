@@ -124,8 +124,8 @@ def test_folder_profiles(tmp_path):
     assert len(profile.samples["a"]) == 12
     words = tmp_path / "texts"
     (words / "x").mkdir(parents=True)
-    (words / "x" / "1.txt").write_text("hello world")
-    (words / "x" / "2.txt").write_text("")
+    (words / "x" / "1.txt").write_text("hello world", encoding="utf-8")
+    (words / "x" / "2.txt").write_text("", encoding="utf-8")
     profile = profile_path(words)
     assert profile.type_id == "data.text_folder" and "empty text" in _messages(profile)
 
@@ -141,7 +141,7 @@ def test_array_and_record_profiles(tmp_path):
     bad = profile_dataset("data.numpy", {"path": str(npz), "x_key": "features", "y_key": "y"})
     assert "not in the archive: features" in _messages(bad)
     records = tmp_path / "r.jsonl"
-    records.write_text('{"x": [1, 2], "y": 0}\n{"x": [1], "y": 1}\n{"z": 1}\n')
+    records.write_text('{"x": [1, 2], "y": 0}\n{"x": [1], "y": 1}\n{"z": 1}\n', encoding="utf-8")
     text = _messages(profile_dataset("data.json", {"path": str(records), "x_field": "x",
                                                    "y_field": "y"}))
     assert "lack 'x'" in text and "different lengths" in text
@@ -177,7 +177,7 @@ def test_split_preview_matches_generated_script(tmp_path, stratify):
     inputs[0].params["shape"] = str(layout_of(graph).width)     # the one-hot encoded row
     workdir = tmp_path / "out"
     workdir.mkdir()
-    script = export_training(graph, "pytorch", workdir).read_text()
+    script = export_training(graph, "pytorch", workdir).read_text(encoding="utf-8")
     generated = _script_split(script)
     classes = sorted(frame["label"].astype(str).unique())
     y = frame["label"].map({c: i for i, c in enumerate(classes)}).to_numpy()
@@ -249,10 +249,10 @@ def test_profile_cache_invalidates_on_change(tmp_path):
 
 def test_fingerprints(tmp_path):
     path = tmp_path / "f.csv"
-    path.write_text("x,label\n1,0\n")
+    path.write_text("x,label\n1,0\n", encoding="utf-8")
     first = fingerprint("data.csv", {"path": str(path)})
     assert first.startswith("file:") and first == fingerprint("data.csv", {"path": str(path)})
-    path.write_text("x,label\n2,0\n")
+    path.write_text("x,label\n2,0\n", encoding="utf-8")
     assert fingerprint("data.csv", {"path": str(path)}) != first
     root = tmp_path / "imgs" / "a"
     root.mkdir(parents=True)
@@ -269,11 +269,11 @@ def test_runs_record_data_fingerprint(isolated_home, tmp_path):
     from ai_made_easy.core.runs.history import RunHistory, compare
 
     path = tmp_path / "f.csv"
-    path.write_text("x,label\n1,0\n")
+    path.write_text("x,label\n1,0\n", encoding="utf-8")
     history = RunHistory()
     graph = _csv_design(path).to_dict()
     a = history.create(graph)
-    path.write_text("x,label\n1,1\n")
+    path.write_text("x,label\n1,1\n", encoding="utf-8")
     b = history.create(graph)
     assert a.data_fingerprint.startswith("file:") and a.data_fingerprint != b.data_fingerprint
     assert history.get(a.run_id).data_fingerprint == a.data_fingerprint
@@ -351,7 +351,7 @@ def test_api_and_cli(tmp_path, capsys):
     with pytest.raises(api.ApiError):
         api.profile_data({"name": "empty", "nodes": [], "edges": []})
     project = tmp_path / "p.json"
-    project.write_text(json.dumps(graph))
+    project.write_text(json.dumps(graph), encoding="utf-8")
     assert cli.main(["data", "check", str(project)]) == 0
     assert "no Impute Missing Values block" in capsys.readouterr().out
     assert cli.main(["data", "split", str(project)]) == 0

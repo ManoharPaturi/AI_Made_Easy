@@ -46,7 +46,7 @@ def table(tmp_path) -> Path:
     path = tmp_path / "t.csv"
     path.write_text("a,color,b,size,label\n" + "".join(
         f"{i},{['red', 'blue', 'green'][i % 3]},{i * 0.5},{['s', 'm'][i % 2]},{i % 2}\n"
-        for i in range(30)))
+        for i in range(30)), encoding="utf-8")
     return path
 
 
@@ -168,9 +168,9 @@ def test_ft_transformer_learns_category_interactions(tmp_path):
         if node["type"] == "train.trainer":
             node["params"]["epochs"] = 15
     run, script = _run(data, tmp_path)
-    source = script.read_text()
+    source = script.read_text(encoding="utf-8")
     assert "raw = flat[:, [3, 4, 5]].copy()" in source          # codes are not standardised
-    assert json.loads((run / "metrics.json").read_text())["accuracy"] > 0.85
+    assert json.loads((run / "metrics.json").read_text(encoding="utf-8"))["accuracy"] > 0.85
     out = _infer(run, script, [ROW, {**ROW, "city": "tokyo"}])  # an unseen category
     assert out[0]["label"] in ("churn", "stay") and out[1]["label"] in ("churn", "stay")
 
@@ -188,5 +188,5 @@ def test_regression_beats_the_mean(layers, epochs, lr, limit, tmp_path):
         n("tr", "train.trainer", epochs=epochs, batch_size=128)])
     assert Graph.from_dict(data).validate() == []
     run, script = _run(data, tmp_path)
-    assert json.loads((run / "metrics.json").read_text())["mae"] < limit   # mean: ~15.9
+    assert json.loads((run / "metrics.json").read_text(encoding="utf-8"))["mae"] < limit   # mean: ~15.9
     assert isinstance(_infer(run, script, [ROW])[0]["prediction"], float)

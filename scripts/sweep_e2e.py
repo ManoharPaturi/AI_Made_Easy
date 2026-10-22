@@ -234,7 +234,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.json:
         Path(args.json).write_text(json.dumps(
             [{"name": c.name, "stages": c.stages, "seconds": c.seconds} for c in cases],
-            indent=1))
+            indent=1), encoding="utf-8")
     return 1 if failed else 0
 
 

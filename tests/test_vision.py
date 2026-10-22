@@ -173,7 +173,7 @@ def test_read_coco(rt, tmp_path):
                  "segmentation": [[2, 3, 12, 3, 12, 8, 2, 8]], "iscrowd": 0},
                 {"id": 2, "image_id": 1, "category_id": 3, "bbox": [0, 0, 4, 4],
                  "iscrowd": 1}]}
-    (tmp_path / "ann.json").write_text(json.dumps(coco))
+    (tmp_path / "ann.json").write_text(json.dumps(coco), encoding="utf-8")
     records, names = rt["read_coco"](tmp_path / "images", tmp_path / "ann.json")
     assert names == ["dog", "cat"]  # sorted by category id -> contiguous classes
     assert records[0]["boxes"] == [[2.0, 3.0, 12.0, 8.0]] and records[0]["labels"] == [1]
@@ -188,8 +188,8 @@ def test_read_yolo_boxes_polygons_and_classes(rt, tmp_path):
     _image(tmp_path / "images/x.png", (100, 50))
     labels = tmp_path / "labels"
     labels.mkdir()
-    (labels / "x.txt").write_text("1 0.5 0.5 0.2 0.4\n0 0.1 0.1 0.3 0.1 0.3 0.3\n")
-    (tmp_path / "data.yaml").write_text("path: .\nnames:\n  0: red\n  1: blue\n")
+    (labels / "x.txt").write_text("1 0.5 0.5 0.2 0.4\n0 0.1 0.1 0.3 0.1 0.3 0.3\n", encoding="utf-8")
+    (tmp_path / "data.yaml").write_text("path: .\nnames:\n  0: red\n  1: blue\n", encoding="utf-8")
     records, names = rt["read_yolo"](tmp_path / "images", labels, str(tmp_path / "data.yaml"))
     assert names == ["red", "blue"]
     np.testing.assert_allclose(records[0]["boxes"][0], [40, 15, 60, 35])
@@ -206,7 +206,7 @@ def test_read_voc_and_mask_folder(rt, tmp_path):
     (root / "Annotations/p.xml").write_text(
         "<annotation><filename>p.jpg</filename><object><name>car</name><bndbox>"
         "<xmin>5</xmin><ymin>6</ymin><xmax>20</xmax><ymax>16</ymax></bndbox></object>"
-        "</annotation>")
+        "</annotation>", encoding="utf-8")
     records, names = rt["read_voc"](root)
     assert names == ["car"] and records[0]["boxes"] == [[4.0, 5.0, 20.0, 16.0]]
     from PIL import Image
@@ -428,7 +428,7 @@ def test_profile_vision_datasets(tmp_path):
     assert "boxes" in p.summary and any("COCO sizes" in d for d in p.details)
     _image(tmp_path / "images/a.png", (50, 50))
     (tmp_path / "labels").mkdir()
-    (tmp_path / "labels/a.txt").write_text("0 30 30 10 10\n")  # pixels, not 0-1
+    (tmp_path / "labels/a.txt").write_text("0 30 30 10 10\n", encoding="utf-8")  # pixels, not 0-1
     p = profile_dataset("data.yolo", {"images_dir": "images", "labels_dir": "labels",
                                       "classes": "thing"}, tmp_path)
     assert any("outside their image" in f.message for f in p.findings)
@@ -465,7 +465,7 @@ def _train(data: dict, tmp_path: Path) -> Path:
     from ai_made_easy.core.training.generate import generate_training
 
     script = tmp_path / "train.py"
-    script.write_text(generate_training(Graph.from_dict(data), "pytorch"))
+    script.write_text(generate_training(Graph.from_dict(data), "pytorch"), encoding="utf-8")
     proc = subprocess.run([sys.executable, str(script)], cwd=tmp_path, capture_output=True,
                           text=True, timeout=600)
     assert proc.returncode == 0, proc.stdout[-2000:] + proc.stderr[-3000:]
@@ -491,9 +491,9 @@ def test_semantic_segmentation_trains_and_serves(tmp_path):
               "position": [0, 0]},
              {"id": "flip", "type": "prep.random_flip", "params": {}, "position": [0, 0]})
     run = _train(design(UNET, extra=extra, epochs=2), tmp_path)
-    metrics = json.loads((run / "metrics.json").read_text())
+    metrics = json.loads((run / "metrics.json").read_text(encoding="utf-8"))
     assert {"miou", "dice", "pixel_accuracy", "per_class_iou"} <= set(metrics)
-    assert json.loads((run / "classes.json").read_text())[0] == "background"
+    assert json.loads((run / "classes.json").read_text(encoding="utf-8"))[0] == "background"
     sample = next((run / "eval_samples").glob("*.png"))
     out = _predict(run, sample)[0]
     assert out["class_fractions"] and sum(out["class_fractions"].values()) == pytest.approx(
@@ -511,7 +511,7 @@ def test_semantic_segmentation_trains_and_serves(tmp_path):
 def test_box_tasks_train_and_serve(head, tmp_path):
     extra = ({"id": "flip", "type": "prep.random_flip", "params": {}, "position": [0, 0]},)
     run = _train(design(head, extra=extra), tmp_path)
-    metrics = json.loads((run / "metrics.json").read_text())
+    metrics = json.loads((run / "metrics.json").read_text(encoding="utf-8"))
     assert {"map", "map50", "map75", "per_class_ap"} <= set(metrics)
     task = get_registry().get(head["type"]).meta["task"]
     if task == "instance_segmentation":
@@ -531,7 +531,7 @@ def test_transformer_detector_trains(tmp_path):
     head = {"type": "vision.hf_detector",
             "params": {"arch": "conditional_detr", "num_classes": 3, "max_detections": 10}}
     run = _train(design(head), tmp_path)
-    assert "map" in json.loads((run / "metrics.json").read_text())
+    assert "map" in json.loads((run / "metrics.json").read_text(encoding="utf-8"))
 
 
 # ================================================================ runs, deploy, server
@@ -553,9 +553,9 @@ def test_run_deploy_and_samples_endpoint(tmp_path, isolated_home):
         assert "miou" in record.final_metrics and record.resources.get("step_ms")
         result = build_package(mgr.history.path(run_id), tmp_path / "pkg")
         assert result.verified
-        meta = json.loads((tmp_path / "pkg/metadata.json").read_text())
+        meta = json.loads((tmp_path / "pkg/metadata.json").read_text(encoding="utf-8"))
         assert meta["task"] == "semantic_segmentation" and meta["input_kind"] == "images"
-        assert "/predict/image" in (tmp_path / "pkg/README.md").read_text()
+        assert "/predict/image" in (tmp_path / "pkg/README.md").read_text(encoding="utf-8")
         samples = api.run_samples(run_id)
         assert samples["samples"][0]["data_url"].startswith("data:image/png;base64,")
         assert samples["per_class_metric"] == "IoU"

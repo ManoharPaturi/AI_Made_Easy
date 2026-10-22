@@ -97,7 +97,7 @@ def test_web_export_from_trained_workdir(tmp_path):
     for a, b in (("i", "c"), ("c", "r"), ("r", "p"), ("p", "f"),
                  ("f", "d"), ("d", "o")):
         g.add_edge(Edge(a, "out", b, "in"))
-    (tmp_path / "train_run.py").write_text(generate_training(g, "pytorch"))
+    (tmp_path / "train_run.py").write_text(generate_training(g, "pytorch"), encoding="utf-8")
     r = subprocess.run([sys.executable, "train_run.py"], cwd=tmp_path,
                        capture_output=True, text=True, timeout=300)
     assert r.returncode == 0, r.stderr[-400:]
@@ -107,7 +107,7 @@ def test_web_export_from_trained_workdir(tmp_path):
     from ai_made_easy.ui.context import _load_trained
 
     (tmp_path / "w4web_train_pytorch.py").write_text(
-        (tmp_path / "train_run.py").read_text())
+        (tmp_path / "train_run.py").read_text(encoding="utf-8"), encoding="utf-8")
     model, shape, norm = _load_trained(tmp_path, "W4web")
     layers = layers_from_torch(model)
     html = build_web_demo(layers, ["x", "y", "z"], list(shape),
@@ -128,8 +128,8 @@ def test_bundle_roundtrip(tmp_path):
     run = tmp_path / "run"
     run.mkdir()
     (run / "net_best.pt").write_bytes(b"weights")
-    (run / "net_train_pytorch.py").write_text("# train")
-    (run / "predictions.json").write_text("[]")
+    (run / "net_train_pytorch.py").write_text("# train", encoding="utf-8")
+    (run / "predictions.json").write_text("[]", encoding="utf-8")
 
     out = write_bundle(tmp_path / "test.aime",
                        {"name": "mine", "nodes": [], "edges": []},

@@ -37,7 +37,7 @@ def rule_messages(path: Path) -> list[tuple[str, str]]:
     """(severity, message) of every issue a rule module can raise, in source order;
     dynamic parts read "…"."""
     found = []
-    for node in ast.walk(ast.parse(path.read_text())):
+    for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
         if not isinstance(node, ast.Call) or len(node.args) < 2:
             continue
         name = getattr(node.func, "id", getattr(node.func, "attr", ""))
@@ -57,7 +57,7 @@ def rule_messages(path: Path) -> list[tuple[str, str]]:
 
 
 def _summary(path: Path) -> str:
-    doc = ast.get_docstring(ast.parse(path.read_text())) or ""
+    doc = ast.get_docstring(ast.parse(path.read_text(encoding="utf-8"))) or ""
     first = doc.split("\n\n")[0].replace("\n", " ")
     return first.split(" (")[0].rstrip(".") + "." if first else ""
 
@@ -156,11 +156,11 @@ def render() -> str:
 def main() -> int:
     text = render()
     if "--check" in sys.argv:
-        if OUT.read_text() != text:
+        if OUT.read_text(encoding="utf-8") != text:
             print(f"{OUT.relative_to(ROOT)} is out of date: run python scripts/gen_families.py")
             return 1
         return 0
-    OUT.write_text(text)
+    OUT.write_text(text, encoding="utf-8")
     print(f"wrote {OUT.relative_to(ROOT)} ({len(text.splitlines())} lines)")
     return 0
 
