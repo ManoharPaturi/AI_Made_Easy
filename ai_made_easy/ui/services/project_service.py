@@ -24,7 +24,7 @@ def recent_kind(path: str | Path) -> str:
     from ai_made_easy.core.migrate import kind_of
 
     try:
-        kind = kind_of(json.loads(Path(path).read_text()))
+        kind = kind_of(json.loads(Path(path).read_text(encoding="utf-8")))
     except Exception:  # noqa: BLE001 — an unreadable file is still listed
         return ""
     return " · ".join(v for v in (kind["family"], kind["task"]) if v)
@@ -49,7 +49,7 @@ class ProjectService:
         self.store.reset("untitled")
 
     def _reload_demo(self) -> None:
-        self.graph_service.load(Graph.from_dict(json.loads(DEMO_SEED.read_text())))
+        self.graph_service.load(Graph.from_dict(json.loads(DEMO_SEED.read_text(encoding="utf-8"))))
         self.store.mark_clean()
 
     def snapshot(self) -> Graph:
@@ -60,7 +60,7 @@ class ProjectService:
 
     def open_file(self, path) -> bool:
         try:
-            graph = Graph.from_dict(json.loads(Path(path).read_text()))
+            graph = Graph.from_dict(json.loads(Path(path).read_text(encoding="utf-8")))
         except Exception as exc:
             self.log.error(f"failed to open {path}: {exc}")
             return False
@@ -86,7 +86,7 @@ class ProjectService:
         try:
             from ai_made_easy.core.migrate import stamp
 
-            path.write_text(json.dumps(stamp(self.snapshot().to_dict()), indent=2))
+            path.write_text(json.dumps(stamp(self.snapshot().to_dict()), indent=2), encoding="utf-8")
         except Exception as exc:
             self.log.error(f"failed to save {path}: {exc}")
             return False
@@ -123,7 +123,7 @@ class ProjectService:
             if path.name == "demo_seed.json":
                 continue
             try:
-                data = json.loads(path.read_text())
+                data = json.loads(path.read_text(encoding="utf-8"))
             except Exception:  # noqa: BLE001 — skip unreadable files
                 continue
             meta = data.get("meta", {})

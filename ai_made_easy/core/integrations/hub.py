@@ -92,7 +92,7 @@ def stage_model(run_dir: Path) -> tuple[Path, dict]:
     run_file = run_dir / "run.json"
     if not run_file.exists():
         raise HubError(f"{run_dir} is not a run folder")
-    record = json.loads(run_file.read_text())
+    record = json.loads(run_file.read_text(encoding="utf-8"))
     if record.get("status") != "finished":
         raise HubError("only finished runs can be pushed")
     files = [run_dir / f for f in _COPY if (run_dir / f).exists()]
@@ -103,10 +103,10 @@ def stage_model(run_dir: Path) -> tuple[Path, dict]:
     stage = Path(tempfile.mkdtemp(prefix="aime_hub_"))
     for file in files:
         shutil.copy2(file, stage / file.name)
-    (stage / "design.json").write_text(json.dumps(record.get("graph") or {}, indent=1))
+    (stage / "design.json").write_text(json.dumps(record.get("graph") or {}, indent=1), encoding="utf-8")
     (stage / MARKER).write_text(json.dumps({
         "format": "ai-made-easy-run", "version": 1, "run_id": record.get("run_id", ""),
-        "name": record.get("name", ""), "framework": record.get("framework", "")}, indent=1))
+        "name": record.get("name", ""), "framework": record.get("framework", "")}, indent=1), encoding="utf-8")
     return stage, record
 
 
@@ -117,7 +117,7 @@ def push_model(run_dir: Path | str, repo_id: str, *, private: bool = True,
     _signed_in(api)
     stage, record = stage_model(Path(run_dir))
     try:
-        (stage / "README.md").write_text(model_card(Path(run_dir), record, repo_id))
+        (stage / "README.md").write_text(model_card(Path(run_dir), record, repo_id), encoding="utf-8")
         url = api.create_repo(repo_id, repo_type="model", private=private, exist_ok=True)
         api.upload_folder(folder_path=str(stage), repo_id=repo_id, repo_type="model",
                           commit_message=message or
@@ -151,7 +151,7 @@ def pull_model(repo_id: str, *, revision: str | None = None) -> Path:
 
 
 def space_readme(package_dir: Path, space_id: str) -> str:
-    readme = (package_dir / "README.md").read_text() if (package_dir / "README.md").exists() \
+    readme = (package_dir / "README.md").read_text(encoding="utf-8") if (package_dir / "README.md").exists() \
         else ""
     title = space_id.split("/")[-1]
     return (f"---\ntitle: {title}\nsdk: docker\napp_port: 8000\ntags:\n- ai-made-easy\n"
@@ -169,7 +169,7 @@ def deploy_space(package_dir: Path | str, space_id: str, *, private: bool = True
     with tempfile.TemporaryDirectory(prefix="aime_space_") as tmp:
         stage = Path(tmp) / "space"
         shutil.copytree(package_dir, stage)
-        (stage / "README.md").write_text(space_readme(package_dir, space_id))
+        (stage / "README.md").write_text(space_readme(package_dir, space_id), encoding="utf-8")
         try:
             api.create_repo(space_id, repo_type="space", space_sdk="docker", private=private,
                             exist_ok=True)

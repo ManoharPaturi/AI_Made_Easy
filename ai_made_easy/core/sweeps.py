@@ -262,7 +262,7 @@ class SweepStore:
         with self._lock:
             file = self._file(record.sweep_id)
             tmp = file.with_suffix(".tmp")
-            tmp.write_text(json.dumps(record.to_dict(), indent=1, default=str))
+            tmp.write_text(json.dumps(record.to_dict(), indent=1, default=str), encoding="utf-8")
             tmp.replace(file)
 
     def get(self, sweep_id: str) -> SweepRecord:
@@ -270,7 +270,7 @@ class SweepStore:
         if not file.exists():
             raise KeyError(f"unknown sweep {sweep_id!r}")
         with self._lock:
-            data = json.loads(file.read_text())
+            data = json.loads(file.read_text(encoding="utf-8"))
         known = set(SweepRecord.__dataclass_fields__)
         return SweepRecord(**{k: v for k, v in data.items() if k in known})
 

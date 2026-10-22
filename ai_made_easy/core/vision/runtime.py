@@ -26,7 +26,7 @@ def _record(image, boxes=(), labels=(), polygons=None, keypoints=None, semantic=
 
 def read_coco(images_dir, annotations) -> tuple:
     """COCO JSON -> records; categories become contiguous 0-based classes."""
-    data = json.loads(Path(str(annotations)).expanduser().read_text())
+    data = json.loads(Path(str(annotations)).expanduser().read_text(encoding="utf-8"))
     cats = sorted(data.get("categories", []), key=lambda c: c["id"])
     index = {c["id"]: i for i, c in enumerate(cats)}
     names = [str(c.get("name", c["id"])) for c in cats]
@@ -59,7 +59,7 @@ def read_coco(images_dir, annotations) -> tuple:
 def _class_names(spec: str, count: int = 0) -> list:
     spec = str(spec or "").strip()
     if spec.lower().endswith((".yaml", ".yml")):
-        text = Path(spec).expanduser().read_text()
+        text = Path(spec).expanduser().read_text(encoding="utf-8")
         try:
             import yaml
 
@@ -83,7 +83,7 @@ def _class_names(spec: str, count: int = 0) -> list:
                 break
         return names
     if spec.lower().endswith(".txt"):
-        return [ln.strip() for ln in Path(spec).expanduser().read_text().splitlines()
+        return [ln.strip() for ln in Path(spec).expanduser().read_text(encoding="utf-8").splitlines()
                 if ln.strip()]
     names = [n.strip() for n in spec.split(",") if n.strip()]
     return names or [f"class_{i}" for i in range(count)]
@@ -98,7 +98,7 @@ def read_yolo(images_dir, labels_dir, classes="", keypoints: bool = False) -> tu
         label = labels_dir / path.relative_to(images_dir).with_suffix(".txt")
         w, h = Image.open(path).size
         boxes, labels, polys, kps = [], [], [], []
-        lines = label.read_text().splitlines() if label.exists() else []
+        lines = label.read_text(encoding="utf-8").splitlines() if label.exists() else []
         for line in lines:
             parts = line.split()
             if len(parts) < 5:

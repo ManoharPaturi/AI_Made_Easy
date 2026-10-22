@@ -453,10 +453,10 @@ def main() -> None:
     with open(INFERENCE_FILE, "wb") as fh:
         pickle.dump(dict(STATE), fh)
     if "classes" in STATE:
-        Path("classes.json").write_text(json.dumps(STATE["classes"]))
+        Path("classes.json").write_text(json.dumps(STATE["classes"]), encoding="utf-8")
     print(f"saved best weights to {CHECKPOINT}")
     print("test: " + " ".join(f"{k}={v:.4f}" for k, v in metrics.items()))
-    Path("metrics.json").write_text(json.dumps(metrics, indent=1))
+    Path("metrics.json").write_text(json.dumps(metrics, indent=1), encoding="utf-8")
 
 
 if __name__ == "__main__":

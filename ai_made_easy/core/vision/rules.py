@@ -41,7 +41,7 @@ UNSUPPORTED_AUGMENT = {"prep.auto_augment", "prep.rand_augment", "prep.trivial_a
 
 @lru_cache(maxsize=32)
 def _coco_info(path: str, _mtime: float) -> tuple[int, int]:
-    data = json.loads(Path(path).read_text())
+    data = json.loads(Path(path).read_text(encoding="utf-8"))
     cats = data.get("categories", [])
     return len(cats), max((len(c.get("keypoints") or []) for c in cats), default=0)
 

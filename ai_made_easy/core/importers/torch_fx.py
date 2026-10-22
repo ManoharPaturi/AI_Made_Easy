@@ -958,7 +958,7 @@ def verify(graph_dict: dict, model: nn.Module, example: torch.Tensor,
 
 
 def main() -> int:
-    request = json.loads(Path(sys.argv[1]).read_text())
+    request = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
     try:
         model = load_model(request["source"], request["attr"], request.get("kwargs") or {})
         result = import_module(model, request["input_shape"], request.get("dtype", "float32"),

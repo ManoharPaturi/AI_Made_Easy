@@ -206,7 +206,7 @@ class ModelCardDialog(QtWidgets.QDialog):
         path, _ = QtWidgets.QFileDialog.getSaveFileName(
             self, "Save Model Card", f"{self._args[0]}_model_card.md", "Markdown (*.md)")
         if path:
-            Path(path).write_text(self.markdown())
+            Path(path).write_text(self.markdown(), encoding="utf-8")
 
 
 def _argmax(values: list) -> int:

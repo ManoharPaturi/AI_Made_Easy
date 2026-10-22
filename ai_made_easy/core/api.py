@@ -104,7 +104,7 @@ def read_sample(name: str) -> dict:
     path = SAMPLES_DIR / Path(name).name
     if not path.exists():
         raise ApiError(f"no sample named {name!r}")
-    return json.loads(path.read_text())
+    return json.loads(path.read_text(encoding="utf-8"))
 
 
 # ----------------------------------------------------------------- graph
@@ -342,7 +342,7 @@ def run_explanation(run_id: str) -> dict:
     import json as _json
 
     try:
-        data = _json.loads((manager().history.path(run_id) / "explain.json").read_text())
+        data = _json.loads((manager().history.path(run_id) / "explain.json").read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return {"run_id": run_id, "features": []}
     return {"run_id": run_id, **data}
@@ -358,7 +358,7 @@ def run_samples(run_id: str, limit: int = 12) -> dict:
     metrics, classes = {}, []
     for name, default in (("metrics.json", {}), ("classes.json", [])):
         try:
-            value = _json.loads((folder / name).read_text())
+            value = _json.loads((folder / name).read_text(encoding="utf-8"))
         except (OSError, ValueError):
             value = default
         if name == "metrics.json":

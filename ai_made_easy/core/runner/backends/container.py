@@ -96,7 +96,7 @@ class ContainerBackend(RemoteBackend):
         try:
             mount.mkdir(exist_ok=True)
             (mount / "bundle.tar.gz").write_bytes(run.bundle.tar_bytes())
-            (mount / LAUNCHER_NAME).write_text(run.bundle.launcher())
+            (mount / LAUNCHER_NAME).write_text(run.bundle.launcher(), encoding="utf-8")
             image = self.image_for(run)
             if run.state in FINAL_STATES:
                 return
@@ -128,8 +128,8 @@ class ContainerBackend(RemoteBackend):
         code = proc.wait()
         stderr.join(timeout=5)
         exit_file = mount / "exit_code"
-        if exit_file.exists() and exit_file.read_text().strip().lstrip("-").isdigit():
-            code = int(exit_file.read_text().strip())
+        if exit_file.exists() and exit_file.read_text(encoding="utf-8").strip().lstrip("-").isdigit():
+            code = int(exit_file.read_text(encoding="utf-8").strip())
         for item in mount.iterdir():
             if item.name not in _SKIP:
                 target = run.workdir / item.name

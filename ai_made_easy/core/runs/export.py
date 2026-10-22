@@ -71,7 +71,7 @@ def export_runs(history: RunHistory, out: str | Path, *, project: str | None = N
         except ImportError as exc:
             raise ValueError("Parquet needs pyarrow; write .csv instead") from exc
     else:
-        with open(out, "w", newline="") as fh:
+        with open(out, "w", newline="", encoding="utf-8") as fh:
             writer = csv.DictWriter(fh, fieldnames=columns)
             writer.writeheader()
             writer.writerows(rows)

@@ -181,13 +181,14 @@ class RunActions:
             self.log_bus.error(f"saliency: {exc}")
             return
         script = wd / "aime_inspect.py"
-        script.write_text(script_body)
+        script.write_text(script_body, encoding="utf-8")
         image = sample.startswith("--image")
         arg = sample[len("--image"):].strip() if image else sample
         launcher = wd / "aime_inspect_launch.py"
         argv = ["inspect.py", "--image", arg] if image else ["inspect.py", arg]
         launcher.write_text(f"import sys\nsys.argv = {argv!r}\n"
-                            f"exec(compile(open({str(script)!r}).read(), 'inspect', 'exec'))\n")
+                            f"exec(compile(open({str(script)!r}, encoding='utf-8').read(),"
+                            " 'inspect', 'exec'))\n", encoding="utf-8")
         self._inspect_workdir = wd
         self.process_service.run_script(launcher, wd, "inspect")
 

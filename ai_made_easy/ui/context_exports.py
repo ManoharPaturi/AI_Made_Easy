@@ -206,7 +206,7 @@ class ExportActions:
             "Python (*.py)")
         if path:
             self._remember_dir(path)
-            Path(path).write_text(code)
+            Path(path).write_text(code, encoding="utf-8")
             self.log_bus.info(f"exported → {path}")
             self.status_message.emit(f"Exported {Path(path).name}")
 
@@ -278,5 +278,5 @@ class ExportActions:
             self.window, "Export Web Demo",
             str(self._last_dir() / f"{self.project_store.name}_demo.html"), "HTML (*.html)")
         if path:
-            Path(path).write_text(html)
+            Path(path).write_text(html, encoding="utf-8")
             self.log_bus.info(f"web demo saved → {path}")

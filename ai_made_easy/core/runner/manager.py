@@ -355,7 +355,7 @@ class RunManager:
             if not meta_files:
                 raise ValueError("not an AI Made Easy results zip (no bundle.json)")
             folder = meta_files[0].parent
-            run_id = json.loads(meta_files[0].read_text())["run_id"]
+            run_id = json.loads(meta_files[0].read_text(encoding="utf-8"))["run_id"]
             record = self.history.get(run_id)
             if record.status in FINAL_STATES:
                 raise ValueError(f"run {run_id} is already {record.status}")
@@ -371,10 +371,10 @@ class RunManager:
         replay = backends.RemoteBackend()
         run.remote_offset = 0
         events = workdir / "events.jsonl"
-        for line in events.read_text().splitlines() if events.exists() else []:
+        for line in events.read_text(encoding="utf-8").splitlines() if events.exists() else []:
             replay.feed(run, line)
         exit_file = workdir / "exit_code"
-        code = exit_file.read_text().strip() if exit_file.exists() else "1"
+        code = exit_file.read_text(encoding="utf-8").strip() if exit_file.exists() else "1"
         replay.finish(run, int(code) if code.lstrip("-").isdigit() else 1)
         return run.status()
 

@@ -68,7 +68,7 @@ class PipelineStore:
         with self._lock:
             file = self._file(record.pipeline_id)
             tmp = file.with_suffix(".tmp")
-            tmp.write_text(json.dumps(record.to_dict(), indent=1, default=str))
+            tmp.write_text(json.dumps(record.to_dict(), indent=1, default=str), encoding="utf-8")
             tmp.replace(file)
 
     def get(self, pipeline_id: str) -> PipelineRecord:
@@ -76,7 +76,7 @@ class PipelineStore:
         if not file.exists():
             raise KeyError(f"unknown pipeline {pipeline_id!r}")
         with self._lock:
-            data = json.loads(file.read_text())
+            data = json.loads(file.read_text(encoding="utf-8"))
         known = set(PipelineRecord.__dataclass_fields__)
         return PipelineRecord(**{k: v for k, v in data.items() if k in known})
 
@@ -361,7 +361,7 @@ class PipelineRunner:
         from ai_made_easy.core.deploy.package import build_package
 
         registry = ModelRegistry()
-        record = json.loads((source / "run.json").read_text())
+        record = json.loads((source / "run.json").read_text(encoding="utf-8"))
         name = stage.params["name"] or record.get("name") or self.record.name
         version = registry.register(source, name, description=f"pipeline {self.pipeline_id}"
                                                                f" · stage {stage.id}")

@@ -408,7 +408,7 @@ def main() -> None:
     save_grid(generate(parts, sample_prompts(names) * 2, device, seed=SEED + 1),
               SAMPLES_DIR / "samples.png")
     print("test: " + " ".join(f"{k}={v:.4f}" for k, v in metrics.items()))
-    Path("metrics.json").write_text(json.dumps(metrics, indent=1))
+    Path("metrics.json").write_text(json.dumps(metrics, indent=1), encoding="utf-8")
     print(f"saved sample grids to {SAMPLES_DIR}/")
 
 

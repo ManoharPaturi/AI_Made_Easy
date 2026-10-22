@@ -351,7 +351,7 @@ def build_package(run_dir: Path | str, out_dir: Path | str, *, formats: tuple[st
         run_file = run_dir / "run.json"
         if not run_file.exists():
             raise DeployError(f"{run_dir} is not a run folder (no run.json)")
-        record = json.loads(run_file.read_text())
+        record = json.loads(run_file.read_text(encoding="utf-8"))
     if record.get("status") not in (None, "finished"):
         raise DeployError(f"the run is {record.get('status')}; only finished runs can be deployed")
     framework = record.get("framework", "pytorch")
@@ -365,8 +365,8 @@ def build_package(run_dir: Path | str, out_dir: Path | str, *, formats: tuple[st
         raise DeployError(f"{out_dir} is not empty")
     model_dir = out_dir / "model"
     model_dir.mkdir(parents=True, exist_ok=True)
-    script_text = script.read_text()
-    (model_dir / "model_def.py").write_text(script_text)
+    script_text = script.read_text(encoding="utf-8")
+    (model_dir / "model_def.py").write_text(script_text, encoding="utf-8")
     for file in files:
         if file.is_dir():
             shutil.copytree(file, model_dir / file.name)
@@ -392,23 +392,23 @@ def build_package(run_dir: Path | str, out_dir: Path | str, *, formats: tuple[st
         meta["keras_backend"] = env.get("keras_backend") or "torch"
         keras_env = f" \\\n    KERAS_BACKEND={meta['keras_backend']}"
     reqs = _requirements(script_text, framework, env, meta["input_kind"])
-    (out_dir / "requirements.txt").write_text("\n".join(reqs) + "\n")
+    (out_dir / "requirements.txt").write_text("\n".join(reqs) + "\n", encoding="utf-8")
     (out_dir / "app.py").write_text(templates.APP.format(
         name=name, image=image,
         image_route=(templates.IMAGE_ROUTE if meta["input_kind"] == "images" else
                      templates.GENERATE_ROUTE if meta["input_kind"] in ("generation", "prompt",
                                                                        "text_to_image", "density")
-                     else "")))
+                     else "")), encoding="utf-8")
     (out_dir / "Dockerfile").write_text(templates.DOCKERFILE.format(
-        name=name, python=py_minor, env=keras_env))
-    (out_dir / ".dockerignore").write_text(templates.DOCKERIGNORE)
+        name=name, python=py_minor, env=keras_env), encoding="utf-8")
+    (out_dir / ".dockerignore").write_text(templates.DOCKERIGNORE, encoding="utf-8")
     graph_dict = record.get("graph") or {}
     kind = _export_kind(graph_dict)
     meta["export_kind"] = kind
     blocked = _blocked(graph_dict, framework)
     (out_dir / "export_formats.py").write_text(templates.EXPORT_SCRIPT.format(
         framework=framework, formats=tuple(f for f in formats if f not in blocked),
-        kind=kind))
+        kind=kind), encoding="utf-8")
     shutil.copy2(Path(exporters.__file__), out_dir / "exporters.py")
 
     result = PackageResult(out_dir, meta)
@@ -426,7 +426,7 @@ def build_package(run_dir: Path | str, out_dir: Path | str, *, formats: tuple[st
         result.log = proc.stdout + proc.stderr
         if "EXPORT-DONE" not in proc.stdout:
             raise DeployError("the packaged model could not be loaded:\n" + result.log[-3000:])
-        report = json.loads((out_dir / "export_report.json").read_text())
+        report = json.loads((out_dir / "export_report.json").read_text(encoding="utf-8"))
         signature = report.get("signature", {})
         result.formats = report.get("formats", {})
         result.verified = True
@@ -435,7 +435,7 @@ def build_package(run_dir: Path | str, out_dir: Path | str, *, formats: tuple[st
             result.formats[fmt] = {"ok": False, "error": blocked[fmt]}
     meta["signature"] = signature
     meta["exports"] = {k: v.get("file") for k, v in result.formats.items() if v.get("ok")}
-    (out_dir / "metadata.json").write_text(json.dumps(meta, indent=1, default=str))
+    (out_dir / "metadata.json").write_text(json.dumps(meta, indent=1, default=str), encoding="utf-8")
 
     metrics_rows = "".join(f"| {k} | {v:.4g} |\n" for k, v in list(meta["metrics"].items())[:8]
                            if isinstance(v, (int, float)))
@@ -450,5 +450,5 @@ def build_package(run_dir: Path | str, out_dir: Path | str, *, formats: tuple[st
                         if meta["input_kind"] in ("generation", "prompt", "text_to_image")
                         else ""),
         example=_example(meta, signature).replace("'", "\\'"),
-        exports_section=("\n## Exported formats\n\n" + exports) if exports else ""))
+        exports_section=("\n## Exported formats\n\n" + exports) if exports else ""), encoding="utf-8")
     return result

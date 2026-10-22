@@ -23,7 +23,7 @@ def tracking_label(target: str) -> str:
 
 def _json_or(path: Path, default):
     try:
-        return json.loads(path.read_text())
+        return json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return default
 

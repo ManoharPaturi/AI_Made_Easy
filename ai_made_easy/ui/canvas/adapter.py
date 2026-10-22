@@ -550,7 +550,7 @@ class CanvasController:
             from ai_made_easy.ui.services.project_service import DEMO_SEED
 
             demo_path = DEMO_SEED
-        self.load_ir(Graph.from_dict(json.loads(Path(demo_path).read_text())))
+        self.load_ir(Graph.from_dict(json.loads(Path(demo_path).read_text(encoding="utf-8"))))
 
     def seed_demo(self) -> None:  # back-compat alias
         self.load_demo()

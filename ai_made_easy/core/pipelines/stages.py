@@ -39,9 +39,9 @@ def checkpoint(folder):
 
 def update_metrics(**values):
     path = Path("metrics.json")
-    data = json.loads(path.read_text()) if path.exists() else {{}}
+    data = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {{}}
     data.update(values)
-    path.write_text(json.dumps(data, indent=1))
+    path.write_text(json.dumps(data, indent=1), encoding="utf-8")
 '''
 
 
@@ -65,12 +65,12 @@ def _model_script(workdir: Path, source: Path | None = None, design=None) -> Pat
 
 def _write(workdir: Path, kind: str, text: str) -> Path:
     path = workdir / f"stage_{kind}.py"
-    path.write_text(text)
+    path.write_text(text, encoding="utf-8")
     return path
 
 
 def _require(script: Path, hook: str, what: str) -> None:
-    if f"{hook} = None" not in script.read_text():
+    if f"{hook} = None" not in script.read_text(encoding="utf-8"):
         raise ValueError(f"{what} needs a newer training script: retrain the model")
 
 
@@ -211,7 +211,7 @@ def distill(workdir: Path, teacher: Path, student, params: dict, task: str) -> P
 
     script = _model_script(workdir, design=student)
     teacher_script = script_of(teacher)
-    teacher_graph_name = json.loads((teacher / "run.json").read_text())["graph"].get("name",
+    teacher_graph_name = json.loads((teacher / "run.json").read_text(encoding="utf-8"))["graph"].get("name",
                                                                                      "model")
     epochs = int(params["epochs"])
     body = f'''
@@ -292,11 +292,11 @@ update_metrics(sparsity=zeros / max(sum(w.numel() for w in weights), 1))
 def _copy_model(workdir: Path, source: Path, quantize: str = "") -> Path:
     script = _model_script(workdir, script_of(source))
     if quantize:
-        text = script.read_text()
+        text = script.read_text(encoding="utf-8")
         if 'QUANTIZE = ""' not in text:
             raise ValueError("the model's training script predates quantization support: "
                              "retrain it")
-        script.write_text(text.replace('QUANTIZE = ""', f'QUANTIZE = "{quantize}"', 1))
+        script.write_text(text.replace('QUANTIZE = ""', f'QUANTIZE = "{quantize}"', 1), encoding="utf-8")
     for pattern in ("*_best.pt", "inference_state.pkl", "classes.json"):
         for file in Path(source).glob(pattern):
             shutil.copy2(file, workdir / file.name)

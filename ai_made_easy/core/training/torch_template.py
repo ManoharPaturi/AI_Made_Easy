@@ -731,7 +731,7 @@ def cross_validate(device: torch.device) -> None:
     # out-of-fold predictions: every training / validation example, predicted by the fold
     # model that did not see it (a stacking ensemble's meta-learner trains on these)
     np.savez_compressed("oof.npz", outputs=oof, targets=y, fold=fold)
-    Path("metrics.json").write_text(json.dumps({**summary, "folds": K_FOLDS}, indent=1))
+    Path("metrics.json").write_text(json.dumps({**summary, "folds": K_FOLDS}, indent=1), encoding="utf-8")
     return summary
 {% endif %}
 {% if spec.is_classification %}
@@ -765,13 +765,13 @@ def dump_test_results(model: nn.Module, loader: DataLoader, device: torch.device
         true = targets[i].tolist() if np.ndim(targets[i]) else int(targets[i])
         items.append({"index": i, "true": true,
                       "probs": [round(float(v), 4) for v in probs[i]], "file": file})
-    Path("predictions.json").write_text(json.dumps(items, indent=1))
+    Path("predictions.json").write_text(json.dumps(items, indent=1), encoding="utf-8")
 {% if spec.task != "multilabel" %}
     mistakes = [it for it in items if int(np.argmax(it["probs"])) != it["true"]]
-    Path("mistakes.json").write_text(json.dumps(mistakes[:50], indent=1))
+    Path("mistakes.json").write_text(json.dumps(mistakes[:50], indent=1), encoding="utf-8")
 {% endif %}
     if CLASS_NAMES:
-        Path("classes.json").write_text(json.dumps(list(CLASS_NAMES)))
+        Path("classes.json").write_text(json.dumps(list(CLASS_NAMES)), encoding="utf-8")
     print(f"saved predictions.json ({len(items)} examples)")
 {% endif %}
 {% if spec.predict %}
@@ -1099,7 +1099,7 @@ def main() -> None:
     print("test: " + " ".join(f"{k}={v:.4f}" for k, v in report.items()))
     final = {**report, **test_metrics, **{f"cv_{m}": v for m, v in cv.items()}}
     Path("metrics.json").write_text(json.dumps(
-        {k: v for k, v in final.items() if isinstance(v, (float, list))}, indent=1))
+        {k: v for k, v in final.items() if isinstance(v, (float, list))}, indent=1), encoding="utf-8")
 {% if spec.predict %}
     preview_predictions(model, test_loader, device)
 {% endif %}
@@ -1187,7 +1187,7 @@ def explain_features(model: nn.Module, loss_fn, loader: DataLoader, device: torc
     rows.sort(key=lambda r: r["importance"], reverse=True)
     Path("explain.json").write_text(json.dumps(
         {"method": "shap", "metric": "mean |SHAP value|", "background": len(background),
-         "rows": len(x), "features": rows}, indent=1))
+         "rows": len(x), "features": rows}, indent=1), encoding="utf-8")
     print("SHAP: " + ", ".join(f"{r['name']}={r['importance']:.4f}" for r in rows[:5]))
 {% if metric_loss %}
 
@@ -1233,7 +1233,7 @@ def explain_features(model: nn.Module, loss_fn, loader: DataLoader, device: torc
     rows.sort(key=lambda r: r["importance"], reverse=True)
     Path("explain.json").write_text(json.dumps(
         {"method": "integrated_gradients", "metric": "mean |attribution|",
-         "baseline": "{{ spec.explain.baseline }}", "rows": len(x), "features": rows}, indent=1))
+         "baseline": "{{ spec.explain.baseline }}", "rows": len(x), "features": rows}, indent=1), encoding="utf-8")
     print("feature attribution: " + ", ".join(f"{r['name']}={r['importance']:.4f}"
                                               for r in rows[:5]))
 {% else %}
@@ -1269,7 +1269,7 @@ def explain_features(model: nn.Module, loss_fn, loader: DataLoader, device: torc
     rows.sort(key=lambda r: r["importance"], reverse=True)
     Path("explain.json").write_text(json.dumps(
         {"method": "permutation", "metric": "test loss increase", "baseline_loss": base,
-         "rows": len(x), "features": rows}, indent=1))
+         "rows": len(x), "features": rows}, indent=1), encoding="utf-8")
     print("feature importance: " + ", ".join(f"{r['name']}={r['importance']:.4f}"
                                              for r in rows[:5]))
 {% endif %}

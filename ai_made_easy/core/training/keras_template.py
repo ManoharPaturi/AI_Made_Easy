@@ -210,7 +210,7 @@ def main() -> None:
     outputs = deploy_model.predict(x_test, verbose=0) if len(x_test) else np.zeros((0,))
     metrics = compute_metrics(outputs, y_test) if len(x_test) else {}
     print("test: " + " ".join(f"{k}={v:.4f}" for k, v in metrics.items() if isinstance(v, float)))
-    Path("metrics.json").write_text(json.dumps(metrics, indent=1))
+    Path("metrics.json").write_text(json.dumps(metrics, indent=1), encoding="utf-8")
 {% if spec.predict %}
     print("\nprediction preview:")
     scores = to_scores(outputs)
@@ -231,10 +231,10 @@ def main() -> None:
     items = [{"index": i, "true": (y_test[i].tolist() if np.ndim(y_test[i]) else int(y_test[i])),
               "probs": [round(float(v), 4) for v in probs[i]], "file": None}
              for i in range(min(len(probs), 300))]
-    Path("predictions.json").write_text(json.dumps(items, indent=1))
+    Path("predictions.json").write_text(json.dumps(items, indent=1), encoding="utf-8")
 {% if spec.task != "multilabel" %}
     mistakes = [it for it in items if int(np.argmax(it["probs"])) != it["true"]]
-    Path("mistakes.json").write_text(json.dumps(mistakes[:50], indent=1))
+    Path("mistakes.json").write_text(json.dumps(mistakes[:50], indent=1), encoding="utf-8")
 {% endif %}
     print(f"saved predictions.json ({len(items)} examples)")
 {% endif %}

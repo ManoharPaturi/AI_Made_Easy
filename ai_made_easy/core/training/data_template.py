@@ -189,7 +189,7 @@ def load_raw():
 {% elif d.block == "data.json" %}
     import json
 
-    text = Path({{ d.path | repr }}).read_text().strip()
+    text = Path({{ d.path | repr }}).read_text(encoding="utf-8").strip()
     records = json.loads(text) if text.startswith("[") else [
         json.loads(line) for line in text.splitlines() if line.strip()]
     x = np.asarray([r[{{ d.x_field | repr }}] for r in records], dtype=np.float32)
@@ -224,7 +224,7 @@ def load_raw():
     texts, labels = [], []
     for ci, cls in enumerate(classes):
         for file in sorted((root / cls).glob("*.txt")):
-            texts.append(file.read_text(errors="ignore"))
+            texts.append(file.read_text(errors="ignore", encoding="utf-8"))
             labels.append(ci)
     return texts, np.asarray(labels), classes
 {% elif d.block == "data.audio_folder" %}

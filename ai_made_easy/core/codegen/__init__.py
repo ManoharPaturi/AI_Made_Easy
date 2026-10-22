@@ -447,7 +447,7 @@ def generate(graph: Graph, framework: str) -> str:
 def export(graph: Graph, framework: str, out_dir: str | Path) -> Path:
     out = Path(out_dir) / f"{sanitize_identifier(graph.name)}_{framework}.py"
     out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(generate(graph, framework))
+    out.write_text(generate(graph, framework), encoding="utf-8")
     return out
 
 
@@ -467,5 +467,5 @@ def export_training(graph: Graph, framework: str, out_dir: str | Path) -> Path:
     own = generator_for(graph, framework)
     code = own(graph) if own is not None else (
         generate_classic(graph) if framework == "sklearn" else generate_training(graph, framework))
-    out.write_text(code)
+    out.write_text(code, encoding="utf-8")
     return out

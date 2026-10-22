@@ -38,7 +38,7 @@ class ExportService:
         out = Path(out)
         path = out / default_filename(graph, target) if out.is_dir() or not out.suffix else out
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(self.render(graph, target))
+        path.write_text(self.render(graph, target), encoding="utf-8")
         self.log.info(f"exported {target_label(target)} → {path}")
         return path
 
@@ -55,8 +55,8 @@ class ExportService:
         stem = sanitize_identifier(graph.name)
         if kind == "onnx":
             script = workdir / f"{stem}_export_onnx.py"
-            script.write_text(generate_onnx_export(graph, str(output)))
+            script.write_text(generate_onnx_export(graph, str(output)), encoding="utf-8")
         else:
             script = workdir / f"{stem}_export_torchscript.py"
-            script.write_text(generate_torchscript_export(graph, str(output)))
+            script.write_text(generate_torchscript_export(graph, str(output)), encoding="utf-8")
         return script

@@ -183,10 +183,10 @@ def finish(train, test, predict_fn, hyper: list) -> None:
         for k, v in scores(part[TARGET].to_numpy(float), mean, std, base).items():
             metrics[f"{name}_{k}" if name == "train" else k] = v
     print("test: " + " ".join(f"{k}={v:.4f}" for k, v in metrics.items()), flush=True)
-    Path("metrics.json").write_text(json.dumps(metrics, indent=1))
+    Path("metrics.json").write_text(json.dumps(metrics, indent=1), encoding="utf-8")
     SAMPLES_DIR.mkdir(exist_ok=True)
     plot_fit(train, test, predict_fn, "Gaussian process").save(SAMPLES_DIR / "fit.png")
-    (SAMPLES_DIR / "report.txt").write_text("Learned hyperparameters\n" + "\n".join(hyper) + "\n")
+    (SAMPLES_DIR / "report.txt").write_text("Learned hyperparameters\n" + "\n".join(hyper) + "\n", encoding="utf-8")
 
 
 def infer(raw: list) -> list[dict]:
@@ -347,7 +347,7 @@ def hyperparameters(model, likelihood) -> list:
 
 def load_predictor(folder: str | Path = ".", device: str = "cpu"):
     global _PREDICTOR
-    STATE.update(json.loads((Path(folder) / STATE_FILE).read_text()))
+    STATE.update(json.loads((Path(folder) / STATE_FILE).read_text(encoding="utf-8")))
     FEATURES[:] = STATE["features"]
     saved = torch.load(Path(folder) / MODEL_FILE, map_location="cpu", weights_only=False)
     model, likelihood = build(saved["X"], saved["y"])
@@ -372,7 +372,7 @@ def main() -> None:
     finish(train_rows, test_rows, predict, hyperparameters(model, likelihood))
     torch.save({"model": model.state_dict(), "likelihood": likelihood.state_dict(), "X": X,
                 "y": y}, MODEL_FILE)
-    Path(STATE_FILE).write_text(json.dumps(STATE))
+    Path(STATE_FILE).write_text(json.dumps(STATE), encoding="utf-8")
     print(f"saved the model to {MODEL_FILE}")
 
 
@@ -425,7 +425,7 @@ def predict(frame):
 
 def load_predictor(folder: str | Path = ".", device: str = "cpu"):
     global _PREDICTOR
-    STATE.update(json.loads((Path(folder) / STATE_FILE).read_text()))
+    STATE.update(json.loads((Path(folder) / STATE_FILE).read_text(encoding="utf-8")))
     FEATURES[:] = STATE["features"]
     _PREDICTOR = joblib.load(Path(folder) / MODEL_FILE)
     return _PREDICTOR
@@ -453,7 +453,7 @@ def main() -> None:
     kernel = getattr(model, "kernel_", None)
     finish(train_rows, test_rows, predict, [f"  {kernel}"])
     joblib.dump(model, MODEL_FILE)
-    Path(STATE_FILE).write_text(json.dumps(STATE))
+    Path(STATE_FILE).write_text(json.dumps(STATE), encoding="utf-8")
     print(f"saved the model to {MODEL_FILE}")
 
 

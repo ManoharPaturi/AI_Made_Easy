@@ -170,7 +170,7 @@ def options_for_run(run_dir) -> list[dict]:  # noqa: ANN001 — a run or registr
 
     from ai_made_easy.core.graph import Graph
 
-    record = json.loads((Path(run_dir) / "run.json").read_text())
+    record = json.loads((Path(run_dir) / "run.json").read_text(encoding="utf-8"))
     framework = record.get("framework", "pytorch")
     try:
         graph = Graph.from_dict(record.get("graph") or {})

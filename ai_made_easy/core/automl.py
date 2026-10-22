@@ -248,7 +248,7 @@ class AutoMLRunner(SweepRunner):
         file = self.manager.history.path(row.run_id) / "costs.json"
         if not file.is_file():
             return
-        costs = json.loads(file.read_text())
+        costs = json.loads(file.read_text(encoding="utf-8"))
         if "model_mb" in costs:
             row.objectives["model_mb"] = round(float(costs["model_mb"]), 4)
         if "predict_ms" in costs:

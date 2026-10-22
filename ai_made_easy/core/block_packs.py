@@ -54,10 +54,10 @@ def save_block(data: dict, name: str) -> Path:
     path = templates_dir() / f"{slugify(name)}.json"
     version = 1
     if path.exists():
-        old = json.loads(path.read_text())
+        old = json.loads(path.read_text(encoding="utf-8"))
         version = int(old.get("version", 1)) + (0 if _content(old) == _content(data) else 1)
     record = {**data, "name": name, "version": version, "updated_at": time.time()}
-    path.write_text(json.dumps(record, indent=2))
+    path.write_text(json.dumps(record, indent=2), encoding="utf-8")
     return path
 
 
@@ -65,7 +65,7 @@ def list_blocks() -> list[dict]:
     out = []
     for path in sorted(templates_dir().glob("*.json")):
         try:
-            data = json.loads(path.read_text())
+            data = json.loads(path.read_text(encoding="utf-8"))
         except ValueError:
             continue
         out.append({"slug": path.stem, "name": data.get("name", path.stem),
@@ -123,7 +123,7 @@ def install(slug: str, data: dict, result: dict, overwrite: bool = False) -> Non
     slug = slugify(slug)
     target = templates_dir() / f"{slug}.json"
     if target.exists() and not overwrite:
-        if _content(json.loads(target.read_text())) == _content(data):
+        if _content(json.loads(target.read_text(encoding="utf-8"))) == _content(data):
             result["skipped"].append(slug)
             return
         n = 2
@@ -131,10 +131,10 @@ def install(slug: str, data: dict, result: dict, overwrite: bool = False) -> Non
             n += 1
         new = f"{slug}_{n}"
         data = {**data, "name": f"{data.get('name', slug)} {n}"}
-        (templates_dir() / f"{new}.json").write_text(json.dumps(data, indent=2))
+        (templates_dir() / f"{new}.json").write_text(json.dumps(data, indent=2), encoding="utf-8")
         result["renamed"][slug] = new
         return
-    target.write_text(json.dumps(data, indent=2))
+    target.write_text(json.dumps(data, indent=2), encoding="utf-8")
     result["imported"].append(slug)
 
 
@@ -146,7 +146,7 @@ def blocks_used(graph_dict: dict) -> dict[str, dict]:
         if type_id.startswith("custom."):
             path = templates_dir() / f"{type_id.split('.', 1)[1]}.json"
             if path.exists():
-                out[path.stem] = json.loads(path.read_text())
+                out[path.stem] = json.loads(path.read_text(encoding="utf-8"))
     return out
 
 
@@ -172,10 +172,10 @@ def custom_block_definition(path: Path):  # noqa: ANN201 — BlockDefinition
     from ai_made_easy.core.spec import BlockDefinition, PortSpec
 
     def _builder(_params, p=path):  # noqa: ANN001, ANN202
-        return fragment_from_dict(json.loads(p.read_text()))
+        return fragment_from_dict(json.loads(p.read_text(encoding="utf-8")))
 
     try:
-        meta = json.loads(path.read_text())
+        meta = json.loads(path.read_text(encoding="utf-8"))
     except ValueError:
         meta = {}
     version = int(meta.get("version", 1))

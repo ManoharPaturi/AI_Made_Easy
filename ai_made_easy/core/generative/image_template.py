@@ -591,8 +591,8 @@ def main() -> None:
         save_grid(np.concatenate([val_x[:8].numpy(), recon.clamp(0, 1).cpu().numpy()]),
                   SAMPLES_DIR / "reconstructions.png")
     print("test: " + " ".join(f"{k}={v:.4f}" for k, v in metrics.items()))
-    Path("metrics.json").write_text(json.dumps(metrics, indent=1))
-    Path("classes.json").write_text(json.dumps(names))
+    Path("metrics.json").write_text(json.dumps(metrics, indent=1), encoding="utf-8")
+    Path("classes.json").write_text(json.dumps(names), encoding="utf-8")
     save_grid(generate_images(model, 64, SEED, device), SAMPLES_DIR / "samples.png")
     print(f"saved sample grids to {SAMPLES_DIR}/")
 

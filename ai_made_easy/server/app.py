@@ -235,7 +235,7 @@ def create_app(*, token: str | None = None, projects_dir: str | Path | None = No
             row = {"name": p.stem, "modified": p.stat().st_mtime, "family": None,
                    "task": None}
             try:
-                row.update(kind_of(json.loads(p.read_text())))
+                row.update(kind_of(json.loads(p.read_text(encoding="utf-8"))))
             except Exception:  # noqa: BLE001, S110 — an unreadable file still gets listed
                 pass
             rows.append(row)
@@ -248,7 +248,7 @@ def create_app(*, token: str | None = None, projects_dir: str | Path | None = No
         file = _project_file(projects, name)
         if not file.exists():
             raise HTTPException(404, f"no project named {name!r}")
-        return migrate(json.loads(file.read_text()))
+        return migrate(json.loads(file.read_text(encoding="utf-8")))
 
     @app.put("/api/projects/{name}", dependencies=guard)
     def put_project(name: str, graph: dict = Body(...)) -> dict:  # noqa: B008
@@ -260,7 +260,7 @@ def create_app(*, token: str | None = None, projects_dir: str | Path | None = No
         except Exception as exc:  # noqa: BLE001 — refuse unreadable projects
             raise HTTPException(400, f"not a valid project: {exc}") from exc
         tmp = file.with_name(f"{file.stem}.{uuid.uuid4().hex[:8]}.tmp")  # one per save
-        tmp.write_text(json.dumps(graph, indent=1))
+        tmp.write_text(json.dumps(graph, indent=1), encoding="utf-8")
         tmp.replace(file)
         return {"saved": name}
 

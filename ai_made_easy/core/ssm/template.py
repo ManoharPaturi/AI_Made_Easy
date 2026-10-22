@@ -384,7 +384,7 @@ def main() -> None:
     components_picture(y[:cut], parts, truth, SAMPLES_DIR / "components.png")
     print(f"saved the model to {MODEL_FILE}")
     print("test: " + " ".join(f"{k}={v:.4f}" for k, v in metrics.items()))
-    Path("metrics.json").write_text(json.dumps(metrics, indent=1))
+    Path("metrics.json").write_text(json.dumps(metrics, indent=1), encoding="utf-8")
 
 
 if __name__ == "__main__":

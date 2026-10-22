@@ -580,7 +580,7 @@ def main() -> None:
         np.save("feats.npy", feature_grid(feats["first"]))
     if convs and not single and isinstance(convs[-1], nn.Conv2d):
         np.save("cam.npy", grad_cam(model, x, convs[-1], int(top[0])))
-    Path("inspect.json").write_text(json.dumps(result, indent=1))
+    Path("inspect.json").write_text(json.dumps(result, indent=1), encoding="utf-8")
     print("inspect:", result)
 
 

@@ -160,7 +160,7 @@ def _coco_file(root: Path) -> Path | None:
         try:
             if f.stat().st_size > 512 * 2**20:
                 continue
-            data = json.loads(f.read_text())
+            data = json.loads(f.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             continue
         if isinstance(data, dict) and "images" in data and "annotations" in data:
@@ -175,7 +175,7 @@ def _first_dir(root: Path, *names: str) -> Path | None:
 def _folder(root: Path) -> DataFacts:
     coco = _coco_file(root)
     if coco is not None:
-        data = json.loads(coco.read_text())
+        data = json.loads(coco.read_text(encoding="utf-8"))
         cats = data.get("categories") or []
         images = _first_dir(root, "images", "train", "img") or root
         keypoints = any(c.get("keypoints") for c in cats)
@@ -195,7 +195,7 @@ def _folder(root: Path) -> DataFacts:
     images = _first_dir(root, "images")
     if labels is not None and images is not None and _files(labels, {".txt"}, 1):
         names = root / "classes.txt"
-        classes = [c.strip() for c in names.read_text().splitlines() if c.strip()] \
+        classes = [c.strip() for c in names.read_text(encoding="utf-8").splitlines() if c.strip()] \
             if names.is_file() else []
         imgs = _files(images, IMAGE_SUFFIXES)
         side, ch = _image_shape(imgs)

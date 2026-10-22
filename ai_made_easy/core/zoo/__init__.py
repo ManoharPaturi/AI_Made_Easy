@@ -17,7 +17,7 @@ def catalog(name: str) -> tuple[dict, ...]:
     path = ZOO / f"{name}.json"
     if not path.exists():
         raise KeyError(f"no model catalog {name!r}")
-    return tuple(json.loads(path.read_text()))
+    return tuple(json.loads(path.read_text(encoding="utf-8")))
 
 
 def entry(name: str, model: str) -> dict:

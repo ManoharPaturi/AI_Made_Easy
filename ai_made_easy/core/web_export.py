@@ -270,7 +270,7 @@ def build_web_demo(layers: list[dict], classes: list[str],
                    tfjs_path: Path | None = None) -> str:
     """Assemble the single-file HTML demo (token replacement — the vendored
     tfjs bundle contains braces, so str.format is off limits)."""
-    tfjs = (tfjs_path or _ASSETS / "tf.min.js").read_text()
+    tfjs = (tfjs_path or _ASSETS / "tf.min.js").read_text(encoding="utf-8")
     html = _HTML_TEMPLATE
     for token, value in (
             ("@@TITLE@@", title),

@@ -44,7 +44,7 @@ def resolve(value: str, pipeline, base: str | Path | None = None):  # noqa: ANN0
     if not path.is_file():
         raise DesignError(f"design file {value!r} not found")
     try:
-        return Graph.from_dict(json.loads(path.read_text()))
+        return Graph.from_dict(json.loads(path.read_text(encoding="utf-8")))
     except (OSError, ValueError, KeyError) as exc:
         raise DesignError(f"could not read {value}: {exc}") from exc
 

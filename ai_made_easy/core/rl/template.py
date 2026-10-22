@@ -373,7 +373,7 @@ def main() -> None:
         curve_picture(points, baseline, SAMPLES_DIR / "reward_curve.png")
     print(f"saved the best policy to {CHECKPOINT}")
     print("test: " + " ".join(f"{k}={v:.4f}" for k, v in metrics.items()))
-    Path("metrics.json").write_text(json.dumps(metrics, indent=1))
+    Path("metrics.json").write_text(json.dumps(metrics, indent=1), encoding="utf-8")
 
 
 if __name__ == "__main__":

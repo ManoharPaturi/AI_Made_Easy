@@ -154,7 +154,7 @@ def restore_run(bundle: dict, history) -> str | None:  # noqa: ANN001
     if not run_dir or not (Path(run_dir) / "train.py").exists():
         return None
     run_dir = Path(run_dir)
-    script = (run_dir / "train.py").read_text()
+    script = (run_dir / "train.py").read_text(encoding="utf-8")
     framework = ("keras" if (run_dir / "model.keras").exists() else
                  "sklearn" if (run_dir / "model.joblib").exists() else "pytorch")
     match = re.search(r'^(?:CHECKPOINT|MODEL_FILE) = "([^"]+)"', script, re.M)
@@ -162,7 +162,7 @@ def restore_run(bundle: dict, history) -> str | None:  # noqa: ANN001
                             project=bundle["manifest"].get("name", ""), tags=["archive"])
     target = history.path(record.run_id)
     stem = (match.group(1).rsplit("_", 1)[0] if match else "model")
-    (target / f"{stem}_train_{framework}.py").write_text(script)
+    (target / f"{stem}_train_{framework}.py").write_text(script, encoding="utf-8")
     renames = {"checkpoint.pt": match.group(1) if match else f"{stem}_best.pt",
                "model.keras": match.group(1) if match else f"{stem}_best.keras",
                "model.joblib": match.group(1) if match else f"{stem}_model.joblib"}

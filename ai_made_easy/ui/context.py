@@ -227,8 +227,8 @@ class AppContext(FileActions, ExportActions, RunActions, DataActions, QtCore.QOb
 
     def _boot(self) -> None:
         self.project_store.reset("mnist_cnn")
-        self.graph_service.load(Graph.from_dict(json.loads(DEMO_SEED.read_text())))
-        self.project_store.set_name(json.loads(DEMO_SEED.read_text()).get("name", "untitled"))
+        self.graph_service.load(Graph.from_dict(json.loads(DEMO_SEED.read_text(encoding="utf-8"))))
+        self.project_store.set_name(json.loads(DEMO_SEED.read_text(encoding="utf-8")).get("name", "untitled"))
         self.project_store.mark_clean()
         self.canvas.widget.setFocus()
         self.log_bus.info(f"AI Made Easy {__version__} ready — {len(get_registry().all())} "

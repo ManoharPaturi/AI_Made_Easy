@@ -38,7 +38,7 @@ seen, pos, buf = 0, 0, ""
 while True:
     finished = os.path.exists(exit_file)
     if os.path.exists(events):
-        with open(events) as fh:
+        with open(events, encoding="utf-8") as fh:
             fh.seek(pos)
             buf += fh.read()
             pos = fh.tell()
@@ -49,12 +49,12 @@ while True:
             seen += 1
     elif time.time() - started > 60 and os.path.exists(log) and os.path.getsize(log):
         # the launcher never started (no python, a bad path): report its output
-        text = open(log).read()[-3000:]
+        text = open(log, encoding="utf-8").read()[-3000:]
         print(json.dumps({"type": "error", "traceback": text}), flush=True)
         print(json.dumps({"type": "_exit", "code": 1}), flush=True)
         break
     if finished:
-        code = open(exit_file).read().strip()
+        code = open(exit_file, encoding="utf-8").read().strip()
         print(json.dumps({"type": "_exit", "code": int(code) if code.lstrip("-").isdigit()
                           else 1}), flush=True)
         break

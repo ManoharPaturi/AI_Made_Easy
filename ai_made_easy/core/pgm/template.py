@@ -495,7 +495,7 @@ def run_hmm(frame) -> dict:
                                          f"(share {occupancy[i]:.1%})"
                                          for i, m in enumerate(model.means_)]
     SAMPLES_DIR.mkdir(exist_ok=True)
-    (SAMPLES_DIR / "report.txt").write_text("\n".join(lines) + "\n")
+    (SAMPLES_DIR / "report.txt").write_text("\n".join(lines) + "\n", encoding="utf-8")
     draw_regimes(Xa[:, 0].astype(float)[:800], states[:800],
                  "observed series coloured by decoded state").save(SAMPLES_DIR / "regimes.png")
     with open(MODEL_FILE, "wb") as fh:
@@ -604,7 +604,7 @@ def main() -> None:
             raise SystemExit("a hidden Markov model learns from data: add a dataset")
         metrics = run_hmm(frame)
         print("test: " + " ".join(f"{k}={v:.4f}" for k, v in metrics.items()))
-        Path("metrics.json").write_text(json.dumps(metrics, indent=1))
+        Path("metrics.json").write_text(json.dumps(metrics, indent=1), encoding="utf-8")
         return
     data = prepare(frame) if frame is not None else None
     train, test = split(data)
@@ -617,7 +617,7 @@ def main() -> None:
             metrics["shd"] = float(shd(DESIGN["edges"], learned))
             metrics["skeleton_errors"] = float(skeleton_errors(DESIGN["edges"], learned))
         print(f"learned {len(learned)} edge(s): " + ", ".join(f"{u}->{v}" for u, v in learned))
-        Path("learned_edges.json").write_text(json.dumps(learned))
+        Path("learned_edges.json").write_text(json.dumps(learned), encoding="utf-8")
         edges = learned
         for var in DESIGN["variables"].values():
             var["table"] = None      # learned structure: every table is learned from data
@@ -677,11 +677,11 @@ def main() -> None:
         metrics["majority_baseline"] = float(majority)
     results = run_queries(model, gaussian_cpds)
     print("test: " + " ".join(f"{k}={v:.4f}" for k, v in metrics.items()))
-    Path("metrics.json").write_text(json.dumps(metrics, indent=1))
-    Path("posteriors.json").write_text(json.dumps(results, indent=1))
+    Path("metrics.json").write_text(json.dumps(metrics, indent=1), encoding="utf-8")
+    Path("posteriors.json").write_text(json.dumps(results, indent=1), encoding="utf-8")
     SAMPLES_DIR.mkdir(exist_ok=True)
     (SAMPLES_DIR / "report.txt").write_text("\n".join(report(model, gaussian_cpds, results))
-                                            + "\n")
+                                            + "\n", encoding="utf-8")
     notes = {}
     first = results[0] if results else {}
     for var, dist in first.get("posteriors", {}).items():

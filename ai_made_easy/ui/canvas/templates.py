@@ -28,7 +28,7 @@ def save_template(frag: Fragment, name: str) -> Path:
 
 def load_template(name_or_path: str) -> Fragment:
     path = templates_dir() / f"{slugify(name_or_path)}.json"
-    return fragment_from_dict(json.loads(path.read_text()))
+    return fragment_from_dict(json.loads(path.read_text(encoding="utf-8")))
 
 
 def template_block(path: Path) -> BlockDefinition:

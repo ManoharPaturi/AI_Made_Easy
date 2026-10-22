@@ -256,7 +256,7 @@ def _target(service: TryService, history, run_id: str):  # noqa: ANN001, ANN202
 
     history.get(run_id)   # an unknown run raises here
     folder = history.path(run_id)
-    record = json.loads((folder / "run.json").read_text())
+    record = json.loads((folder / "run.json").read_text(encoding="utf-8"))
     return service.worker(run_id, folder, record), _describe(record.get("graph") or {})
 
 
