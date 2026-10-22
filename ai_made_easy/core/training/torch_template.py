@@ -114,7 +114,7 @@ class FocalLoss(nn.Module):
 
 # ================================================================= model
 class {{ spec.class_name }}(nn.Module):
-    """(batch, {{ input_dims }}) -> (batch, {{ output_dims }})."""
+    r"""(batch, {{ input_dims }}) -> (batch, {{ output_dims }})."""
 
     def __init__(self) -> None:
         super().__init__()
@@ -379,7 +379,7 @@ def make_loaders():
 
 # =============================================================== metrics
 def to_scores(outputs: np.ndarray) -> np.ndarray:
-    """Model outputs -> {{ "class probabilities" if spec.is_classification else "predictions" }}."""
+    r"""Model outputs -> {{ "class probabilities" if spec.is_classification else "predictions" }}."""
 {% if spec.task == "multiclass" %}
 {% if loss_input == "log_probs" %}
     return np.exp(outputs)

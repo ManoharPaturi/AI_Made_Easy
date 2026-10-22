@@ -222,9 +222,12 @@ def _train(data: dict, tmp_path: Path) -> Path:
 
 
 def _infer(folder: Path, items: list) -> list:
+    # the items go in a file: a one-second clip is longer than Windows' command-line limit
+    (folder / "items.json").write_text(json.dumps(items), encoding="utf-8")
     code = ("import sys, json; sys.path.insert(0, '.'); import train; "
             "train.load_predictor('.'); "
-            f"print('OUT ' + json.dumps(train.infer({items!r})))")
+            "items = json.load(open('items.json', encoding='utf-8')); "
+            "print('OUT ' + json.dumps(train.infer(items)))")
     proc = subprocess.run([sys.executable, "-c", code], cwd=folder, capture_output=True,
                           text=True, timeout=300, env={**os.environ, "PYTHONWARNINGS": "ignore"})
     assert "OUT " in proc.stdout, proc.stderr[-3000:]
