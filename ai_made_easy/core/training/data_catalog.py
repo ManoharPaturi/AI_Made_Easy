@@ -493,6 +493,37 @@ PREPROCESSING: list[DataBlock] = [
         applies_to=frozenset({IMAGE}), stage="train",
         torch=_p_tv("v2.AugMix(severity={severity})"),
         keras=lambda p: "layers.AugMix(value_range=(0, 1))"),
+    # 3.6
+    DataBlock(
+        "prep.random_jpeg", "Random JPEG Quality", "Augmentation",
+        (P("quality_min", "int", 50, lo=1, hi=100), P("quality_max", "int", 95, lo=1, hi=100)),
+        desc="Re-encode each image as a JPEG of random quality: robust to compression "
+             "artifacts in photos from the web and phones.",
+        applies_to=frozenset({IMAGE}), stage="train",
+        torch=_p_tv("v2.JPEG(({quality_min}, {quality_max}))"),
+        checks=_range_check("quality_min", "quality_max")),
+    DataBlock(
+        "prep.elastic_transform", "Elastic Transform", "Augmentation",
+        (P("alpha", "float", 50.0, lo=0.0, hi=1000.0, help="How far pixels move"),
+         P("sigma", "float", 5.0, lo=0.1, hi=100.0, help="How smooth the displacement is (images must be over 8 × sigma wide)")),
+        desc="Warps each image as if drawn on rubber (Simard et al., 2003): handwriting, "
+             "cells and other shapes that bend.",
+        applies_to=frozenset({IMAGE}), stage="train",
+        torch=_p_tv("v2.ElasticTransform(alpha={alpha}, sigma={sigma})")),
+    DataBlock(
+        "prep.random_channel_permutation", "Random Channel Permutation", "Augmentation", (),
+        desc="Shuffle the colour channels of each image, so the model cannot rely on "
+             "exact colours.",
+        applies_to=frozenset({IMAGE}), stage="train",
+        torch=lambda p: "v2.RandomChannelPermutation()"),
+    DataBlock(
+        "prep.gaussian_noise", "Gaussian Noise (images)", "Augmentation",
+        (P("sigma", "float", 0.05, lo=0.0, hi=1.0, help="Noise level on 0-1 pixels"),),
+        desc="Adds random noise to every pixel (after scaling to 0-1): robust to sensor "
+             "noise and low light.",
+        applies_to=frozenset({IMAGE}), stage="train",
+        torch=_p_tv("v2.GaussianNoise(sigma={sigma}, clip=True)"),
+        keras=_p_tv("layers.GaussianNoise({sigma})"), meta={"after_tensor": True}),
     DataBlock(
         "prep.mixup_cutmix", "MixUp / CutMix", "Augmentation",
         (P("mode", "enum", "mixup", options=("mixup", "cutmix", "both")),

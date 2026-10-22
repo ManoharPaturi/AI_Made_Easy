@@ -772,15 +772,66 @@ TRANSFORMERS += [
                 "sklearn.kernel_approximation",
                 (P("degree", "int", 2, lo=1, hi=5), _N_COMP(100)), seeded=True,
                 desc="Approximates a polynomial kernel's features (Tensor Sketch)."),
+    Transformer("ml.random_trees_embedding", "Random Trees Embedding", "RandomTreesEmbedding",
+                "sklearn.ensemble", (N_EST(50), P("max_depth", "int", 5, lo=1, hi=32)),
+                seeded=True,
+                desc="Codes each row by the leaf it reaches in a forest of random trees: a "
+                     "sparse, non-linear encoding for linear models."),
+    Transformer("ml.dictionary_learning", "Dictionary Learning", "MiniBatchDictionaryLearning",
+                "sklearn.decomposition", (_N_COMP(), P("alpha", "float", 1.0, lo=0.0,
+                                                       help="Sparsity of the codes")),
+                seeded=True,
+                desc="Learns a small set of atoms and writes each row as a sparse mix of "
+                     "them."),
+    Transformer("ml.minibatch_nmf", "Mini-Batch NMF", "MiniBatchNMF", "sklearn.decomposition",
+                (_N_COMP(), MAX_ITER(200)), seeded=True,
+                desc="Non-negative matrix factorization in mini-batches: large tables "
+                     "(needs non-negative features: scale them to 0-1 first)."),
     Transformer("ml.lle", "Locally Linear Embedding", "LocallyLinearEmbedding",
                 "sklearn.manifold", (P("n_components", "int", 2, lo=1),
                                      P("n_neighbors", "int", 10, lo=2)), seeded=True,
                 desc="A non-linear embedding that keeps each point's relation to its "
                      "neighbours."),
 ]
+# 3.6
+_RADIUS = P("radius", "float", 5.0, lo=1e-6,
+            help="Neighbours within this distance count. On standardized features a typical "
+                 "distance is about √(2 × features)")
+ESTIMATORS += [
+    Estimator("ml.gaussian_process_classifier", "Gaussian Process Classifier",
+              "GaussianProcessClassifier", "sklearn.gaussian_process", CLASSIFICATION,
+              (P("max_iter_predict", "int", 100, lo=1, hi=10000),),
+              desc="A Gaussian process (RBF kernel, fitted) with a Laplace approximation: "
+                   "smooth, calibrated probabilities on small tables (up to a few thousand "
+                   "rows).", category=_SVM, extra=N_JOBS),
+    Estimator("ml.gaussian_process_regressor", "Gaussian Process Regressor",
+              "GaussianProcessRegressor", "sklearn.gaussian_process", REGRESSION,
+              (P("alpha", "float", 1e-2, lo=1e-12, hi=10.0,
+                 help="Noise added to the diagonal (the targets' noise variance)"),
+               P("normalize_y", "bool", True)),
+              desc="Kernel regression with uncertainty (RBF kernel, fitted): exact on small "
+                   "tables; slows down past a few thousand rows.", category=_SVM),
+    Estimator("ml.radius_neighbors_classifier", "Radius Neighbors Classifier",
+              "RadiusNeighborsClassifier", "sklearn.neighbors", CLASSIFICATION,
+              (_RADIUS, WEIGHTS),
+              desc="Vote among all training samples within a radius; rows with no neighbours "
+                   "get the most common class.", category=_NB, seeded=False,
+              extra={"outlier_label": '"most_frequent"', **N_JOBS}),
+    Estimator("ml.radius_neighbors_regressor", "Radius Neighbors Regressor",
+              "RadiusNeighborsRegressor", "sklearn.neighbors", REGRESSION,
+              (_RADIUS, WEIGHTS),
+              desc="Average of the training targets within a radius (dense regions get more "
+                   "neighbours). A row with no training sample within the radius has no "
+                   "prediction: keep the radius generous.", category=_NB, seeded=False, extra=N_JOBS),
+    Estimator("ml.gamma_regressor", "Gamma Regression", "GammaRegressor",
+              "sklearn.linear_model", REGRESSION, (ALPHA(1.0), MAX_ITER(300)),
+              desc="A generalized linear model for positive, right-skewed targets (costs, "
+                   "durations, claim sizes) with a log link.", category=_LIN, seeded=False),
+]
 UNIVARIATE_SELECTORS = ("ml.select_k_best", "ml.select_percentile", "ml.select_fpr",
                         "ml.select_fdr", "ml.select_fwe")
-NONNEGATIVE_TRANSFORMERS = ("ml.nmf", "ml.lda_topics", "ml.additive_chi2_sampler")
+NONNEGATIVE_TRANSFORMERS = ("ml.nmf", "ml.lda_topics", "ml.additive_chi2_sampler",
+                            "ml.minibatch_nmf")
 
 
 SEARCH = BlockDefinition(

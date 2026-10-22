@@ -258,7 +258,7 @@ def evaluate(model: Pipeline, X, y) -> dict:
     binary = len(classes) == 2
     average = lambda requested: "binary" if binary else requested  # noqa: E731
     pos = {"pos_label": classes[-1]} if binary else {}
-{% set needs_scores = metric_keys | select("in", ["roc_auc", "avg_precision", "log_loss", "top_k_accuracy"]) | list %}
+{% set needs_scores = metric_keys | select("in", ["roc_auc", "avg_precision", "log_loss", "top_k_accuracy", "brier"]) | list %}
 {% if needs_scores %}
     scores = predict_scores(model, X)
 {% endif %}
@@ -290,6 +290,14 @@ def evaluate(model: Pipeline, X, y) -> dict:
                               label_binarize(y, classes=classes), scores, average="macro"))
 {% elif key == "log_loss" %}
     m["log_loss"] = metrics.log_loss(y, scores, labels=classes)
+{% elif key == "brier" and not proba %}
+    m["brier"] = float("nan")   # the model gives scores, not probabilities
+{% elif key == "brier" %}
+    onehot = (np.asarray(y)[:, None] == np.asarray(classes)[None, :]).astype(float)
+    m["brier"] = float(np.mean(np.sum((scores - onehot) ** 2, axis=1))) if not binary else \
+        metrics.brier_score_loss(y == classes[-1], scores[:, -1])
+{% elif key == "jaccard" %}
+    m["jaccard"] = metrics.jaccard_score(y, pred, average=average("macro"), zero_division=0, **pos)
 {% elif key == "confusion" %}
     m["confusion"] = metrics.confusion_matrix(y, pred, labels=classes).tolist()
 {% endif %}
@@ -310,6 +318,16 @@ def evaluate(model: Pipeline, X, y) -> dict:
     m["r2"] = metrics.r2_score(y, pred)
 {% elif key == "explained_variance" %}
     m["explained_variance"] = metrics.explained_variance_score(y, pred)
+{% elif key == "pearson" %}
+    m["pearson"] = float(np.corrcoef(np.ravel(pred), np.ravel(y))[0, 1])
+{% elif key == "spearman" %}
+    from scipy.stats import spearmanr
+
+    m["spearman"] = float(spearmanr(np.ravel(pred), np.ravel(y)).statistic)
+{% elif key == "max_error" %}
+    m["max_error"] = metrics.max_error(np.ravel(y), np.ravel(pred))
+{% elif key == "msle" %}
+    m["msle"] = metrics.mean_squared_log_error(np.clip(y, 0, None), np.clip(pred, 0, None))
 {% endif %}
 {% endfor %}
 {% endif %}

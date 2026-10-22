@@ -301,6 +301,37 @@ LOSSES += [
              "training labels are wrong. Multi-class, on logits, PyTorch.",
         meta={"task": "multiclass", "target": "int", "input": "logits"}),
 ]
+# 3.6: regression losses for quantiles and skewed, zero-heavy targets
+LOSSES += [
+    Component(
+        "train.loss_quantile", "Quantile (Pinball)",
+        (P("quantile", "float", 0.5, lo=0.01, hi=0.99,
+           help="0.5: the median; 0.9: a value 90% of targets fall below"),),
+        torch=lambda p: (f"lambda pred, target: torch.maximum({float(p['quantile'])} * "
+                         f"(target - pred), ({float(p['quantile'])} - 1) * (target - pred))"
+                         ".mean()"),
+        keras=lambda p: (f"lambda y, p: ops.mean(ops.maximum({float(p['quantile'])} * (y - p), "
+                         f"({float(p['quantile'])} - 1) * (y - p)))"),
+        desc="Pinball loss: the model learns one quantile of the target instead of its "
+             "mean. 0.5 is the median (robust to outliers); 0.9 an upper estimate for "
+             "planning stock or capacity. For several quantiles at once use the Quantile "
+             "Head.",
+        meta={"task": "regression", "target": "float", "input": "raw"}),
+    Component(
+        "train.loss_tweedie", "Tweedie Deviance",
+        (P("power", "float", 1.5, lo=1.01, hi=1.99,
+           help="Between 1 (Poisson counts) and 2 (Gamma amounts)"),),
+        torch=lambda p: (f"lambda pred, target: (-target * torch.exp(pred * (1 - {float(p['power'])}))"
+                         f" / (1 - {float(p['power'])}) + torch.exp(pred * (2 - "
+                         f"{float(p['power'])})) / (2 - {float(p['power'])})).mean()"),
+        keras=lambda p: (f"lambda y, p: ops.mean(-y * ops.exp(p * (1 - {float(p['power'])})) / "
+                         f"(1 - {float(p['power'])}) + ops.exp(p * (2 - {float(p['power'])})) / "
+                         f"(2 - {float(p['power'])}))"),
+        desc="Tweedie negative log-likelihood (as in LightGBM and XGBoost) for targets that "
+             "are often exactly zero and otherwise positive and skewed: insurance claims, "
+             "sales, rainfall. The model outputs the log of the mean.",
+        meta={"task": "regression", "target": "float", "input": "raw"}),
+]
 METRIC_LOSS_IDS = tuple(c.type_id for c in LOSSES if c.meta.get("metric"))
 PAIR_LOSS_IDS = ("train.loss_cosine_embedding", "train.loss_margin_ranking")
 
@@ -525,6 +556,50 @@ OPTIMIZERS: list[Component] = [
         desc="AdamW without a learning-rate schedule (Defazio et al., 2024): it averages "
              "its iterates instead, and evaluates the average. Leave out the scheduler.",
         meta={"torch_helper": "ScheduleFreeAdamW", "schedule_free": True}),
+]
+
+# 3.6: newer adaptive optimizers
+OPTIMIZERS += [
+    Component(
+        "train.adabelief", "AdaBelief",
+        (_LR(1e-3), _B1, _B2, _EPS(1e-16), _WD(0.0)),
+        torch=lambda p: (f"AdaBelief(model.parameters(), lr={p['lr']}, "
+                         f"betas=({p['beta1']}, {p['beta2']}), eps={p['eps']}, "
+                         f"weight_decay={p['weight_decay']})"),
+        desc="Adam that scales each step by how far the gradient is from its running "
+             "average, its \"belief\" (Zhuang et al., 2020): big steps when gradients agree, "
+             "small ones when they are noisy. Adam's speed, closer to SGD's generalization.",
+        meta={"torch_helper": "AdaBelief"}),
+    Component(
+        "train.adan", "Adan",
+        (_LR(1e-3), P("beta1", "float", 0.02, lo=0.0, hi=1.0, help="Momentum weight of the "
+                                                                    "new gradient"),
+         P("beta2", "float", 0.08, lo=0.0, hi=1.0, help="Weight of the gradient difference"),
+         P("beta3", "float", 0.01, lo=0.0, hi=1.0, help="Weight of the new squared term"),
+         _EPS(1e-8), _WD(0.02)),
+        torch=lambda p: (f"Adan(model.parameters(), lr={p['lr']}, "
+                         f"betas=({p['beta1']}, {p['beta2']}, {p['beta3']}), eps={p['eps']}, "
+                         f"weight_decay={p['weight_decay']})"),
+        desc="Adaptive Nesterov momentum (Xie et al., 2022): estimates where the gradient is "
+             "heading from the change between steps. Strong on vision transformers, CNNs and "
+             "language models; tolerates large learning rates and batches.",
+        meta={"torch_helper": "Adan"}),
+    Component(
+        "train.ademamix", "AdEMAMix",
+        (_LR(1e-3), _B1, _B2, P("beta3", "float", 0.9999, lo=0.0, hi=0.999999,
+                                help="Decay of the slow momentum (remembers ~10k steps)"),
+         P("alpha", "float", 5.0, lo=0.0, hi=20.0, help="Weight of the slow momentum"),
+         P("warmup_steps", "int", 0, lo=0, help="Steps over which alpha and beta3 ramp up "
+                                                "(0 = off; the paper uses the whole run)"),
+         _EPS(1e-8), _WD(0.0)),
+        torch=lambda p: (f"AdEMAMix(model.parameters(), lr={p['lr']}, "
+                         f"betas=({p['beta1']}, {p['beta2']}, {p['beta3']}), "
+                         f"alpha={p['alpha']}, warmup_steps={int(p['warmup_steps'])}, "
+                         f"eps={p['eps']}, weight_decay={p['weight_decay']})"),
+        desc="AdamW with a second, very slow momentum mixed in (Pagliardini et al., 2024): "
+             "old gradients keep helping for thousands of steps, so long runs reach a lower "
+             "loss. Use a warm-up for alpha and beta3 when training from scratch.",
+        meta={"torch_helper": "AdEMAMix"}),
 ]
 
 _PROTOTYPES = '''\
@@ -973,6 +1048,119 @@ class Lamb(torch.optim.Optimizer):
                 p.add_(update * trust, alpha=-group["lr"])
         return loss
 ''',
+    "AdaBelief": '''\
+class AdaBelief(torch.optim.Optimizer):
+    """AdaBelief (Zhuang et al., 2020): Adam whose second moment tracks (g - m)^2, the
+    gradient's distance from its running mean; decoupled weight decay."""
+
+    def __init__(self, params, lr: float = 1e-3, betas=(0.9, 0.999), eps: float = 1e-16,
+                 weight_decay: float = 0.0) -> None:
+        super().__init__(params, dict(lr=lr, betas=betas, eps=eps, weight_decay=weight_decay))
+
+    @torch.no_grad()
+    def step(self, closure=None):
+        loss = closure() if closure is not None else None
+        for group in self.param_groups:
+            beta1, beta2 = group["betas"]
+            for p in group["params"]:
+                if p.grad is None:
+                    continue
+                state = self.state[p]
+                if not state:
+                    state["step"] = 0
+                    state["m"], state["s"] = torch.zeros_like(p), torch.zeros_like(p)
+                state["step"] += 1
+                t, m, s = state["step"], state["m"], state["s"]
+                m.mul_(beta1).add_(p.grad, alpha=1 - beta1)
+                diff = p.grad - m
+                s.mul_(beta2).addcmul_(diff, diff, value=1 - beta2).add_(group["eps"])
+                p.mul_(1 - group["lr"] * group["weight_decay"])
+                denom = (s / (1 - beta2 ** t)).sqrt().add_(group["eps"])
+                p.addcdiv_(m, denom, value=-group["lr"] / (1 - beta1 ** t))
+        return loss
+''',
+    "Adan": '''\
+class Adan(torch.optim.Optimizer):
+    """Adan (Xie et al., 2022), the paper's notation: betas weigh the new gradient, its
+    change since the last step and the new squared term."""
+
+    def __init__(self, params, lr: float = 1e-3, betas=(0.02, 0.08, 0.01), eps: float = 1e-8,
+                 weight_decay: float = 0.02) -> None:
+        super().__init__(params, dict(lr=lr, betas=betas, eps=eps, weight_decay=weight_decay))
+
+    @torch.no_grad()
+    def step(self, closure=None):
+        loss = closure() if closure is not None else None
+        for group in self.param_groups:
+            b1, b2, b3 = group["betas"]
+            for p in group["params"]:
+                if p.grad is None:
+                    continue
+                g, state = p.grad, self.state[p]
+                if not state:
+                    state["step"] = 0
+                    state["m"], state["v"], state["n"] = (torch.zeros_like(p) for _ in range(3))
+                    state["prev"] = g.clone()
+                state["step"] += 1
+                t, m, v, n = state["step"], state["m"], state["v"], state["n"]
+                diff = g - state["prev"]
+                m.mul_(1 - b1).add_(g, alpha=b1)
+                v.mul_(1 - b2).add_(diff, alpha=b2)
+                n.mul_(1 - b3).addcmul_(g + (1 - b2) * diff, g + (1 - b2) * diff, value=b3)
+                m_hat = m / (1 - (1 - b1) ** t)
+                v_hat = v / (1 - (1 - b2) ** t)
+                n_hat = n / (1 - (1 - b3) ** t)
+                step = group["lr"] / (n_hat.sqrt() + group["eps"])
+                p.sub_(step * (m_hat + (1 - b2) * v_hat))
+                p.div_(1 + group["lr"] * group["weight_decay"])
+                state["prev"].copy_(g)
+        return loss
+''',
+    "AdEMAMix": '''\
+class AdEMAMix(torch.optim.Optimizer):
+    """AdEMAMix (Pagliardini et al., 2024): AdamW plus alpha x a slow EMA of the gradients
+    (beta3), with optional warm-ups for alpha and beta3."""
+
+    def __init__(self, params, lr: float = 1e-3, betas=(0.9, 0.999, 0.9999),
+                 alpha: float = 5.0, warmup_steps: int = 0, eps: float = 1e-8,
+                 weight_decay: float = 0.0) -> None:
+        super().__init__(params, dict(lr=lr, betas=betas, alpha=alpha, eps=eps,
+                                      warmup_steps=warmup_steps, weight_decay=weight_decay))
+
+    @staticmethod
+    def _beta3(beta1: float, beta3: float, frac: float) -> float:
+        """The paper's scheduler: from beta1 to beta3, linear in 1 / log(beta)."""
+        if frac >= 1 or beta3 <= beta1:
+            return beta3
+        lb1, lb3 = math.log(beta1), math.log(beta3)
+        return min(math.exp(lb1 * lb3 / ((1 - frac) * lb3 + frac * lb1)), beta3)
+
+    @torch.no_grad()
+    def step(self, closure=None):
+        loss = closure() if closure is not None else None
+        for group in self.param_groups:
+            beta1, beta2, beta3 = group["betas"]
+            for p in group["params"]:
+                if p.grad is None:
+                    continue
+                g, state = p.grad, self.state[p]
+                if not state:
+                    state["step"] = 0
+                    state["m1"], state["m2"], state["nu"] = (torch.zeros_like(p) for _ in range(3))
+                state["step"] += 1
+                t = state["step"]
+                frac = t / group["warmup_steps"] if group["warmup_steps"] else 1.0
+                alpha = group["alpha"] * min(frac, 1.0)
+                b3 = self._beta3(beta1, beta3, frac)
+                state["m1"].mul_(beta1).add_(g, alpha=1 - beta1)
+                state["m2"].mul_(b3).add_(g, alpha=1 - b3)
+                state["nu"].mul_(beta2).addcmul_(g, g, value=1 - beta2)
+                m1_hat = state["m1"] / (1 - beta1 ** t)
+                denom = (state["nu"] / (1 - beta2 ** t)).sqrt().add_(group["eps"])
+                p.mul_(1 - group["lr"] * group["weight_decay"])
+                p.addcdiv_(m1_hat + alpha * state["m2"], denom, value=-group["lr"])
+        return loss
+''',
     "LookaheadAdamW": '''\
 class LookaheadAdamW(torch.optim.AdamW):
     """Lookahead (Zhang et al., 2019) around AdamW: every k steps the slow weights move
@@ -1136,6 +1324,36 @@ SCHEDULERS: list[Component] = [
                          f"mode=\"{p['mode']}\")"),
         desc="Cycle the LR between two bounds every batch.", meta={"step": "batch"},
         checks=_cyclic_check),
+    # 3.6
+    Component(
+        "train.inverse_sqrt_lr", "Inverse Square Root",
+        (P("warmup_epochs", "int", 4, lo=1, help="Linear warm-up, then decay as 1/sqrt"),),
+        torch=lambda p: (f"torch.optim.lr_scheduler.LambdaLR(optimizer, lambda e: "
+                         f"min((e + 1) / {int(p['warmup_epochs'])}, "
+                         f"({int(p['warmup_epochs'])} / (e + 1)) ** 0.5))"),
+        keras=lambda p: (f"lambda epoch, lr: LR0 * min((epoch + 1) / {int(p['warmup_epochs'])}, "
+                         f"({int(p['warmup_epochs'])} / (epoch + 1)) ** 0.5)"),
+        desc="The original Transformer's schedule (Vaswani et al., 2017): a linear warm-up, "
+             "then the learning rate falls as 1/√epoch. Never reaches zero, so training can "
+             "go on.", meta={"step": "epoch"}),
+    Component(
+        "train.wsd_lr", "Warmup-Stable-Decay",
+        (P("warmup_epochs", "int", 2, lo=0), P("decay_fraction", "float", 0.2, lo=0.01, hi=1.0,
+                                                help="Share of the run spent decaying"),
+         P("final_factor", "float", 0.0, lo=0.0, hi=1.0, help="LR at the end, as a fraction")),
+        torch=lambda p: (
+            "torch.optim.lr_scheduler.LambdaLR(optimizer, lambda e, w="
+            f"{int(p['warmup_epochs'])}, d=max(1, round(EPOCHS * {float(p['decay_fraction'])})), "
+            f"f={float(p['final_factor'])}: (e + 1) / w if e < w else 1.0 if e < EPOCHS - d "
+            "else f + (1 - f) * (EPOCHS - e - 1) / d)"),
+        keras=lambda p: (
+            f"lambda epoch, lr, w={int(p['warmup_epochs'])}, "
+            f"d=max(1, round(EPOCHS * {float(p['decay_fraction'])})), "
+            f"f={float(p['final_factor'])}: LR0 * ((epoch + 1) / w if epoch < w else 1.0 "
+            "if epoch < EPOCHS - d else f + (1 - f) * (EPOCHS - epoch - 1) / d)"),
+        desc="Warm up, hold the learning rate, and decay only at the end (used to train "
+             "MiniCPM, DeepSeek and other LLMs): you can stop or extend a run without "
+             "planning its length in advance.", meta={"step": "epoch"}),
 ]
 
 
@@ -1191,6 +1409,31 @@ METRICS: list[Component] = [
               meta={"tasks": {"regression"}, "key": "r2"}),
     Component("eval.explained_variance", "Explained Variance", desc="1 − Var(err) / Var(y).",
               meta={"tasks": {"regression"}, "key": "explained_variance"}),
+    # 3.6
+    Component("eval.brier", "Brier Score",
+              desc="Mean squared error of the predicted probabilities (0 is perfect): rewards "
+                   "being right and being honest about confidence.",
+              meta={"tasks": {"multiclass", "binary"}, "key": "brier"}),
+    Component("eval.hamming", "Hamming Loss",
+              desc="Fraction of labels predicted wrongly, over every example and label "
+                   "(multi-label; lower is better).",
+              meta={"tasks": {"multilabel"}, "key": "hamming"}),
+    Component("eval.jaccard", "Jaccard Index (IoU)",
+              desc="Overlap of predicted and true labels: per example for multi-label, per "
+                   "class (macro average) otherwise.",
+              meta={"tasks": {"multiclass", "binary", "multilabel"}, "key": "jaccard"}),
+    Component("eval.pearson", "Pearson Correlation",
+              desc="Linear correlation between predictions and targets (−1..1).",
+              meta={"tasks": {"regression"}, "key": "pearson"}),
+    Component("eval.spearman", "Spearman Correlation",
+              desc="Rank correlation: do predictions order the examples like the targets do? "
+                   "(−1..1; ignores the scale).",
+              meta={"tasks": {"regression"}, "key": "spearman"}),
+    Component("eval.max_error", "Max Error", desc="The largest absolute error (worst case).",
+              meta={"tasks": {"regression"}, "key": "max_error"}),
+    Component("eval.msle", "Mean Squared Log Error",
+              desc="Squared error of log(1 + value): relative errors for positive targets.",
+              meta={"tasks": {"regression"}, "key": "msle"}),
 ]
 
 
