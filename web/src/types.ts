@@ -266,6 +266,18 @@ export interface SweepAnalysis {
   rows: { number: number; run_id: string; values: Record<string, unknown>; score: number; best: boolean }[];
   importance: { key: string; label: string; importance: number; explained: number; trend: string }[];
   note: string;
+  method?: "forest" | "eta2";
+  interactions?: { keys: string[]; labels: string[]; share: number }[];
+  heatmap?: { x: (number | string)[]; y: (number | string)[]; x_key: string; y_key: string;
+              x_label: string; y_label: string; z: number[][] } | null;
+}
+
+export interface SweepAgain {
+  sweep_id: string;
+  spec: SweepRecord["spec"] & Record<string, unknown>;
+  graph: Project;
+  changes: { key: string; label: string; before: unknown[]; after: unknown[] }[];
+  note: string;
 }
 
 export interface SweepRecord {

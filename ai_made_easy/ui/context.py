@@ -174,6 +174,7 @@ class AppContext(FileActions, ExportActions, RunActions, DataActions, QtCore.QOb
         ep.new_sweep_requested.connect(self.act_new_sweep)
         ep.stop_sweep_requested.connect(lambda _sid: es.stop_sweep())
         ep.apply_best_requested.connect(self._apply_best_sweep)
+        ep.sweep_again_requested.connect(self._sweep_again)
         ep.register_requested.connect(self._register_run)
         ep.deploy_run_requested.connect(self._deploy_run)
         ep.try_run_requested.connect(self._try_run)

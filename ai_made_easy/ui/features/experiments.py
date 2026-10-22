@@ -86,6 +86,7 @@ class ExperimentsPage(QtWidgets.QWidget):
     new_sweep_requested = QtCore.Signal()
     stop_sweep_requested = QtCore.Signal(str)  # sweep_id
     apply_best_requested = QtCore.Signal(str)  # sweep_id
+    sweep_again_requested = QtCore.Signal(str)  # sweep_id (3.7)
     register_requested = QtCore.Signal(str)    # run_id
     deploy_run_requested = QtCore.Signal(str)  # run_id
     try_run_requested = QtCore.Signal(str)     # run_id (3.5)
@@ -351,9 +352,13 @@ class ExperimentsPage(QtWidgets.QWidget):
         self.apply_best_btn = QtWidgets.QPushButton("Apply Best Parameters")
         self.apply_best_btn.setIcon(icons.icon("check"))
         self.apply_best_btn.setToolTip("Load the design with the best trial's values")
+        self.sweep_again_btn = QtWidgets.QPushButton("Sweep Again Near Best…")
+        self.sweep_again_btn.setToolTip("A new sweep with each range narrowed to where the "
+                                        "best trials were (you review it first)")
         bar.addWidget(self.new_sweep_btn)
         bar.addStretch(1)
         bar.addWidget(self.stop_sweep_btn)
+        bar.addWidget(self.sweep_again_btn)
         bar.addWidget(self.apply_best_btn)
         box.addLayout(bar)
         split = QtWidgets.QSplitter(QtCore.Qt.Orientation.Horizontal)
@@ -388,6 +393,7 @@ class ExperimentsPage(QtWidgets.QWidget):
         self.new_sweep_btn.clicked.connect(self.new_sweep_requested.emit)
         self.stop_sweep_btn.clicked.connect(lambda: self._emit_sweep(self.stop_sweep_requested))
         self.apply_best_btn.clicked.connect(lambda: self._emit_sweep(self.apply_best_requested))
+        self.sweep_again_btn.clicked.connect(lambda: self._emit_sweep(self.sweep_again_requested))
         self._update_sweep_buttons()
         return page
 
@@ -412,6 +418,15 @@ class ExperimentsPage(QtWidgets.QWidget):
         self.importance_label.setTextFormat(QtCore.Qt.TextFormat.PlainText)
         self.importance_label.setAccessibleName("Parameter importance")
         lay.addWidget(self.importance_label)
+        # 3.7: the forest's predicted score over the pair of settings that matter together
+        self.pair_plot = pg.PlotWidget(background=None)
+        self.pair_plot.setAccessibleName("Predicted score over the strongest pair of settings")
+        self.pair_plot.setMinimumHeight(140)
+        self.pair_plot.setMouseEnabled(x=False, y=False)
+        self.pair_image = pg.ImageItem()
+        self.pair_plot.addItem(self.pair_image)
+        self.pair_plot.setVisible(False)
+        lay.addWidget(self.pair_plot, 1)
         self.insights = box
         box.setVisible(False)
         return box
@@ -463,9 +478,38 @@ class ExperimentsPage(QtWidgets.QWidget):
         lines = [f"{p['label']:<28} {'█' * max(1, round(p['importance'] * 20))} "
                  f"{p['importance'] * 100:.0f}%" + (f"  — {p['trend']}" if p["trend"] else "")
                  for p in info["importance"]]
+        if info.get("method") == "forest":
+            lines.append("From a random forest fitted to the trials (functional ANOVA).")
+        pairs = [p for p in info.get("interactions", []) if p["share"] >= 0.05][:3]
+        if pairs:
+            lines.append("Together: " + "; ".join(
+                f"{' × '.join(p['labels'])} {p['share'] * 100:.0f}%" for p in pairs))
         if info["note"]:
             lines.append(info["note"])
         self.importance_label.setText("\n".join(lines))
+        self._show_pair(info)
+
+    def _show_pair(self, info: dict) -> None:
+        import numpy as np
+
+        h = info.get("heatmap")
+        self.pair_plot.setVisible(bool(h and h["z"]))
+        if not h or not h["z"]:
+            return
+        z = np.array(h["z"], dtype=float)                        # z[y][x]
+        lo, hi = float(z.min()), float(z.max())
+        good = (z - lo) / (hi - lo) if hi > lo else np.full_like(z, 0.5)
+        if info["direction"] == "min":
+            good = 1 - good
+        self.pair_image.setImage(good.T, levels=(0, 1), lut=pg.ColorMap(
+            [0, 1], [(235, 235, 240), (232, 131, 58)]).getLookupTable(nPts=64))
+        self.pair_plot.getAxis("bottom").setTicks(
+            [[(i + 0.5, str(v)) for i, v in enumerate(h["x"])]])
+        self.pair_plot.getAxis("left").setTicks(
+            [[(i + 0.5, str(v)) for i, v in enumerate(h["y"])]])
+        self.pair_plot.setLabel("bottom", h["x_label"])
+        self.pair_plot.setLabel("left", h["y_label"])
+        self.pair_plot.setTitle(f"predicted {info['metric']} (darker is better)", size="9pt")
 
     def _emit_sweep(self, signal) -> None:  # noqa: ANN001
         sweep = self.selected_sweep()
@@ -484,6 +528,10 @@ class ExperimentsPage(QtWidgets.QWidget):
         sweep = self.selected_sweep()
         self.stop_sweep_btn.setEnabled(bool(sweep and sweep.state == "running"))
         self.apply_best_btn.setEnabled(bool(sweep and sweep.best))
+        finished = sum(t.get("state") == "finished" for t in sweep.trials) if sweep else 0
+        self.sweep_again_btn.setEnabled(bool(
+            sweep and sweep.state != "running" and not sweep.spec.get("automl")
+            and finished >= 4))
 
     def set_sweeps(self, sweeps: list) -> None:
         current = self.selected_sweep()
@@ -1048,3 +1096,34 @@ class SweepDialog(QtWidgets.QDialog):
 
     def spec(self) -> dict | None:
         return self._spec
+
+    def prefill(self, spec: dict, note: str = "") -> None:
+        """Fill the form from a spec (3.7: sweeping again near the best)."""
+        if note:
+            self.setWindowTitle("Sweep Again Near the Best")
+            self.error.setObjectName("blockMeta")
+            self.error.setText(note)
+        dims = {f"{d['node']}.{d['param']}": d for d in spec.get("dimensions", [])}
+        for row, p in enumerate(self._params):
+            d = dims.get(p["key"])
+            self.table.item(row, 0).setCheckState(
+                QtCore.Qt.CheckState.Checked if d else QtCore.Qt.CheckState.Unchecked)
+            if not d:
+                continue
+            if p["kind"] == "choice" or d.get("values"):
+                self.table.item(row, 5).setText(", ".join(str(v) for v in d.get("values", [])))
+            else:
+                self.table.item(row, 4).setText(_fmt(d.get("low")))
+                self.table.item(row, 5).setText(_fmt(d.get("high")))
+                self.table.item(row, 6).setCheckState(
+                    QtCore.Qt.CheckState.Checked if d.get("log")
+                    else QtCore.Qt.CheckState.Unchecked)
+        self.metric.setCurrentText(spec.get("metric", self.metric.currentText()))
+        self.direction.setCurrentText({"min": "Minimize", "max": "Maximize"}.get(
+            spec.get("direction", ""), "Automatic"))
+        index = self.strategy.findData(spec.get("strategy"))
+        if index >= 0:
+            self.strategy.setCurrentIndex(index)
+        self.trials.setValue(int(spec.get("max_trials", self.trials.value())))
+        self.seed.setValue(int(spec.get("seed", 0)))
+        self.skip_budget.setChecked(bool(spec.get("skip_over_budget", True)))

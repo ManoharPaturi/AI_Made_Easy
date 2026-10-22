@@ -26,6 +26,7 @@ import type {
   SavedProject,
   SplitPreview,
   Summary,
+  SweepAgain,
   SweepAnalysis,
   SweepParam,
   SweepRecord,
@@ -155,6 +156,7 @@ export const api = {
   stopSweep: (id: string) => post<Record<string, unknown>>(`/sweeps/${id}/stop`),
   bestGraph: (id: string) => get<{ graph: Project }>(`/sweeps/${id}/best`),
   sweepAnalysis: (id: string) => get<SweepAnalysis>(`/sweeps/${id}/analysis`),
+  sweepAgain: (id: string) => get<SweepAgain>(`/sweeps/${id}/again`),
 
   startPipeline: (graph: Project, project = "", on = "local") =>
     post<{ pipeline_id: string; stages: string[] }>("/pipelines", { graph, project, on }),
