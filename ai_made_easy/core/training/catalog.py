@@ -719,6 +719,17 @@ OPTIMIZERS += [
              "al., 2018), so a burst of large gradients does not shrink the step for long. "
              "Steadier on sparse or noisy gradients.",
         meta={"torch_helper": "Yogi"}),
+    Component(
+        "train.adopt", "ADOPT",
+        (_LR(1e-3), _B1, P("beta2", "float", 0.9999, lo=0.0, hi=0.99999), _EPS(1e-6),
+         _WD(0.0)),
+        torch=lambda p: (f"ADOPT(model.parameters(), lr={p['lr']}, "
+                         f"betas=({p['beta1']}, {p['beta2']}), eps={p['eps']}, "
+                         f"weight_decay={p['weight_decay']})"),
+        desc="ADOPT (Taniguchi et al., 2024): Adam that normalizes each gradient by the "
+             "second moment from before it and applies momentum after that, which makes it "
+             "converge for any beta2. A drop-in for Adam and AdamW, often steadier.",
+        meta={"torch_helper": "ADOPT"}),
 ]
 
 _PROTOTYPES = '''\
@@ -1541,6 +1552,41 @@ class Yogi(torch.optim.Optimizer):
                 v.addcmul_(torch.sign(v - g2), g2, value=-(1 - b2))
                 denom = (v / (1 - b2 ** t)).sqrt().add_(group["eps"])
                 p.addcdiv_(m, denom, value=-group["lr"] / (1 - b1 ** t))
+        return loss
+''',
+    "ADOPT": '''\
+class ADOPT(torch.optim.Optimizer):
+    """ADOPT (Taniguchi et al., 2024): the gradient is divided by the second moment from
+    the step before (clipped to +-step^0.25), then averaged into momentum; the first step
+    only records g^2. Weight decay is decoupled, as in AdamW."""
+
+    def __init__(self, params, lr: float = 1e-3, betas=(0.9, 0.9999), eps: float = 1e-6,
+                 weight_decay: float = 0.0) -> None:
+        super().__init__(params, dict(lr=lr, betas=betas, eps=eps, weight_decay=weight_decay))
+
+    @torch.no_grad()
+    def step(self, closure=None):
+        loss = closure() if closure is not None else None
+        for group in self.param_groups:
+            b1, b2 = group["betas"]
+            for p in group["params"]:
+                if p.grad is None:
+                    continue
+                g, state = p.grad, self.state[p]
+                if not state:
+                    state["step"] = 0
+                    state["m"] = torch.zeros_like(p)
+                    state["v"] = g * g
+                    continue
+                state["step"] += 1
+                m, v = state["m"], state["v"]
+                normed = g / v.sqrt().clamp(min=group["eps"])
+                limit = state["step"] ** 0.25
+                m.mul_(b1).add_(normed.clamp(-limit, limit), alpha=1 - b1)
+                if group["weight_decay"]:
+                    p.mul_(1 - group["lr"] * group["weight_decay"])
+                p.add_(m, alpha=-group["lr"])
+                v.mul_(b2).addcmul_(g, g, value=1 - b2)
         return loss
 ''',
 }

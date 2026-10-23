@@ -195,6 +195,52 @@ def _models() -> list[BlockDefinition]:
                "shows which inputs matter, an LSTM encoder-decoder and attention read past "
                "and known-future steps; pair with the quantile head.",
                check=_heads_check),
+        _model("forecast.nlinear", "NLinear", "NLinear", (),
+               lambda c: (f"NLinear({c['input_shape'][0]}, {int(c['horizon'])}, "
+                          f"{_heads_args(c)})"),
+               lambda s, p, out: h.nlinear_cost(s[0], out),
+               "One linear map over the window after subtracting the last value, which is "
+               "added back (Zeng et al., 2023): a tiny baseline that copes with level shifts."),
+        _model("forecast.itransformer", "iTransformer", "ITransformer",
+               (P("d_model", "int", 64, lo=8), P("heads", "int", 4, lo=1),
+                P("layers", "int", 2, lo=1), P("dropout", "float", 0.1, lo=0.0, hi=1.0)),
+               lambda c: (f"ITransformer({c['input_shape'][0]}, {int(c['horizon'])}, "
+                          f"{_heads_args(c)}, d_model={int(c['d_model'])}, "
+                          f"heads={int(c['heads'])}, layers={int(c['layers'])}, "
+                          f"dropout={float(c['dropout'])})"),
+               lambda s, p, out: h.itransformer_cost(s[0], s[1], out, int(p["d_model"]),
+                                                     int(p["layers"])),
+               "Inverted transformer (Liu et al., 2024): each variable's whole window is one "
+               "token, so attention learns how the target moves with its covariates. Best "
+               "with several input channels.",
+               check=_heads_check),
+        _model("forecast.tsmixer", "TSMixer", "TSMixer",
+               (P("blocks", "int", 2, lo=1), P("hidden", "int", 64, lo=1,
+                                               help="Width of the variable-mixing MLP"),
+                P("dropout", "float", 0.1, lo=0.0, hi=1.0)),
+               lambda c: (f"TSMixer({c['input_shape'][0]}, {c['input_shape'][1]}, "
+                          f"{int(c['horizon'])}, {_heads_args(c)}, blocks={int(c['blocks'])}, "
+                          f"hidden={int(c['hidden'])}, dropout={float(c['dropout'])})"),
+               lambda s, p, out: h.tsmixer_cost(s[0], s[1], out, int(p["blocks"]),
+                                                int(p["hidden"])),
+               "All-MLP forecaster (TSMixer, Chen et al., 2023): blocks that mix along time, "
+               "then across variables. Fast, and strong on multivariate data."),
+        _model("forecast.timesnet", "TimesNet", "TimesNet",
+               (P("d_model", "int", 32, lo=4), P("hidden", "int", 32, lo=4,
+                                                 help="Channels inside each 2-D convolution"),
+                P("layers", "int", 2, lo=1),
+                P("top_k", "int", 2, lo=1, hi=8, help="Strongest periods used per layer"),
+                P("dropout", "float", 0.1, lo=0.0, hi=1.0)),
+               lambda c: (f"TimesNet({c['input_shape'][0]}, {c['input_shape'][1]}, "
+                          f"{int(c['horizon'])}, {_heads_args(c)}, d_model={int(c['d_model'])}, "
+                          f"hidden={int(c['hidden'])}, layers={int(c['layers'])}, "
+                          f"top_k={int(c['top_k'])}, dropout={float(c['dropout'])})"),
+               lambda s, p, out: h.timesnet_cost(s[0], s[1], out, int(p["d_model"]),
+                                                 int(p["hidden"]), int(p["layers"]),
+                                                 int(p["top_k"])),
+               "TimesNet (Wu et al., 2023), compact: finds the strongest cycles with an FFT, "
+               "folds the series into a grid per cycle and reads it with 2-D convolutions. "
+               "Suits strongly seasonal data."),
     ]
 
 

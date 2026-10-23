@@ -41,5 +41,6 @@ from ai_made_easy.core.blocks import (  # noqa: F401
     library,
     library36,
     library37,
+    library38,
     modern,
 )

@@ -195,8 +195,30 @@ class TabNet(nn.Module):
         return self.sparsity * self._entropy if self._entropy is not None else 0.0
 '''
 
+TABM = '''\
+class TabM(nn.Module):
+    """TabM-mini (Gorishniy et al., 2025): k members share one MLP; each first scales the
+    input by its own learned vector (signs at random to start), and their representations
+    are averaged, an ensemble for about the price of one network."""
+
+    def __init__(self, n_features: int, d: int = 256, blocks: int = 3, k: int = 16,
+                 dropout: float = 0.1) -> None:
+        super().__init__()
+        self.k = k
+        self.scale = nn.Parameter(torch.randint(0, 2, (k, n_features)).float() * 2 - 1)
+        layers, width = [], n_features
+        for _ in range(blocks):
+            layers += [nn.Linear(width, d), nn.ReLU(), nn.Dropout(dropout)]
+            width = d
+        self.mlp = nn.Sequential(*layers)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        members = x[:, None, :] * self.scale                    # [B, k, F]
+        return self.mlp(members).mean(1)
+'''
+
 TABULAR_HELPERS = {"TabularSplit": SPLIT, "CategoricalEmbedding": EMBED,
-                   "TabularResNet": RESNET, "FTTransformer": FT,
+                   "TabularResNet": RESNET, "TabM": TABM, "FTTransformer": FT,
                    "TabTransformer": TAB_TRANSFORMER, "TabNet": TABNET}
 
 
