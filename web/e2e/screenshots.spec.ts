@@ -1,6 +1,8 @@
 import { expect, test } from "@playwright/test";
 import { fileURLToPath } from "node:url";
 
+import { fileMenu } from "./helpers";
+
 // Docs screenshots of the 3.2 web tools: AIME_SCREENSHOTS=1 npx playwright test screenshots
 const OUT = fileURLToPath(new URL("../../docs/images", import.meta.url));
 test.skip(!process.env.AIME_SCREENSHOTS, "set AIME_SCREENSHOTS=1 to refresh the docs images");
@@ -139,4 +141,26 @@ test("docs screenshots: 3.7 which settings matter together", async ({ page, requ
   const insights = page.getByTestId("sweep-insights");
   await expect(insights.getByTestId("pair-heatmap")).toBeVisible({ timeout: 30_000 });   // the first analysis imports scikit-learn
   await insights.screenshot({ path: `${OUT}/web_sweep_pairs.png` });
+});
+
+test("docs screenshots: 3.8 find a learning rate", async ({ page, request }) => {
+  test.setTimeout(240_000);
+  const at = (i: number, row = 0): [number, number] => [i * 200, row * 200];
+  const nodes = tiny.nodes.map((n, i) => ({ ...n, position: i < 5 ? at(i) : at(i - 5, 1) }));
+  const graph = { ...tiny, schema_version: 3, name: "churn_lr_find", nodes };
+  const put = await request.put("/api/projects/churn_lr_find", { data: graph });
+  expect(put.ok(), await put.text()).toBeTruthy();
+  try {
+    await page.goto("/");
+    await expect(page.locator(".block-node").first()).toBeVisible();
+    await fileMenu(page, "open-project");
+    await page.locator(".issue", { hasText: "churn_lr_find" }).click();
+    await expect(page.getByTestId("status")).toHaveText("No problems", { timeout: 30_000 });
+    await page.locator(".block-node", { hasText: "Adam" }).first().click();
+    await page.getByTestId("find-lr").click();
+    await expect(page.getByTestId("lr-summary")).toContainText("Suggested", { timeout: 200_000 });
+    await page.getByRole("dialog").screenshot({ path: `${OUT}/web_lr_finder.png` });
+  } finally {
+    await request.delete("/api/projects/churn_lr_find");
+  }
 });

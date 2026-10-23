@@ -52,9 +52,11 @@ export function LineChart({ series, height = 220, xLabel = "epoch", marker, xTic
             <text x={pad.l - 6} y={sy(t) + 3} textAnchor="end">{fmt(t)}</text>
           </g>
         ))}
-        {niceTicks(x0, x1, 6).filter(Number.isInteger).map((t) => (
-          <text key={`x${t}`} x={sx(t)} y={height - 8} textAnchor="middle">{xTick ? xTick(t) : t}</text>
-        ))}
+        {niceTicks(x0, x1, 6).filter(Number.isInteger)
+          .filter((t) => sx(t) < width - pad.r - 7 * (xLabel.length + 3))   // clear of the axis label
+          .map((t) => (
+            <text key={`x${t}`} x={sx(t)} y={height - 8} textAnchor="middle">{xTick ? xTick(t) : t}</text>
+          ))}
         <text x={width - pad.r} y={height - 8} textAnchor="end">{xLabel}</text>
         {marker && Number.isFinite(marker.x) && (
           <g data-testid="chart-marker">
