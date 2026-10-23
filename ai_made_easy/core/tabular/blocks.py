@@ -16,7 +16,7 @@ from ai_made_easy.core.spec import BlockDefinition
 
 CATEGORY = "Tabular Models"
 CATEGORICAL_BLOCKS = ("tab.embedding", "tab.ft_transformer", "tab.tab_transformer")
-TAB_BLOCKS = (*CATEGORICAL_BLOCKS, "tab.resnet", "tab.tabnet")
+TAB_BLOCKS = (*CATEGORICAL_BLOCKS, "tab.resnet", "tab.tabnet", "tab.tabm")
 
 CAT = P("categorical", "str", "",
         help="Positions of the ordinal-encoded categorical columns in the input (e.g. 0, 3); "
@@ -90,6 +90,12 @@ def _resnet_params(in_shapes, p) -> int:
     return f * d + d + int(p["blocks"]) * (2 * d + d * h + h + h * d + d) + 2 * d
 
 
+def _tabm_params(in_shapes, p) -> int:
+    f = columns(in_shapes, p)[0]
+    d, blocks = int(p["d"]), int(p["blocks"])
+    return int(p["k"]) * f + (f * d + d) + (blocks - 1) * (d * d + d)
+
+
 def _tabnet_params(in_shapes, p) -> int:
     f = columns(in_shapes, p)[0]
     n_d, n_a, steps = int(p["n_d"]), int(p["n_a"]), int(p["steps"])
@@ -131,6 +137,7 @@ KERNELS = {
     "tab.tab_transformer": lambda p: 6 + 10 * int(p["layers"]),
     "tab.resnet": lambda p: 3 + 6 * int(p["blocks"]),
     "tab.tabnet": lambda p: 4 + 12 * int(p["steps"]),
+    "tab.tabm": lambda p: 2 + 3 * int(p["blocks"]),
 }
 COSTS = {"tab.ft_transformer": _ft_cost, "tab.tab_transformer": _tt_cost}
 
@@ -225,6 +232,16 @@ def _blocks() -> list[BlockDefinition]:
                       "step — interpretable feature selection (Arik & Pfister, 2021). Needs "
                       "large tables and long training; on small ones start with Tabular "
                       "ResNet."),
+        nn_block("tab.tabm", "TabM", CATEGORY, family="model",
+                 params=(P("d", "int", 256, lo=1, hi=8192), P("blocks", "int", 3, lo=1, hi=16),
+                         P("k", "int", 16, lo=1, hi=64, help="Ensemble members"), dropout),
+                 shape=lambda s, p: (columns(s, p), [int(p["d"])])[1], param_fn=_tabm_params,
+                 torch=lambda c: (f"TabM({c['input_shape'][0]}, {int(c['d'])}, "
+                                  f"{int(c['blocks'])}, {int(c['k'])}, {float(c['dropout'])})"),
+                 torch_helpers=("TabM",),
+                 desc="An ensemble of MLPs that share their weights, each member seeing the "
+                      "columns through its own learned scaling (TabM-mini, Gorishniy et al., "
+                      "2025): among the strongest deep models for tables, and fast."),
     ]
     out = []
     for b in blocks:

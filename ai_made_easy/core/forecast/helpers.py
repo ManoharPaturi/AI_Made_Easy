@@ -360,12 +360,159 @@ class TFTLite(Forecaster):
         return self.out(self.project(y).reshape(batch, -1))
 '''
 
+NLINEAR = '''\
+class NLinear(Forecaster):
+    """NLinear (Zeng et al., 2023): subtract the last value, one linear map over the
+    window, add the last value back; robust when the level of a series shifts."""
+
+    def __init__(self, window: int, horizon: int, head: str = "point",
+                 quantiles: tuple = (0.1, 0.5, 0.9)) -> None:
+        super().__init__()
+        self.out = ForecastHead(horizon, head, quantiles)
+        self.linear = nn.Linear(window, self.out.size)
+
+    def forecast(self, x: torch.Tensor, future=None) -> torch.Tensor:
+        y = x[..., 0]
+        last = y[:, -1:]
+        raw = self.linear(y - last).reshape(y.shape[0], self.out.horizon, self.out.k)
+        level = torch.zeros_like(raw)
+        level[..., 0] = last        # back to the series' level: point, lowest quantile, loc
+        return self.out((raw + level).reshape(y.shape[0], -1))
+'''
+
+ITRANSFORMER = '''\
+class ITransformer(Forecaster):
+    """iTransformer (Liu et al., 2024): each variable's whole window is one token, so
+    attention runs across variables (how the target relates to its covariates) and the
+    feed-forward layers read time."""
+
+    def __init__(self, window: int, horizon: int, head: str = "point",
+                 quantiles: tuple = (0.1, 0.5, 0.9), d_model: int = 64, heads: int = 4,
+                 layers: int = 2, dropout: float = 0.1) -> None:
+        super().__init__()
+        self.out = ForecastHead(horizon, head, quantiles)
+        self.embed = nn.Linear(window, d_model)
+        layer = nn.TransformerEncoderLayer(d_model, heads, 2 * d_model, dropout,
+                                           batch_first=True)
+        self.encoder = nn.TransformerEncoder(layer, layers, enable_nested_tensor=False)
+        self.project = nn.Linear(d_model, self.out.size)
+
+    def forecast(self, x: torch.Tensor, future=None) -> torch.Tensor:
+        tokens = self.encoder(self.embed(x.transpose(1, 2)))     # [B, C, d]
+        return self.out(self.project(tokens[:, 0]))              # the target's token
+'''
+
+TSMIXER = '''\
+class TSMixer(Forecaster):
+    """TSMixer (Chen et al., 2023): all-MLP; each block mixes along time (shared across
+    variables) and then across variables, with residuals."""
+
+    def __init__(self, window: int, channels_in: int, horizon: int, head: str = "point",
+                 quantiles: tuple = (0.1, 0.5, 0.9), blocks: int = 2, hidden: int = 64,
+                 dropout: float = 0.1) -> None:
+        super().__init__()
+        self.out = ForecastHead(horizon, head, quantiles)
+        self.time_norm = nn.ModuleList(nn.LayerNorm(channels_in) for _ in range(blocks))
+        self.time = nn.ModuleList(nn.Linear(window, window) for _ in range(blocks))
+        self.feat_norm = nn.ModuleList(nn.LayerNorm(channels_in) for _ in range(blocks))
+        self.feat = nn.ModuleList(nn.Sequential(
+            nn.Linear(channels_in, hidden), nn.ReLU(), nn.Dropout(dropout),
+            nn.Linear(hidden, channels_in)) for _ in range(blocks))
+        self.drop = nn.Dropout(dropout)
+        self.project = nn.Linear(window, self.out.size)
+
+    def forecast(self, x: torch.Tensor, future=None) -> torch.Tensor:
+        for tn, t, fn, f in zip(self.time_norm, self.time, self.feat_norm, self.feat):
+            mixed = torch.relu(t(tn(x).transpose(1, 2))).transpose(1, 2)
+            x = x + self.drop(mixed)
+            x = x + self.drop(f(fn(x)))
+        return self.out(self.project(x[..., 0]))
+'''
+
+TIMESNET = '''\
+class TimesNet(Forecaster):
+    """TimesNet (Wu et al., 2023), compact: the strongest periods are found with an FFT,
+    the series is folded into a 2-D grid per period (cycles x phase), and 2-D
+    convolutions read changes within and across cycles; periods are weighted by their
+    strength. Training picks each batch's periods and keeps a running spectrum (like
+    BatchNorm's running statistics); prediction uses the periods that spectrum fixes, so
+    a forecast never depends on the other series in its batch, and exports trace it."""
+
+    def __init__(self, window: int, channels_in: int, horizon: int, head: str = "point",
+                 quantiles: tuple = (0.1, 0.5, 0.9), d_model: int = 32, hidden: int = 32,
+                 layers: int = 2, top_k: int = 2, dropout: float = 0.1) -> None:
+        super().__init__()
+        self.window, self.top_k = window, max(1, min(top_k, window // 2))
+        self.out = ForecastHead(horizon, head, quantiles)
+        self.embed = nn.Linear(channels_in, d_model)
+        self.position = nn.Parameter(torch.zeros(window, d_model))
+        self.convs = nn.ModuleList(nn.Sequential(
+            nn.Conv2d(d_model, hidden, 3, padding=1), nn.GELU(),
+            nn.Conv2d(hidden, d_model, 3, padding=1)) for _ in range(layers))
+        self.norms = nn.ModuleList(nn.LayerNorm(d_model) for _ in range(layers))
+        self.drop = nn.Dropout(dropout)
+        self.project = nn.Linear(window * d_model, self.out.size)
+        self.register_buffer("spectrum", torch.zeros(layers, window // 2 + 1))
+        self._fixed = None
+
+    def train(self, mode: bool = True):
+        self._fixed = None
+        return super().train(mode)
+
+    def _load_from_state_dict(self, *args, **kwargs) -> None:
+        self._fixed = None
+        super()._load_from_state_dict(*args, **kwargs)
+
+    def _frozen(self, layer: int):
+        """Periods from the running spectrum, with cosine / sine bases that measure their
+        strength without an FFT."""
+        if self._fixed is None:
+            self._fixed = []
+            t = torch.arange(self.window, dtype=torch.float32, device=self.spectrum.device)
+            for row in self.spectrum:
+                freqs = (row[1:].topk(self.top_k).indices + 1).tolist()
+                angle = 2 * math.pi * t[:, None] * torch.tensor(freqs, device=t.device) / self.window
+                self._fixed.append(([max(1, self.window // f) for f in freqs],
+                                    torch.cos(angle), torch.sin(angle)))
+        return self._fixed[layer]
+
+    def _periods(self, z: torch.Tensor, layer: int):
+        if not self.training:
+            periods, cos, sin = self._frozen(layer)
+            re, im = torch.einsum("bnd,nk->bkd", z, cos.to(z.dtype)), torch.einsum(
+                "bnd,nk->bkd", z, sin.to(z.dtype))
+            return periods, (re * re + im * im + 1e-12).sqrt().mean(-1)
+        amp = torch.fft.rfft(z, dim=1).abs().mean(-1)            # [B, L//2 + 1]
+        amp[:, 0] = 0
+        with torch.no_grad():
+            self.spectrum[layer].mul_(0.9).add_(0.1 * amp.mean(0))
+        top = amp.mean(0).topk(self.top_k).indices
+        return [max(1, self.window // max(int(f), 1)) for f in top.tolist()], amp[:, top]
+
+    def _fold(self, z: torch.Tensor, conv: nn.Module, period: int) -> torch.Tensor:
+        b, n, d = z.shape
+        length = -(-n // period) * period
+        padded = nn.functional.pad(z, (0, 0, 0, length - n))
+        grid = padded.reshape(b, length // period, period, d).permute(0, 3, 1, 2)
+        return conv(grid).permute(0, 2, 3, 1).reshape(b, length, d)[:, :n]
+
+    def forecast(self, x: torch.Tensor, future=None) -> torch.Tensor:
+        z = self.embed(x) + self.position
+        for i, (conv, norm) in enumerate(zip(self.convs, self.norms)):
+            periods, weight = self._periods(z, i)
+            outs = torch.stack([self._fold(z, conv, p) for p in periods], -1)
+            mixed = (outs * weight.softmax(-1)[:, None, None, :]).sum(-1)
+            z = norm(z + self.drop(mixed))
+        return self.out(self.project(z.flatten(1)))
+'''
+
 _MATH = "import math\n\n\n"
 FORECAST_HELPERS: dict[str, str] = {
     "ForecastHead": HEAD, "DLinear": DLINEAR, "NBEATS": NBEATS, "NHITS": _MATH + NHITS,
     "TCNForecaster": TCN_FORECASTER, "PatchTST": PATCHTST, "TiDE": TIDE,
     "RNNForecaster": RNN_FORECASTER, "TransformerForecaster": TRANSFORMER_FORECASTER,
-    "TFTLite": TFT,
+    "TFTLite": TFT, "NLinear": NLINEAR, "ITransformer": ITRANSFORMER, "TSMixer": TSMIXER,
+    "TimesNet": _MATH + TIMESNET,
 }
 
 
@@ -494,4 +641,31 @@ def tft_cost(window: int, cin: int, horizon: int, k: int, d: int,
     macs = (window * _vsn(cin, d) + horizon * (_vsn(future, d) if future else 0)
             + steps * (lstm + gate + grn) + steps * 2 * d * d + horizon * 2 * d * d
             + 2 * horizon * steps * d + horizon * (2 * gate + grn + d * k))
+    return params, macs
+
+
+def nlinear_cost(window: int, out: int) -> tuple[int, int]:
+    params = _lin(window, out)
+    return params, params
+
+
+def itransformer_cost(window: int, cin: int, out: int, d: int, layers: int) -> tuple[int, int]:
+    params = _lin(window, d) + layers * encoder_layer_params(d) + _lin(d, out)
+    macs = (cin * (window * d + layers * 8 * d * d) + layers * 2 * cin * cin * d + d * out)
+    return params, macs
+
+
+def tsmixer_cost(window: int, cin: int, out: int, blocks: int, hidden: int) -> tuple[int, int]:
+    per = 4 * cin + _lin(window, window) + _lin(cin, hidden) + _lin(hidden, cin)
+    params = blocks * per + _lin(window, out)
+    macs = blocks * (cin * window * window + window * 2 * cin * hidden) + window * out
+    return params, macs
+
+
+def timesnet_cost(window: int, cin: int, out: int, d: int, hidden: int, layers: int,
+                  top_k: int) -> tuple[int, int]:
+    conv = (9 * d * hidden + hidden) + (9 * hidden * d + d)
+    params = _lin(cin, d) + window * d + layers * (conv + 2 * d) + _lin(window * d, out)
+    k = max(1, min(top_k, window // 2))
+    macs = window * cin * d + layers * k * window * 18 * d * hidden + window * d * out
     return params, macs

@@ -145,6 +145,34 @@ def _density(facts: DataFacts) -> tuple[str, dict, str]:
             f"your table's {len(columns)} numeric columns: the flow learns their joint density")
 
 
+def _regression_table(facts: DataFacts) -> tuple[str, dict, str]:
+    if facts.format not in ("csv", "tsv", "parquet"):
+        raise RecipeError("this recipe reads .csv / .tsv / .parquet tables")
+    return ("data.csv", {"path": facts.source, "format": facts.format,
+                         "target_column": facts.target},
+            f"your table: predicts '{facts.target}' with a spread for every row")
+
+
+def _gaussian_head(graph: dict) -> None:
+    for node in graph["nodes"]:
+        if node["type"] == "bayes.mdn":
+            node["type"], node["params"] = "bayes.gaussian_head", {"targets": 1}
+
+
+def _itransformer(graph: dict) -> None:
+    """Two channels (demand and the promotion flag): iTransformer attends across them."""
+    for node in graph["nodes"]:
+        if node["type"] == "forecast.nhits":
+            node["type"] = "forecast.itransformer"
+            node["params"] = {"horizon": node["params"]["horizon"], "head": "quantile",
+                              "quantiles": "0.1, 0.5, 0.9", "d_model": 64, "heads": 4,
+                              "layers": 2, "dropout": 0.1}
+        elif node["type"] == "data.synthetic_series":
+            node["params"]["promotions"] = True
+        elif node["type"] == "core.input":
+            node["params"]["shape"] = f"{node['params']['shape'].split(',')[0].strip()}, 2"
+
+
 def _grouped(facts: DataFacts) -> tuple[str, dict, str]:
     if facts.format not in ("csv", "tsv", "parquet"):
         raise RecipeError("PyMC models read .csv / .tsv / .parquet tables")
@@ -340,6 +368,11 @@ starter("forecast_patchtst", "demand_forecasting", "forecasting", "medium", "tim
         "Forecasting network", "A deep forecasting model over sliding windows with "
         "covariates, compared with a seasonal-naive baseline.", swaps={"series": _series},
         knobs=TRAIN_KNOBS(1e-3, 30), strengths="many related series and covariates")
+starter("forecast_itransformer", "demand_forecasting", "forecasting", "medium", "timeseries",
+        "iTransformer forecaster", "Attention across the series and its covariates (each "
+        "variable's window is one token), with 10-90% prediction intervals.",
+        swaps={"series": _series}, knobs=TRAIN_KNOBS(1e-3, 30), edit=_itransformer,
+        strengths="series that move with other variables (prices, promotions, weather)")
 starter("keyword_cnn", "keyword_spotting", "keyword_spotting", "small", "audio",
         "Keyword CNN", "A CNN over mel spectrograms that recognises spoken commands.",
         knobs=TRAIN_KNOBS(1e-3, 25),
@@ -389,6 +422,14 @@ starter("seq2seq_transformer", "reverse_seq2seq", "sequence_to_sequence", "mediu
         "Encoder-decoder transformer", "Reads the source sequence and writes the target "
         "(translation, summarisation, rewriting).", swaps={"pairs": _pairs},
         knobs=TRAIN_KNOBS(5e-4, 30), strengths="maps one sequence to another")
+starter("uncertainty_regression", "mixture_density_regression", "regression", "small",
+        "tabular", "Regression with uncertainty", "An MLP whose head predicts a mean and a "
+        "variance for each row, trained on the Gaussian likelihood, plus a conformal 90% "
+        "interval: every prediction says how sure it is.",
+        swaps={"table": _regression_table}, knobs=(lr("opt.lr", 3e-3),
+                                                   epochs("trainer.epochs", 60)),
+        edit=_gaussian_head, priority=-0.1,
+        strengths="noisy targets where the size of the error matters, not only its average")
 starter("realnvp", "flow_moons_realnvp", "density_estimation", "small", "tabular",
         "RealNVP flow", "Affine coupling layers: exact likelihoods and fast sampling.",
         knobs=(lr("opt.lr", 3e-3), epochs("trainer.epochs", 40)),

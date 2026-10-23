@@ -73,7 +73,7 @@ VARIANTS: dict[str, list[dict]] = {
         {"model_id": "MIT/ast-finetuned-audioset-10-10-0.4593", "weights": "none"}],
     **{f"forecast.{m}": [{"head": h} for h in ("quantile", "student_t", "negbin")]
        for m in ("dlinear", "nbeats", "nhits", "tcn", "patchtst", "tide", "rnn",
-                 "transformer", "tft")},
+                 "transformer", "tft", "nlinear", "itransformer", "tsmixer", "timesnet")},
     "audio.mel_spectrogram": [{"layout": "sequence [frames, bins]"}],
     "gen.diffusion_unet": [{"num_classes": 4, "attention": False, "depth": 2}],
     "gen.gpt": [{"tie_weights": False, "layers": 2}],

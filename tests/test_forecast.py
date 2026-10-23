@@ -19,11 +19,13 @@ from ai_made_easy.core.tasks import task_of
 torch = pytest.importorskip("torch")
 
 MODELS = ["forecast.dlinear", "forecast.nbeats", "forecast.nhits", "forecast.tcn",
-          "forecast.patchtst", "forecast.tide", "forecast.rnn", "forecast.transformer"]
+          "forecast.patchtst", "forecast.tide", "forecast.rnn", "forecast.transformer",
+          "forecast.nlinear", "forecast.itransformer", "forecast.tsmixer", "forecast.timesnet"]
 SMALL = {"forecast.nbeats": {"width": 32, "layers": 2}, "forecast.nhits": {"width": 32},
          "forecast.tcn": {"channels": 8, "levels": 5}, "forecast.patchtst": {"d_model": 16},
          "forecast.tide": {"hidden": 16}, "forecast.rnn": {"hidden": 8},
-         "forecast.transformer": {"d_model": 16}}
+         "forecast.transformer": {"d_model": 16}, "forecast.itransformer": {"d_model": 16},
+         "forecast.tsmixer": {"hidden": 8}, "forecast.timesnet": {"d_model": 8, "hidden": 8}}
 
 
 @pytest.fixture(scope="module")
@@ -335,3 +337,44 @@ def test_forecast_run_deploys(tmp_path, isolated_home):
         assert api.run_samples(run_id)["samples"]
     finally:
         api.set_manager(None)
+
+
+def test_timesnet_predicts_with_the_periods_it_learned(rt):
+    """In training TimesNet picks each batch's periods and keeps a running spectrum; in
+    prediction it uses the spectrum's periods, measured with cosine / sine bases: a
+    forecast no longer depends on the rest of the batch, and matches the FFT."""
+    import math
+
+    from ai_made_easy.core.forecast.helpers import FORECAST_HELPERS
+
+    ns = {"torch": torch, "nn": torch.nn, "math": math}
+    for name in ("ForecastHead", "TimesNet"):
+        exec(FORECAST_HELPERS[name], ns)  # noqa: S102
+    torch.manual_seed(0)
+    net = ns["TimesNet"](48, 2, 12, d_model=8, hidden=8, top_k=2)
+    t = torch.arange(48.0)
+    series = torch.stack([torch.sin(2 * math.pi * t / 12), torch.zeros(48)], -1)
+    batch = series + 0.05 * torch.randn(16, 48, 2)
+    net.train()
+    for _ in range(5):
+        net(batch)
+    assert net.spectrum.abs().sum() > 0
+    net.eval()
+    with torch.no_grad():
+        alone = net(batch[:1])
+        mixed = net(torch.cat([batch[:1], torch.randn(7, 48, 2) * 5]))
+        assert torch.allclose(alone, mixed[:1], atol=1e-5)
+        z = net.embed(batch) + net.position
+        periods, weight = net._periods(z, 0)
+        freqs = net.spectrum[0, 1:].topk(2).indices + 1
+        fft = torch.fft.rfft(z, dim=1).abs().mean(-1)[:, freqs]
+        assert torch.allclose(weight, fft, atol=1e-3)
+        assert periods[0] == 48 // int(freqs[0])
+
+
+def test_timesnet_names_its_export_limit():
+    from ai_made_easy.core.deploy.exportability import blockers
+
+    found = blockers(Graph.from_dict(design("forecast.timesnet", {"d_model": 8, "hidden": 8})))
+    assert set(found) == {"executorch_int8"} and "ONNX int8" in found["executorch_int8"][0]
+    assert blockers(Graph.from_dict(design("forecast.tsmixer"))) == {}
