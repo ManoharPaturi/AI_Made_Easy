@@ -16,7 +16,8 @@ you say so.*
   and writes in tests and scripts used the code page. Guards: `tests/test_windows_paths.py`
   and the encoding test, which now covers tests and scripts.
 - **Open:** the MCP stdio round-trip test is skipped on Windows: the MCP SDK's stdio
-  client crashed the test worker there. The MCP server itself is unchanged.
+  client crashed the test worker there. The MCP server itself is unchanged. (Done in 3.8:
+  the client runs in its own process.)
 
 ## Phase 1 — more blocks (#61)
 18 layers, 6 losses, 3 optimizers, 3 metrics, 1 augmentation and 2 recipes (see the
@@ -48,6 +49,5 @@ CHANGELOG): 31 blocks, 747 in all. **Done**, with these changes to the plan:
   tag and release follow your confirmation.
 
 ## Still open
-- The MCP stdio test on Windows (above).
-- The slow tests on Windows take most of the CI job's 120 minutes; splitting the job
-  would shorten it.
+Nothing: 3.8 runs the MCP stdio test on Windows and splits the Windows test job in two
+([ROADMAP_3.8.md](ROADMAP_3.8.md)).

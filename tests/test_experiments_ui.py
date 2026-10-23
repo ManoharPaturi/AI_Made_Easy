@@ -50,7 +50,7 @@ def _fake_run(history, lr, acc, project):
 
 
 def test_runs_table_compare_and_load(ctx, app):
-    from ai_made_easy.ui.features.experiments import CompareDialog
+    from ai_made_easy.ui.features.experiment_dialogs import CompareDialog
 
     history = ctx.experiment_service.history
     project = ctx.project_store.name
@@ -89,7 +89,7 @@ def test_runs_table_compare_and_load(ctx, app):
 def test_sweep_dialog_builds_a_valid_spec(app):
     from ai_made_easy.core.graph import Graph
     from ai_made_easy.core.sweeps import SweepSpec, sweepable_params
-    from ai_made_easy.ui.features.experiments import SweepDialog
+    from ai_made_easy.ui.features.experiment_dialogs import SweepDialog
 
     g = Graph.from_dict(tiny_classifier_dict())
     dialog = SweepDialog(None, sweepable_params(g), ["val_loss", "accuracy"])

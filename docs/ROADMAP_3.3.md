@@ -108,6 +108,7 @@ The tag and release follow your confirmation.
   that yields two augmented views of each unlabeled example. The supervised contrastive
   loss in 3.3 covers the labeled case; the two-view loader is a 3.4 item.
 - **Collapsing groups.** Groups frame, name, select and move their blocks; folding a
-  group into a single card is left for 3.4.
+  group into a single card is left for 3.4 (done in 3.4.0).
 - **Cosine embedding and margin ranking losses.** These need paired or ranked examples
-  rather than class labels, so they belong with the two-view pipeline above.
+  rather than class labels, so they belong with the two-view pipeline above (done in
+  3.4.0).

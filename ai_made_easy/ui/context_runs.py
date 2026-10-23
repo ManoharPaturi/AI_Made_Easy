@@ -12,7 +12,7 @@ from PySide6 import QtCore, QtGui, QtWidgets
 
 from ai_made_easy.core.summary import summarize
 from ai_made_easy.ui.context_common import _TRAINER_BLOCK
-from ai_made_easy.ui.features.experiments import CompareDialog, SweepDialog
+from ai_made_easy.ui.features.experiment_dialogs import CompareDialog, SweepDialog
 from ai_made_easy.ui.services.project_service import (
     project_kind,
 )
