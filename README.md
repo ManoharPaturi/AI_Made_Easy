@@ -50,7 +50,7 @@ boilerplate. It runs on the desktop or in the browser.
   state-space models, flows), optionally trading accuracy against latency or model size
   on your target device: the result is one Pareto front of networks and classic models
   to choose from. Trials can train several at a time, on any backend.
-- **747 blocks in 9 families** ([docs/FAMILIES.md](docs/FAMILIES.md) lists every
+- **762 blocks in 9 families** ([docs/FAMILIES.md](docs/FAMILIES.md) lists every
   family, task, block and design rule) across every major library: `torch.nn` layers, Keras 3
   equivalents, torchvision / `keras.applications` / timm pretrained backbones,
   Hugging Face text and image encoders, scikit-learn, XGBoost, LightGBM and CatBoost,
@@ -62,6 +62,16 @@ boilerplate. It runs on the desktop or in the browser.
   ArcFace, CosFace, triplet and supervised contrastive losses for embeddings; SAM and
   Schedule-Free AdamW; weight averaging (EMA, SWA); Integrated Gradients; target encoding
   and SMOTE for classic models; Tiny Llama, Vision Transformer, ConvNeXt and ArcFace recipes.
+- **Find a learning rate, train more, results by group (3.8).** From an optimizer block,
+  a short range test plots loss against learning rate and suggests one to use. A finished
+  network can train for more epochs from its best weights, and any run trained on a table
+  shows its test results per value of a column, flagging groups where it is clearly
+  worse. 15 more blocks: NLinear, iTransformer, TSMixer and TimesNet forecasters, TabM,
+  latent / QK-norm / gated attention, Mamba-2, Gated DeltaNet, GLA, Griffin, MobileNetV4's
+  UIB and StarNet blocks, ADOPT; iTransformer and uncertainty-regression recipes. Python
+  3.13 and 3.14 are tested.
+
+  ![Find a learning rate: loss against learning rate, with the suggestion](docs/images/web_lr_finder.png)
 - **Windows, and which settings matter together (3.7).** Windows is now tested on every
   change, and the Windows desktop app is built and started in CI. Sweeps with 10 or more
   trials show which pairs of settings matter together, with a heatmap of the strongest

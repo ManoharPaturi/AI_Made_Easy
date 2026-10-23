@@ -1,5 +1,51 @@
 # Changelog
 
+## 3.8.0
+
+Find a good learning rate before training, continue a finished run, see where a model is
+weak by group, and 15 more blocks; Python 3.13 and 3.14 tested. 762 blocks, 72 recipes.
+See [docs/ROADMAP_3.8.md](docs/ROADMAP_3.8.md) for what is in this release and what is
+still open.
+
+### Added
+- **Find a learning rate** (both apps; `POST /api/lr-find`): from an optimizer block, a
+  short run raises the learning rate from 1e-7 batch by batch until the loss blows up,
+  plots loss against rate and suggests where the loss falls fastest. **Use** sets it on
+  the block. Nothing is saved; PyTorch designs.
+- **Train more** (both apps; `POST /api/runs/{id}/more`): a finished network continues
+  from its best weights for more epochs, as a new run whose note names the one it
+  continues, with an optional learning-rate scale.
+- **Results by group** (both apps; `POST /api/runs/{id}/groups`): pick a column of the
+  run's table (numbers with many values are split into quartiles) and the run's own test
+  rows are scored for each value. Groups at least 10% worse than the whole test set, with
+  enough rows to trust, are flagged. Networks and classic models trained on a table.
+- **Forecasting:** NLinear, iTransformer, TSMixer and TimesNet forecasters.
+- **Tabular:** TabM (parameter-efficient ensembles of MLPs).
+- **9 more layers** (PyTorch): multi-head latent attention, QK-norm attention and gated
+  attention; Mamba-2, Gated DeltaNet, gated linear attention and Griffin's RG-LRU block;
+  MobileNetV4's universal inverted bottleneck and StarNet's star block.
+- **Optimizer:** ADOPT.
+- **Recipes:** iTransformer forecaster (with 10-90% intervals) and Regression with
+  uncertainty (a mean and a variance per row, plus a conformal 90% interval).
+
+### Changed
+- CI tests Python 3.11 to 3.14; pandas 2 on 3.11 and pandas 3 on the rest. The dev extra
+  installs `httpx2`, which Starlette's test client prefers.
+- The Windows test job runs as two halves in parallel.
+- Internal: the largest modules are split (`training/train_helpers.py`,
+  `torch_template_data.py` / `torch_template_main.py`, `ui/features/experiment_dialogs.py`);
+  generated scripts are unchanged.
+
+### Fixed
+- A test worker that died could leave the test run hanging; it now fails at once with a
+  traceback.
+- Waiting for a run could return before its MLflow / W&B mirror was marked finished.
+- A data file rewritten twice within one clock tick (same size and modified time, as on
+  Windows) kept its old fingerprint.
+- TimesNet designs say they can't be exported to ExecuTorch int8, instead of failing
+  during export.
+- Older roadmaps no longer list as open the items later releases shipped.
+
 ## 3.7.0
 
 Windows as a tested platform, which settings matter together in a sweep, and 31 more

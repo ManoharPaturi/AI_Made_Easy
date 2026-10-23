@@ -60,7 +60,7 @@ export function LRFinder({ onUse, onClose }: {
         <p className="error-text" role="alert">The test {result.state}: {result.error}</p>)}
       {points.length > 0 && (
         <LineChart series={[{ name: "smoothed loss", points }]} xLabel="learning rate"
-                   xTick={(x) => `10^${x}`}
+                   xTick={(x) => `1e${x}`}
                    marker={suggested ? { x: Math.log10(suggested), label: sci(suggested) }
                      : undefined} />)}
       {done && result.state === "finished" && (

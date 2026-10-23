@@ -16,8 +16,9 @@ you say so.*
   and writes in tests and scripts used the code page. Guards: `tests/test_windows_paths.py`
   and the encoding test, which now covers tests and scripts.
 - **Open:** the MCP stdio round-trip test is skipped on Windows: the MCP SDK's stdio
-  client crashed the test worker there. The MCP server itself is unchanged. (Done in 3.8:
-  the client runs in its own process.)
+  client crashed the test worker there. The MCP server itself is unchanged. (3.8 runs the
+  client in its own process, which stopped the crash; the server still stalls on its
+  first tool call on Windows, see ROADMAP_3.8.md.)
 
 ## Phase 1 — more blocks (#61)
 18 layers, 6 losses, 3 optimizers, 3 metrics, 1 augmentation and 2 recipes (see the
@@ -49,5 +50,6 @@ CHANGELOG): 31 blocks, 747 in all. **Done**, with these changes to the plan:
   tag and release follow your confirmation.
 
 ## Still open
-Nothing: 3.8 runs the MCP stdio test on Windows and splits the Windows test job in two
-([ROADMAP_3.8.md](ROADMAP_3.8.md)).
+- Done in 3.8: the Windows test job runs as two halves.
+- The MCP stdio test on Windows: carried into 3.8, where it is still open
+  ([ROADMAP_3.8.md](ROADMAP_3.8.md)).
