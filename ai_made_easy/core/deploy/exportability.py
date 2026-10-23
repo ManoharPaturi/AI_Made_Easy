@@ -69,9 +69,6 @@ _BLOCKS = {
                                     "convolution is a torchvision operator that only "
                                     "TorchScript can carry"),
     # 3.8
-    "forecast.timesnet": Blocker(("executorch_int8",), "the int8 XNNPACK program built from "
-                                 "TimesNet's folded 2-D convolutions fails to load: use "
-                                 "ExecuTorch float or ONNX int8"),
     "graph.topk_pool": Blocker(("onnx", "onnx_int8"), _POOL),
     "graph.sag_pool": Blocker(("onnx", "onnx_int8"), _POOL),
 }

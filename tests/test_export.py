@@ -31,7 +31,7 @@ ROOT = Path(__file__).resolve().parent.parent
 SAMPLES = ROOT / "ai_made_easy" / "samples"
 HAS = {m: importlib.util.find_spec(m) is not None
        for m in ("torch", "torchvision", "onnxruntime", "executorch", "torch_geometric",
-                 "transformers", "tensorflow", "ai_edge_litert", "fastapi")}
+                 "transformers", "tensorflow", "ai_edge_litert", "fastapi", "coremltools")}
 needs_torch = pytest.mark.skipif(not HAS["torch"], reason="needs torch")
 
 
@@ -155,7 +155,8 @@ def _pytorch_samples() -> list[str]:
 _NEEDS = {"graph_": "torch_geometric", "shapes_": "torchvision", "yolo_": "torchvision",
           "cifar10_transfer": "torchvision"}
 _FORMAT_NEEDS = {"onnx": "onnxruntime", "onnx_int8": "onnxruntime",
-                 "executorch": "executorch", "executorch_int8": "executorch"}
+                 "executorch": "executorch", "executorch_int8": "executorch",
+                 "coreml": "coremltools"}
 _SLOW = {"speech_recognition_ctc", "lstm_classifier", "shapes_diffusion"}
 
 
@@ -180,7 +181,7 @@ def _build(graph: Graph):  # noqa: ANN202
 @needs_torch
 @pytest.mark.timeout(900)
 @pytest.mark.parametrize("fmt", ["onnx", "torchscript", "onnx_int8", "executorch",
-                                 "executorch_int8"])
+                                 "executorch_int8", "coreml"])
 @pytest.mark.parametrize("name", _pytorch_samples() if HAS["torch"] else [])
 def test_every_sample_round_trips(name, fmt, tmp_path):
     """Exports match PyTorch (float within 1e-4 of the output scale; int8 runs and is

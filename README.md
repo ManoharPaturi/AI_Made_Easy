@@ -213,6 +213,7 @@ Install only what you need with the optional extras:
 | `web` / `serve` | Browser UI (`aime web`) and serving packages (FastAPI, uvicorn) |
 | `export` | ONNX / onnxruntime / skl2onnx exports and verification |
 | `edge` | On-device exports: ExecuTorch (`.pte`) and the LiteRT interpreter |
+| `coreml` | Core ML exports (`.mlpackage`), checked against PyTorch when exported on a Mac |
 | `tracking` | Mirror runs to MLflow and Weights & Biases |
 | `hub` | The Hugging Face Hub: push runs and Spaces, load Hub datasets |
 | `kaggle` / `modal` | Train on Kaggle / Modal; Kaggle datasets and competitions |

@@ -83,6 +83,12 @@ jobs:
       - name: Test
         # Python 3.11 keeps pandas 2 covered; the others run pandas 3
         run: pytest -q -p no:cacheprovider --max-worker-restart=0 -rfEx
+      - name: Was a test worker killed for memory?
+        # a worker that dies without a Python stack was killed outright (3.8, ubuntu 3.11)
+        if: failure() && runner.os == 'Linux'
+        run: |
+          sudo dmesg -T | grep -iE "out of memory|killed process|oom" | tail -20 || true
+          free -m
       - name: Every sample and recipe validates and generates code
         if: matrix.os == 'ubuntu-latest' && matrix.python == '3.12'
         run: python scripts/sweep_e2e.py
@@ -243,6 +249,30 @@ jobs:
           pip install -e ".[dev,keras,serve,export,edge,graph]" tensorflow-cpu pandas
       - name: Every sample round-trips; packages check exports on the run's samples
         run: pytest -q -p no:cacheprovider tests/test_export.py
+
+  test-coreml:
+    # 3.9: Core ML on macOS, where the converted programs run: every sample and the 3.7 /
+    # 3.8 layers match PyTorch within float16 tolerance, or an export rule says why not
+    needs: lint
+    runs-on: macos-latest
+    timeout-minutes: 60
+    env:
+      QT_QPA_PLATFORM: offscreen
+      KERAS_BACKEND: torch
+      AIME_TESTS: all
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install torch torchvision
+          pip install -e ".[dev,export,coreml]"
+      - name: Core ML exports run and match PyTorch
+        run: pytest -q -p no:cacheprovider tests/test_coreml.py tests/test_export.py -k "coreml or core_ml"
 
   test-tools:
     # 3.2 Phase 3: MLflow (local SQLite store) and W&B (offline) mirror real runs; the
