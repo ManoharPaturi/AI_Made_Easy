@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import json
 import threading
+import time
 from pathlib import Path
 
 from ai_made_easy.core.data.profile import FOLDER_SUFFIXES, resolve_path
@@ -17,6 +18,7 @@ from ai_made_easy.core.data.profile import FOLDER_SUFFIXES, resolve_path
 _FULL_HASH_LIMIT = 256 * 2**20   # bytes hashed completely
 _PARTIAL = 4 * 2**20             # head / tail hashed for bigger files
 _cache: dict[tuple, str] = {}
+_SETTLE_NS = 2_000_000_000
 _lock = threading.Lock()
 
 
@@ -27,8 +29,11 @@ def _short(h) -> str:
 def file_hash(path: Path) -> str:
     st = path.stat()
     key = ("file", str(path), st.st_size, st.st_mtime_ns)
+    # a file written in the last moments may be written again within the same clock tick
+    # (about 16 ms on Windows) with the same size and mtime: hash it afresh, don't cache
+    settled = time.time_ns() - st.st_mtime_ns > _SETTLE_NS
     with _lock:
-        if key in _cache:
+        if settled and key in _cache:
             return _cache[key]
     h = hashlib.sha256()
     with path.open("rb") as fh:
@@ -41,8 +46,9 @@ def file_hash(path: Path) -> str:
             fh.seek(-_PARTIAL, 2)
             h.update(fh.read(_PARTIAL))
     digest = _short(h)
-    with _lock:
-        _cache[key] = digest
+    if settled:
+        with _lock:
+            _cache[key] = digest
     return digest
 
 

@@ -82,7 +82,7 @@ jobs:
           pip install -e ".[dev,classic,umap,imbalance,explain,keras,mcp-server,serve,export,tuning]" "${{ matrix.python == '3.11' && 'pandas<3' || 'pandas>=3' }}"
       - name: Test
         # Python 3.11 keeps pandas 2 covered; the others run pandas 3
-        run: pytest -q -p no:cacheprovider --max-worker-restart=0
+        run: pytest -q -p no:cacheprovider --max-worker-restart=0 -rfEx
       - name: Every sample and recipe validates and generates code
         if: matrix.os == 'ubuntu-latest' && matrix.python == '3.12'
         run: python scripts/sweep_e2e.py
