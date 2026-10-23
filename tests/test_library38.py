@@ -64,6 +64,7 @@ def _torch_helper(name: str):
 
     ns = {"torch": torch, "nn": nn}
     exec(PYTORCH_HELPERS["rms_norm"], ns)  # noqa: S102
+    exec(PYTORCH_HELPERS["chunk_scan"], ns)  # noqa: S102
     exec(PYTORCH_HELPERS[name], ns)  # noqa: S102
     return ns[name]
 
@@ -90,11 +91,117 @@ def test_delta_rule_overwrites_what_a_key_stored():
     recur = _torch_helper("GatedDeltaNet").recur
     k = torch.tensor([1.0, 0.0, 0.0, 0.0]).expand(1, 2, 1, 4)
     v = torch.tensor([[1.0, 2, 3, 4], [5.0, 6, 7, 8]]).reshape(1, 2, 1, 4)
-    ones = torch.ones(1, 2, 1)
-    out = recur(k, k, v, ones, ones)
+    ones, no_decay = torch.ones(1, 2, 1), torch.zeros(1, 2, 1)
+    out = recur(k, k, v, no_decay, ones)
     assert torch.allclose(out[0, 0, 0], v[0, 0, 0]) and torch.allclose(out[0, 1, 0], v[0, 1, 0])
-    half = recur(k, k, v, ones, torch.full((1, 2, 1), 0.5))
+    half = recur(k, k, v, no_decay, torch.full((1, 2, 1), 0.5))
     assert torch.allclose(half[0, 1, 0], 0.25 * v[0, 0, 0] + 0.5 * v[0, 1, 0])
+
+
+# step-by-step references for the chunked forms (3.9): the recurrences as written
+def _mamba2_steps(log_decay, x, bb, cc):
+    import torch
+
+    b, n, h, p = x.shape
+    state, ys = x.new_zeros(b, h, p, bb.shape[-1]), []
+    for t in range(n):
+        state = (torch.exp(log_decay[:, t, :, None, None]) * state
+                 + x[:, t, ..., None] * bb[:, t, None, None, :])
+        ys.append((state * cc[:, t, None, None, :]).sum(-1))
+    return torch.stack(ys, 1)
+
+
+def _delta_steps(q, k, v, log_alpha, beta):
+    import torch
+
+    b, n, h, d = k.shape
+    memory, outs = k.new_zeros(b, h, d, d), []
+    for t in range(n):
+        memory = torch.exp(log_alpha[:, t, :, None, None]) * memory
+        recalled = (memory @ k[:, t, ..., None])[..., 0]
+        memory = memory + (beta[:, t, :, None] * (v[:, t] - recalled))[..., None] * k[:, t, :, None]
+        outs.append((memory @ q[:, t, ..., None])[..., 0])
+    return torch.stack(outs, 1)
+
+
+def _gla_steps(q, k, v, log_keep):
+    import torch
+
+    b, n, h, d = k.shape
+    memory, outs = q.new_zeros(b, h, d, d), []
+    for t in range(n):
+        memory = (torch.exp(log_keep[:, t, ..., None]) * memory
+                  + k[:, t, ..., None] * v[:, t, :, None, :])
+        outs.append((q[:, t, :, None, :] @ memory)[:, :, 0])
+    return torch.stack(outs, 1)
+
+
+def _scan_steps(a, x):
+    import torch
+
+    state, ys = torch.zeros_like(x[:, 0]), []
+    for t in range(x.shape[1]):
+        state = a[:, t] * state + x[:, t]
+        ys.append(state)
+    return torch.stack(ys, 1)
+
+
+@pytest.mark.parametrize("chunk", [1, 4, 8, 64])
+def test_chunked_mixers_match_the_step_by_step_recurrence(chunk):
+    """Mamba-2, Gated DeltaNet and gated linear attention run in chunks and Griffin with a
+    parallel scan (3.9); outputs and gradients equal the plain recurrence, also for a
+    length that is not a multiple of the chunk."""
+    torch = pytest.importorskip("torch")
+    from torch import nn
+
+    torch.manual_seed(0)
+    dtype = torch.float64
+    b, n, h, d = 2, 37, 3, 5
+
+    def rand(*shape, positive=False):
+        t = torch.rand(*shape, dtype=dtype) if positive else torch.randn(*shape, dtype=dtype)
+        return t.requires_grad_()
+
+    def same(fast, slow, inputs):
+        a, r = fast(*inputs), slow(*inputs)
+        assert torch.allclose(a, r, atol=1e-9), float((a - r).abs().max())
+        ga = torch.autograd.grad(a.sum(), inputs)
+        gr = torch.autograd.grad(r.sum(), inputs)
+        for x, y in zip(ga, gr, strict=True):
+            assert torch.allclose(x, y, atol=1e-8), float((x - y).abs().max())
+
+    mamba = _torch_helper("Mamba2Block")
+    same(lambda ld, x, bb, cc: mamba.scan(ld, x, bb, cc, chunk), _mamba2_steps,
+         [-rand(b, n, h, positive=True), rand(b, n, h, d), rand(b, n, 4), rand(b, n, 4)])
+    delta = _torch_helper("GatedDeltaNet")
+    unit = nn.functional.normalize
+    q, k = unit(torch.randn(b, n, h, d, dtype=dtype), dim=-1), unit(
+        torch.randn(b, n, h, d, dtype=dtype), dim=-1)
+    same(lambda q, k, v, la, be: delta.recur(q, k, v, la, be, chunk), _delta_steps,
+         [q.requires_grad_(), k.requires_grad_(), rand(b, n, h, d),
+          -rand(b, n, h, positive=True), rand(b, n, h, positive=True)])
+    gla = _torch_helper("GatedLinearAttention")
+    same(lambda q, k, v, lk: gla.scan(q, k, v, lk, chunk), _gla_steps,
+         [rand(b, n, h, d), rand(b, n, h, d), rand(b, n, h, d), -rand(b, n, h, d, positive=True)])
+    ns: dict = {"torch": torch, "nn": nn}
+    from ai_made_easy.core.codegen.helpers import PYTORCH_HELPERS
+
+    exec(PYTORCH_HELPERS["chunk_scan"], ns)  # noqa: S102
+    same(ns["linear_scan"], _scan_steps, [rand(b, n, 7, positive=True), rand(b, n, 7)])
+
+
+def test_chunked_mixers_survive_decays_that_underflow():
+    """A decay of exp(-200) is 0 in float32: working in log decays keeps the chunked
+    forms finite (log(0) would give NaN)."""
+    torch = pytest.importorskip("torch")
+    torch.manual_seed(0)
+    x = torch.randn(1, 20, 2, 3)
+    log_decay = torch.full((1, 20, 2), -200.0)
+    out = _torch_helper("Mamba2Block").scan(log_decay, x, torch.randn(1, 20, 4),
+                                             torch.randn(1, 20, 4), 8)
+    assert bool(torch.isfinite(out).all())
+    out = _torch_helper("GatedLinearAttention").scan(x, x, x, torch.full((1, 20, 2, 3), -200.0), 8)
+    assert bool(torch.isfinite(out).all())
 
 
 def test_recurrent_decays_stay_between_zero_and_one():
