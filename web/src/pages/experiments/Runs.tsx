@@ -9,6 +9,7 @@ import { useStore } from "../../state";
 import type { RunRecord } from "../../types";
 
 import { CompareTable, DeployModal, DiffModal, RunExplainView, RunSamplesView } from "./RunDetails";
+import { GroupsModal, TrainMoreModal } from "./RunTools";
 import { TryModal } from "./TryIt";
 
 export function Runs({ scope }: { scope: string }) {
@@ -23,6 +24,8 @@ export function Runs({ scope }: { scope: string }) {
   const [deploying, setDeploying] = useState<RunRecord | null>(null);
   const [trying, setTrying] = useState<RunRecord | null>(null);
   const [diffing, setDiffing] = useState("");
+  const [more, setMore] = useState<RunRecord | null>(null);
+  const [grouping, setGrouping] = useState<RunRecord | null>(null);
 
   const refresh = useCallback(() => {
     api.runs(scope || undefined).then((r) => { setRuns(r.runs); setError(""); })
@@ -100,6 +103,12 @@ export function Runs({ scope }: { scope: string }) {
         <button disabled={ids.length !== 1 || runs.find((r) => r.run_id === ids[0])?.status !== "finished"}
                 onClick={() => setTrying(runs.find((r) => r.run_id === ids[0]) ?? null)}
                 title="Run the trained model on your own input" data-testid="try-run">Try it…</button>
+        <button disabled={one?.status !== "finished" || one.framework !== "pytorch"}
+                onClick={() => setMore(one ?? null)} data-testid="train-more"
+                title="Continue this network for more epochs, as a new run">Train more…</button>
+        <button disabled={one?.status !== "finished"} onClick={() => setGrouping(one ?? null)}
+                data-testid="groups-run"
+                title="This run's test results for each value of a column">By group…</button>
         <button disabled={!one || !one.backend || one.status !== "running"} onClick={follow}
                 title="Follow a remote run again after a restart or a lost connection">Follow again</button>
         <label className="button" title="The results zip a Colab hand-off notebook downloaded">
@@ -136,6 +145,8 @@ export function Runs({ scope }: { scope: string }) {
       {diffing && <DiffModal runId={diffing} onClose={() => setDiffing("")} />}
       {deploying && <DeployModal run={deploying} onClose={() => setDeploying(null)} />}
       {trying && <TryModal run={trying} onClose={() => setTrying(null)} />}
+      {more && <TrainMoreModal run={more} onClose={() => setMore(null)} onStarted={refresh} />}
+      {grouping && <GroupsModal run={grouping} onClose={() => setGrouping(null)} />}
     </>
   );
 }

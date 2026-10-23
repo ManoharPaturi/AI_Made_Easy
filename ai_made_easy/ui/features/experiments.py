@@ -90,6 +90,8 @@ class ExperimentsPage(QtWidgets.QWidget):
     register_requested = QtCore.Signal(str)    # run_id
     deploy_run_requested = QtCore.Signal(str)  # run_id
     try_run_requested = QtCore.Signal(str)     # run_id (3.5)
+    train_more_requested = QtCore.Signal(str)  # run_id (3.8)
+    groups_requested = QtCore.Signal(str)      # run_id (3.8)
     model_deploy_requested = QtCore.Signal(str, int)          # name, version
     model_stage_requested = QtCore.Signal(str, int, str)      # name, version, stage
     model_delete_requested = QtCore.Signal(str, int)          # name, version
@@ -148,6 +150,10 @@ class ExperimentsPage(QtWidgets.QWidget):
         self.deploy_btn.setToolTip("Build a model server (FastAPI + Docker) from this run")
         self.try_btn = QtWidgets.QPushButton("Try it…")
         self.try_btn.setToolTip("Run the trained model on your own input, on this machine")
+        self.more_btn = QtWidgets.QPushButton("Train More…")
+        self.more_btn.setToolTip("Continue this network for more epochs, as a new run")
+        self.groups_btn = QtWidgets.QPushButton("By Group…")
+        self.groups_btn.setToolTip("This run's test results for each value of a column")
         self.tag_btn = QtWidgets.QPushButton("Tags…")
         self.folder_btn = QtWidgets.QPushButton("")
         self.folder_btn.setIcon(icons.icon("folder"))
@@ -157,7 +163,8 @@ class ExperimentsPage(QtWidgets.QWidget):
         self.delete_btn.setToolTip("Delete the selected runs and their files")
         for btn in (self.compare_btn, self.results_btn, self.restore_btn, self.diff_btn,
                     self.register_btn,
-                    self.deploy_btn, self.try_btn, self.tag_btn, self.folder_btn,
+                    self.deploy_btn, self.try_btn, self.more_btn, self.groups_btn,
+                    self.tag_btn, self.folder_btn,
                     self.delete_btn):
             bar.addWidget(btn)
         box.addLayout(bar)
@@ -207,6 +214,8 @@ class ExperimentsPage(QtWidgets.QWidget):
         self.register_btn.clicked.connect(lambda: self._emit_single(self.register_requested))
         self.deploy_btn.clicked.connect(lambda: self._emit_single(self.deploy_run_requested))
         self.try_btn.clicked.connect(lambda: self._emit_single(self.try_run_requested))
+        self.more_btn.clicked.connect(lambda: self._emit_single(self.train_more_requested))
+        self.groups_btn.clicked.connect(lambda: self._emit_single(self.groups_requested))
         self.folder_btn.clicked.connect(lambda: self._emit_single(self.folder_requested))
         self.delete_btn.clicked.connect(
             lambda: self.delete_requested.emit(self.selected_run_ids()))
@@ -241,6 +250,9 @@ class ExperimentsPage(QtWidgets.QWidget):
         self.register_btn.setEnabled(finished)
         self.deploy_btn.setEnabled(finished)
         self.try_btn.setEnabled(finished)
+        self.groups_btn.setEnabled(finished)
+        self.more_btn.setEnabled(finished and self._framework_of(
+            self.selected_run_ids()[0]) == "pytorch")
         self.delete_btn.setEnabled(n >= 1)
 
     def _show_explanation(self, run_id: str | None) -> None:
@@ -296,6 +308,10 @@ class ExperimentsPage(QtWidgets.QWidget):
     def _status_of(self, run_id: str) -> str:
         rec = next((r for r in self._records if r.run_id == run_id), None)
         return rec.status if rec else ""
+
+    def _framework_of(self, run_id: str) -> str:
+        rec = next((r for r in self._records if r.run_id == run_id), None)
+        return rec.framework if rec else ""
 
     def set_runs(self, records: list[RunRecord]) -> None:
         selected = set(self.selected_run_ids())

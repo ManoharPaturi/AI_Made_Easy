@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 
 import { api } from "../api";
 import { CodeView } from "../components/CodeView";
+import { LRFinder } from "../components/LRFinder";
 import { formatValue, shapeLabel } from "../project";
 import { useStore } from "../state";
 import type { Budget, BudgetReport, DeviceProfile, ParamSpec, Summary, TableLayout } from "../types";
@@ -128,7 +129,8 @@ function TableField({ spec, value, nodeId, onChange }: {
 
 function Properties() {
   const { selected, nodes, blockMap, setParam, commit, validation, dataIssues, name, setName,
-          blocks } = useStore();
+          blocks, notify } = useStore();
+  const [finding, setFinding] = useState(false);
   const node = nodes.find((n) => n.id === selected);
   if (!node) {
     return (
@@ -167,6 +169,20 @@ function Properties() {
                     onChange={(v) => { commit(); setParam(node.id, spec.name, v); }} />
       ))}
       {!def?.params.length && <p className="muted">This block has no parameters.</p>}
+      {def?.category === "Optimizer" && def.params.some((p) => p.name === "lr") && (
+        <button data-testid="find-lr" onClick={() => setFinding(true)}
+                disabled={Boolean(validation?.issues.some((i) => i.severity === "error"))}
+                title="Run a short learning-rate range test and suggest a rate">
+          Find learning rate…
+        </button>)}
+      {finding && (
+        <LRFinder onClose={() => setFinding(false)} onUse={(lr) => {
+          const rounded = Number(lr.toPrecision(3));
+          commit();
+          setParam(node.id, "lr", rounded);
+          setFinding(false);
+          notify(`Learning rate set to ${rounded}`);
+        }} />)}
     </div>
   );
 }

@@ -554,6 +554,47 @@ def create_app(*, token: str | None = None, projects_dir: str | Path | None = No
     def sweep_best(sweep_id: str) -> dict:
         return {"graph": api.sweep_best_graph(sweep_id)}
 
+    # -------------------------------------------------------------- 3.8: tune and inspect
+    @app.post("/api/lr-find", dependencies=guard)
+    def find_lr(payload: dict = Body(...)) -> dict:  # noqa: B008
+        """Start a learning-rate range test: {graph, start?, end?, steps?, project?}."""
+        try:
+            return api.find_learning_rate(
+                _graph_body(payload), start=payload.get("start"), end=payload.get("end"),
+                steps=payload.get("steps"), project=str(payload.get("project", "")))
+        except api.ApiError:
+            raise
+        except Exception as exc:  # noqa: BLE001 — e.g. codegen errors
+            raise HTTPException(400, str(exc)) from exc
+
+    @app.get("/api/lr-find/{run_id}", dependencies=guard)
+    def lr_result(run_id: str) -> dict:
+        return api.learning_rate_result(run_id)
+
+    @app.post("/api/lr-find/apply", dependencies=guard)
+    def lr_apply(payload: dict = Body(...)) -> dict:  # noqa: B008
+        """{graph, lr} -> the design with that learning rate on its optimizer."""
+        return {"graph": api.apply_learning_rate(_graph_body(payload), payload.get("lr"))}
+
+    @app.post("/api/runs/{run_id}/more", dependencies=guard)
+    def more(run_id: str, payload: dict = Body(default={})) -> dict:  # noqa: B008
+        """Train more: {epochs, lr_scale?} -> the new run."""
+        return api.train_more(run_id, int(payload.get("epochs", 10)),
+                              float(payload.get("lr_scale", 1.0)))
+
+    @app.get("/api/runs/{run_id}/groups/columns", dependencies=guard)
+    def group_columns(run_id: str) -> dict:
+        return api.group_columns(run_id)
+
+    @app.post("/api/runs/{run_id}/groups", dependencies=guard)
+    def by_group(run_id: str, payload: dict = Body(...)) -> dict:  # noqa: B008
+        """{column} -> the scoring run; GET /api/groups/{that run} reads the result."""
+        return api.results_by_group(run_id, str(payload.get("column", "")))
+
+    @app.get("/api/groups/{run_id}", dependencies=guard)
+    def group_result(run_id: str) -> dict:
+        return api.group_result(run_id)
+
     # -------------------------------------------------------------- deploy
     @app.get("/api/runs/{run_id}/formats", dependencies=guard)
     def run_formats(run_id: str) -> dict:

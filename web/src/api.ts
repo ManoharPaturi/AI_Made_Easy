@@ -15,6 +15,9 @@ import type {
   FamilyInfo,
   FeatureImportance,
   FetchedDataset,
+  GroupColumn,
+  GroupResult,
+  LRFindResult,
   ModelVersion,
   PipelineRecord,
   Project,
@@ -157,6 +160,18 @@ export const api = {
   bestGraph: (id: string) => get<{ graph: Project }>(`/sweeps/${id}/best`),
   sweepAnalysis: (id: string) => get<SweepAnalysis>(`/sweeps/${id}/analysis`),
   sweepAgain: (id: string) => get<SweepAgain>(`/sweeps/${id}/again`),
+  // 3.8: find a learning rate, train more, results by group
+  findLearningRate: (graph: Project, steps?: number) =>
+    post<{ run_id: string }>("/lr-find", { graph, steps }),
+  learningRateResult: (id: string) => get<LRFindResult>(`/lr-find/${id}`),
+  applyLearningRate: (graph: Project, lr: number) =>
+    post<{ graph: Project }>("/lr-find/apply", { graph, lr }),
+  trainMore: (id: string, epochs: number, lrScale = 1) =>
+    post<{ run_id: string; continues: string }>(`/runs/${id}/more`, { epochs, lr_scale: lrScale }),
+  groupColumns: (id: string) => get<{ columns: GroupColumn[] }>(`/runs/${id}/groups/columns`),
+  resultsByGroup: (id: string, column: string) =>
+    post<{ run_id: string }>(`/runs/${id}/groups`, { column }),
+  groupResult: (id: string) => get<GroupResult>(`/groups/${id}`),
 
   startPipeline: (graph: Project, project = "", on = "local") =>
     post<{ pipeline_id: string; stages: string[] }>("/pipelines", { graph, project, on }),
