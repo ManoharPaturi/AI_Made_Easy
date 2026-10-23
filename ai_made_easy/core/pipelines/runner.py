@@ -256,8 +256,13 @@ class PipelineRunner:
         self._current = None
         rec = self.manager.history.get(run_id)
         if rec.status != "finished":
-            raise PipelineError(rec.error.strip().splitlines()[-1] if rec.error.strip()
-                                else f"the run {rec.status}")
+            if rec.error.strip():
+                raise PipelineError(rec.error.strip().splitlines()[-1])
+            # no traceback (e.g. the process crashed in native code): say how it ended
+            tail = [line for line in self.manager.status(run_id).get("log_tail") or []
+                    if line.strip()][-2:]
+            raise PipelineError(f"the run {rec.status} (exit code {rec.returncode})"
+                                + (": " + " | ".join(tail) if tail else ""))
         return {"run_id": run_id, "metrics": {k: v for k, v in rec.final_metrics.items()
                                               if isinstance(v, (int, float))}}
 
