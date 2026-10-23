@@ -15,8 +15,8 @@ you say so.*
 - The MCP stdio round-trip test on Windows: the client now runs in its own process
   (`tests/fakes/mcp_client.py`), which no longer crashes the test worker. **Not done:**
   on Windows the server answers `initialize` and `list_tools` but not the first tool
-  call. The test runs there as an expected failure that dumps the server's stacks (see
-  Still open).
+  call. The test runs there as an expected failure that dumps the server's stacks (fixed
+  in 3.9, see Still open).
 - Making the Windows jobs required checks is your call (a ruleset change); it is not
   part of this plan.
 
@@ -63,8 +63,9 @@ Changes to the plan:
   3.8.0. The tag and release follow your confirmation.
 
 ## Still open
-- The MCP server on Windows stops answering at its first tool call (it answers
-  `initialize` and `list_tools`). The Windows CI job now records the server's thread
-  stacks when this happens; the cause comes from that report.
-- Core ML export of the new layers is untested: CI doesn't install coremltools, and it
-  has no Python 3.14 wheel for local runs.
+Nothing: 3.9 fixed both ([ROADMAP_3.9.md](ROADMAP_3.9.md)).
+- The MCP server on Windows stopped answering at its first tool call: the stacks it
+  recorded showed numpy's extension loading while a thread blocked reading stdin. 3.9
+  loads the registry before serving and moves the pipe off standard input.
+- Core ML export of the new layers was untested: 3.9 runs it on macOS in CI and checks
+  the converted programs against PyTorch.
