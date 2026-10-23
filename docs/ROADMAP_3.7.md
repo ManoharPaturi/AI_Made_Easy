@@ -50,6 +50,6 @@ CHANGELOG): 31 blocks, 747 in all. **Done**, with these changes to the plan:
   tag and release follow your confirmation.
 
 ## Still open
-- The Windows test job is split in two in 3.8.
+- Done in 3.8: the Windows test job runs as two halves.
 - The MCP stdio test on Windows: carried into 3.8, where it is still open
   ([ROADMAP_3.8.md](ROADMAP_3.8.md)).
