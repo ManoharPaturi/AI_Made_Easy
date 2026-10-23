@@ -4,7 +4,8 @@ Runs in its own process (``test_mcp_stdio_round_trip``): on Windows the SDK's st
 client crashed the pytest worker that hosted it. Prints a ``STEP`` line as each step
 finishes and one ``RESULT {json}`` line as soon as the calls are done, then exits without
 waiting for the SDK to shut the server down (the test reads up to RESULT). Each step has
-its own time limit, so a hang names the step. The server's stderr goes to argv[1].
+its own time limit, so a hang names the step; the server dumps its threads' stacks if
+it is still running after WATCHDOG seconds. The server's stderr goes to argv[1].
 """
 from __future__ import annotations
 
@@ -21,6 +22,7 @@ from mcp.client.stdio import stdio_client
 ROOT = Path(__file__).resolve().parents[2]
 SAMPLE = ROOT / "ai_made_easy" / "samples" / "mlp_mnist.json"
 STEP_SECONDS = 120
+WATCHDOG = 90
 START = time.monotonic()
 
 
@@ -40,8 +42,13 @@ async def step(name: str, call):  # noqa: ANN001, ANN201
 
 
 async def scenario(errlog) -> None:  # noqa: ANN001
-    params = StdioServerParameters(command=sys.executable,
-                                   args=["-m", "ai_made_easy.mcp.server"], cwd=str(ROOT))
+    # the server dumps every thread's stack to its stderr if it is still running after
+    # WATCHDOG seconds (before a step's limit), so a hang shows where it is
+    watchdog = ("import faulthandler, runpy; "
+                f"faulthandler.dump_traceback_later({WATCHDOG}, exit=True); "
+                "runpy.run_module('ai_made_easy.mcp.server', run_name='__main__')")
+    params = StdioServerParameters(command=sys.executable, args=["-c", watchdog],
+                                   cwd=str(ROOT))
     say("STEP start")
     async with stdio_client(params, errlog=errlog) as (read, write):
         async with ClientSession(read, write) as session:
