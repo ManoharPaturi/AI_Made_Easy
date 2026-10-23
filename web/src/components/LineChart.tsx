@@ -24,8 +24,12 @@ function niceTicks(lo: number, hi: number, count = 4): number[] {
 const fmt = (v: number) => (Math.abs(v) >= 1000 || (Math.abs(v) < 0.01 && v !== 0)
   ? v.toExponential(1) : Number(v.toPrecision(3)).toString());
 
-export function LineChart({ series, height = 220, xLabel = "epoch" }: {
+export function LineChart({ series, height = 220, xLabel = "epoch", marker, xTick }: {
   series: Series[]; height?: number; xLabel?: string;
+  /** a vertical line at this x, with its label (e.g. the suggested learning rate) */
+  marker?: { x: number; label: string };
+  /** how x ticks read (default: the integer itself) */
+  xTick?: (x: number) => string;
 }) {
   const width = 640;
   const pad = { l: 46, r: 12, t: 10, b: 26 };
@@ -49,9 +53,16 @@ export function LineChart({ series, height = 220, xLabel = "epoch" }: {
           </g>
         ))}
         {niceTicks(x0, x1, 6).filter(Number.isInteger).map((t) => (
-          <text key={`x${t}`} x={sx(t)} y={height - 8} textAnchor="middle">{t}</text>
+          <text key={`x${t}`} x={sx(t)} y={height - 8} textAnchor="middle">{xTick ? xTick(t) : t}</text>
         ))}
         <text x={width - pad.r} y={height - 8} textAnchor="end">{xLabel}</text>
+        {marker && Number.isFinite(marker.x) && (
+          <g data-testid="chart-marker">
+            <line className="axis" x1={sx(marker.x)} x2={sx(marker.x)} y1={pad.t}
+                  y2={height - pad.b} strokeDasharray="3 3" />
+            <text x={sx(marker.x) + 4} y={pad.t + 10}>{marker.label}</text>
+          </g>
+        )}
         {series.map((s, i) => {
           const pts = s.points.filter(([, y]) => Number.isFinite(y));
           const color = s.color ?? PALETTE[i % PALETTE.length];

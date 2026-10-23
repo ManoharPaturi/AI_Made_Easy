@@ -543,3 +543,45 @@ export interface TryForm {
   /** File types "Predict a file" takes, e.g. ".csv" or ".zip"; "" when it can't (3.6). */
   batch_formats?: string;
 }
+
+// 3.8 ------------------------------------------------------------------------------------
+export interface LRFindResult {
+  run_id: string;
+  state: string;
+  error: string;
+  lrs?: number[];
+  losses?: number[];
+  suggested?: number | null;
+  min_loss_lr?: number | null;
+  reason?: string;
+  stopped?: string;
+}
+
+export interface GroupColumn {
+  name: string;
+  distinct: number;
+  numeric: boolean;
+  usable: boolean;
+  how: "values" | "quartiles";
+}
+
+export interface GroupRow {
+  value: string;
+  count: number;
+  gap?: number;
+  flagged?: boolean;
+  [metric: string]: number | string | boolean | undefined;
+}
+
+export interface GroupResult {
+  run_id: string;
+  state: string;
+  error: string;
+  column?: string;
+  how?: string;
+  metric?: string | null;
+  higher_is_better?: boolean;
+  overall?: Record<string, number>;
+  groups?: GroupRow[];
+  flagged?: string[];
+}

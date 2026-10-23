@@ -42,6 +42,7 @@ class PropertyInspector(QtWidgets.QWidget):
     reset_requested = QtCore.Signal(str)               # node_id
     locate_requested = QtCore.Signal(str)              # node_id
     table_edit_requested = QtCore.Signal(str, str)     # node_id, param name
+    find_lr_requested = QtCore.Signal(str)             # node_id of an optimizer (3.8)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -141,6 +142,12 @@ class PropertyInspector(QtWidgets.QWidget):
             reset = QtWidgets.QPushButton("Reset to defaults")
             reset.clicked.connect(lambda: self.reset_requested.emit(node_id))
             layout.addWidget(reset, 0, QtCore.Qt.AlignmentFlag.AlignLeft)
+            if block.category == "Optimizer" and any(p.name == "lr" for p in block.params):
+                self.find_lr_btn = QtWidgets.QPushButton("Find Learning Rate…")
+                self.find_lr_btn.setToolTip("Run a short learning-rate range test and "
+                                            "suggest a rate")
+                self.find_lr_btn.clicked.connect(lambda: self.find_lr_requested.emit(node_id))
+                layout.addWidget(self.find_lr_btn, 0, QtCore.Qt.AlignmentFlag.AlignLeft)
         else:
             note = QtWidgets.QLabel("This block has no parameters.")
             note.setObjectName("blockMeta")

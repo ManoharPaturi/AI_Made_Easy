@@ -90,6 +90,7 @@ LOSS_HOOK = None        # f(loss, out, xb, model) -> loss: e.g. knowledge distil
 BEFORE_SAVE = None      # f(model): e.g. make pruning permanent
 PARAM_GROUPS = None     # f(model) -> optimizer groups ("lr_mult": discriminative rates)
 PREPARE_HOOK = None     # f(model) -> model: e.g. fake quantization for QAT
+BATCH_HOOK = None       # f(optimizer, loss): after each training batch (learning-rate finder)
 QUANTIZE = ""           # "dynamic_int8" / "qat_int8": int8 weights when serving
 {% for helper in torch_helpers %}
 
@@ -650,6 +651,8 @@ def fit(model: nn.Module, train_loader, val_loader, device, log: bool = True):
                 scheduler.step()
 {% endif %}
 {% endif %}
+            if BATCH_HOOK is not None:
+                BATCH_HOOK(optimizer, loss.item())
             running += loss.item() * len(xb)
             seen += len(xb)
         if epoch == 1 and log:

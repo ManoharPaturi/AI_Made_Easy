@@ -393,6 +393,64 @@ class RunActions:
             history.update(run_id, tags=[t.strip() for t in text.split(",") if t.strip()])
             self._refresh_experiments()
 
+    # ---------------------------------------------------------- 3.8: tune and inspect
+    def _find_lr(self, node_id: str) -> None:
+        """The learning-rate range test for the design; Use sets the optimizer's lr."""
+        from ai_made_easy.ui.features.run_tools import LRFinderDialog
+
+        graph = self.canvas.to_ir()
+        errors = [i for i in graph.validate() if i.severity == "error"]
+        if errors:
+            self.status_message.emit("Fix the design's errors first: " + errors[0].message)
+            return
+        dialog = LRFinderDialog(self.window, self.experiment_service.manager, graph)
+        if dialog.exec() != QtWidgets.QDialog.DialogCode.Accepted or not dialog.suggested:
+            return
+        lr = float(f"{dialog.suggested:.3g}")
+        self.canvas.set_param(node_id, "lr", lr)
+        graph = self.canvas.to_ir()
+        self.properties.show_node(node_id, graph.nodes[node_id].definition(),
+                                  self.canvas.params_of(node_id), [])
+        self.status_message.emit(f"Learning rate set to {lr:g}")
+
+    def _train_more(self, run_id: str) -> None:
+        from ai_made_easy.core import train_more
+        from ai_made_easy.ui.features.run_tools import TrainMoreDialog
+
+        dialog = TrainMoreDialog(self.window, run_id)
+        if dialog.exec() != QtWidgets.QDialog.DialogCode.Accepted:
+            return
+        try:
+            new_id = train_more.start(self.experiment_service.manager, run_id,
+                                      dialog.epochs.value(), dialog.scale.value())
+        except (train_more.TrainMoreError, KeyError) as exc:
+            self.status_message.emit(str(exc))
+            return
+        self.status_message.emit(f"Run {new_id} continues {run_id}")
+        self._watch_run(new_id)
+
+    def _results_by_group(self, run_id: str) -> None:
+        from ai_made_easy.ui.features.run_tools import GroupsDialog
+
+        GroupsDialog(self.window, self.experiment_service.manager, run_id).exec()
+        self._refresh_experiments()
+
+    def _watch_run(self, run_id: str) -> None:
+        """Refresh the runs list while a run started outside the run console trains."""
+        manager = self.experiment_service.manager
+        timer = QtCore.QTimer(self.window, interval=2000)
+
+        def tick() -> None:
+            self._refresh_experiments()
+            if manager.status(run_id).get("state") in ("finished", "failed", "stopped",
+                                                         "interrupted"):
+                timer.stop()
+                timer.deleteLater()
+
+        timer.timeout.connect(tick)
+        timer.start()
+        self._refresh_experiments()
+
 
 def _span(values: list) -> str:
     if len(values) == 2 and all(isinstance(v, (int, float)) for v in values):
