@@ -167,10 +167,12 @@ class TrainingRun:
         self.record({"type": "done", "returncode": code if code else 1})
 
     def _finish_tracking(self) -> None:
-        mirror, self.mirror = self.mirror, None
-        if mirror is not None:
-            mirror.finish(self.state, Path(self.workdir))
-            self.closing_mirror = mirror
+        mirror = self.mirror
+        if mirror is None:
+            return
+        self.closing_mirror = mirror     # published before ``mirror`` clears: wait() sees one
+        self.mirror = None
+        mirror.finish(self.state, Path(self.workdir))
 
     def start_tracking(self, names: list[str]) -> None:
         """Mirror this run to MLflow / W&B (``core.tracking``) from its events."""
@@ -431,7 +433,13 @@ class RunManager:
                 while (time.time() < rec_deadline
                        and self.history.get(run_id).status not in FINAL_STATES):
                     time.sleep(0.05)
-                if run.closing_mirror is not None:  # MLflow / W&B finish mirroring
+                # MLflow / W&B finish mirroring; the pump hands the mirror over just after
+                # it finalises history, so give the handover a moment too
+                hand_deadline = time.time() + 5
+                while (run.mirror is not None and run.closing_mirror is None
+                       and time.time() < hand_deadline):
+                    time.sleep(0.05)
+                if run.closing_mirror is not None:
                     run.closing_mirror.join(max(1.0, deadline - time.time()))
                 # a local worker: let it exit, so its files and working folder are free
                 # (Windows can't delete a folder a process still holds)

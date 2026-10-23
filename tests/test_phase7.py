@@ -7,6 +7,8 @@ import os
 import json
 import subprocess
 import sys
+import threading
+import time
 from pathlib import Path
 
 import pytest
@@ -115,47 +117,42 @@ def test_mcp_impl_functions():
     assert "class MnistMlp" in _impl_generate(graph_json, "pytorch_model")
 
 
-def test_mcp_stdio_round_trip():
-    """Real MCP client over stdio: list tools, call list_blocks + validate."""
+def test_mcp_stdio_round_trip(tmp_path):
+    """Real MCP client over stdio: list tools, call list_blocks + validate. The client runs
+    in its own process (tests/fakes/mcp_client.py): on Windows the SDK's stdio client
+    crashed the pytest worker that hosted it. Its output is read up to the RESULT line."""
     pytest.importorskip("mcp", reason="mcp SDK not installed")
-    if sys.platform == "win32":    # 3.7 CI: the SDK's stdio client crashed the test worker
-        pytest.skip("MCP stdio client crashes the pytest worker on Windows (open in 3.7)")
-    import anyio
-
-    from mcp import ClientSession, StdioServerParameters
-    from mcp.client.stdio import stdio_client
-
-    async def scenario() -> dict:
-        params = StdioServerParameters(
-            command=sys.executable,
-            args=["-m", "ai_made_easy.mcp.server"],
-            cwd=str(Path(__file__).parent.parent),
-        )
-        async with stdio_client(params) as (read, write):
-            async with ClientSession(read, write) as session:
-                await session.initialize()
-                tools = await session.list_tools()
-                names = {t.name for t in tools.tools}
-                assert {"list_blocks", "validate_graph", "generate_code",
-                        "start_training", "get_run_status", "summarize_model",
-                        "expand_architecture", "stop_run"} <= names
-
-                result = await session.call_tool(
-                    "list_blocks", {"category": "Architectures"})
-                payload = json.loads(result.content[0].text)
-                assert payload["count"] == 8
-
-                graph = json.loads((SAMPLES / "mlp_mnist.json").read_text(encoding="utf-8"))
-                result = await session.call_tool(
-                    "validate_graph", {"graph": graph})
-                assert json.loads(result.content[0].text)["valid"] is True
-
-                result = await session.call_tool(
-                    "summarize_model", {"graph": graph})
-                assert json.loads(result.content[0].text)["total_params"] == 101770
-                return {"ok": True, "tools": len(names)}
-
-    assert anyio.run(scenario)["ok"] is True
+    client = Path(__file__).parent / "fakes" / "mcp_client.py"
+    errlog = tmp_path / "server_stderr.txt"
+    proc = subprocess.Popen([sys.executable, str(client), str(errlog)],
+                            stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                            stderr=subprocess.STDOUT, encoding="utf-8", errors="replace")
+    lines: list[str] = []
+    reader = threading.Thread(target=lambda: lines.extend(iter(proc.stdout.readline, "")),
+                              daemon=True)
+    reader.start()
+    deadline = time.monotonic() + 420
+    while time.monotonic() < deadline and reader.is_alive() and not any(
+            line.startswith("RESULT ") for line in lines):
+        time.sleep(0.2)
+    if proc.poll() is None:
+        proc.kill()
+    proc.wait(30)
+    result = next((line for line in lines if line.startswith("RESULT ")), None)
+    server = errlog.read_text(encoding="utf-8", errors="replace") if errlog.exists() else ""
+    report = "client:\n" + "".join(lines)[-3000:] + "\nserver stderr:\n" + server[-6000:]
+    if result is None and sys.platform == "win32":
+        # Open (ROADMAP_3.8): on Windows the server answers initialize and list_tools but
+        # not the first tool call. Kept running so the report shows where it stops.
+        pytest.xfail("MCP server stalls on its first tool call on Windows\n" + report)
+    assert result, report
+    out = json.loads(result.split("RESULT ", 1)[1])
+    assert {"list_blocks", "validate_graph", "generate_code", "start_training",
+            "get_run_status", "summarize_model", "expand_architecture",
+            "stop_run"} <= set(out["tools"])
+    assert out["architectures"] == 8
+    assert out["valid"] is True
+    assert out["params"] == 101770
 
 
 # --------------------------------------------------------------- assistant
