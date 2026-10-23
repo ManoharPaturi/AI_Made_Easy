@@ -7,6 +7,8 @@ import os
 import json
 import subprocess
 import sys
+import threading
+import time
 from pathlib import Path
 
 import pytest
@@ -115,16 +117,31 @@ def test_mcp_impl_functions():
     assert "class MnistMlp" in _impl_generate(graph_json, "pytorch_model")
 
 
-def test_mcp_stdio_round_trip():
+def test_mcp_stdio_round_trip(tmp_path):
     """Real MCP client over stdio: list tools, call list_blocks + validate. The client runs
     in its own process (tests/fakes/mcp_client.py): on Windows the SDK's stdio client
-    crashed the pytest worker that hosted it."""
+    crashed the pytest worker that hosted it. Its output is read up to the RESULT line."""
     pytest.importorskip("mcp", reason="mcp SDK not installed")
     client = Path(__file__).parent / "fakes" / "mcp_client.py"
-    proc = subprocess.run([sys.executable, str(client)], capture_output=True, timeout=300,
-                          encoding="utf-8", errors="replace")
-    assert "RESULT " in proc.stdout, proc.stdout[-2000:] + proc.stderr[-3000:]
-    out = json.loads(proc.stdout.split("RESULT ", 1)[1])
+    errlog = tmp_path / "server_stderr.txt"
+    proc = subprocess.Popen([sys.executable, str(client), str(errlog)],
+                            stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                            stderr=subprocess.STDOUT, encoding="utf-8", errors="replace")
+    lines: list[str] = []
+    reader = threading.Thread(target=lambda: lines.extend(iter(proc.stdout.readline, "")),
+                              daemon=True)
+    reader.start()
+    deadline = time.monotonic() + 420
+    while time.monotonic() < deadline and reader.is_alive() and not any(
+            line.startswith("RESULT ") for line in lines):
+        time.sleep(0.2)
+    if proc.poll() is None:
+        proc.kill()
+    proc.wait(30)
+    result = next((line for line in lines if line.startswith("RESULT ")), None)
+    server = errlog.read_text(encoding="utf-8", errors="replace") if errlog.exists() else ""
+    assert result, "client:\n" + "".join(lines)[-3000:] + "\nserver stderr:\n" + server[-3000:]
+    out = json.loads(result.split("RESULT ", 1)[1])
     assert {"list_blocks", "validate_graph", "generate_code", "start_training",
             "get_run_status", "summarize_model", "expand_architecture",
             "stop_run"} <= set(out["tools"])
