@@ -164,3 +164,38 @@ test("docs screenshots: 3.8 find a learning rate", async ({ page, request }) => 
     await request.delete("/api/projects/churn_lr_find");
   }
 });
+
+test("docs screenshots: 3.9 train a boosted model more", async ({ page, request }) => {
+  test.setTimeout(240_000);
+  const { mkdtempSync, writeFileSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  let seed = 1;
+  const rand = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  const rows = ["tenure,spend,plan,churned"];
+  for (let i = 0; i < 400; i++) {
+    const [t, s] = [rand(), rand()];
+    rows.push(`${(t * 60).toFixed(0)},${(s * 120).toFixed(1)},${["basic", "plus", "pro"][i % 3]},${t + s < 0.9 ? 1 : 0}`);
+  }
+  const table = join(mkdtempSync(join(tmpdir(), "aime-shot-")), "churn.csv");
+  writeFileSync(table, rows.join("\n") + "\n");
+  const design = {
+    schema_version: 3, name: "churn_xgboost", meta: {},
+    nodes: [
+      { id: "data", type: "data.csv", params: { path: table, target_column: "churned" }, position: [0, 0] },
+      { id: "encode", type: "prep.one_hot", params: {}, position: [0, 0] },
+      { id: "model", type: "ml.xgb_classifier", params: { n_estimators: 100 }, position: [0, 0] },
+      { id: "acc", type: "eval.accuracy", params: {}, position: [0, 0] },
+    ],
+    edges: [],
+  };
+  const started = await (await request.post("/api/runs", { data: { graph: design, project: "churn" } })).json();
+  await expect.poll(async () => (await (await request.get(`/api/runs/${started.run_id}`)).json()).status,
+    { timeout: 200_000 }).toBe("finished");
+  await page.goto("/");
+  await page.getByRole("button", { name: "Experiments" }).click();
+  await page.getByLabel(/only “/).uncheck();
+  await page.getByTestId("runs").locator("tr", { hasText: started.run_id }).click();
+  await page.getByTestId("train-more").click();
+  await page.getByRole("dialog").screenshot({ path: `${OUT}/web_train_more_trees.png` });
+});
