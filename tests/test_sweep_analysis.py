@@ -257,7 +257,7 @@ def test_the_desktop_shows_pairs_and_sweeps_again(isolated_home):
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
     from ai_made_easy.core.sweep_analysis import narrowed
     from ai_made_easy.ui.context import AppContext
-    from ai_made_easy.ui.features.experiments import SweepDialog
+    from ai_made_easy.ui.features.experiment_dialogs import SweepDialog
     from ai_made_easy.ui.workbench import Workbench
 
     context = AppContext()

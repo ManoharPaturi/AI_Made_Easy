@@ -47,5 +47,5 @@ scikit-learn models and transformers (see the CHANGELOG). **Done.**
   **Done.**
 
 ## Still open
-- TypeScript 7 for the web app (a major version).
-- Importance that accounts for interactions between settings (fANOVA), for large sweeps.
+Nothing: 3.7.0 moved the web app to TypeScript 7 and added importance that accounts
+for interactions between settings (fANOVA-style pair effects).

@@ -48,7 +48,7 @@ against the catalog found the gaps; this adds the ones that fit a design: 21 lay
   scikit-learn meta-estimators that need other estimators passed in (stacking, voting,
   one-vs-rest, RFE, SelectFromModel), and the non-pipeline manifold methods (t-SNE, MDS,
   spectral embedding have no `transform`).
-- **Still open:** Gaussian NLL (needs a mean and a variance output per target),
+- **Still open (all done in 3.6.0):** Gaussian NLL (needs a mean and a variance output per target),
   multi-label margin and the explicit triplet losses (need different target formats),
   L-BFGS (needs a closure in the trainer).
 
@@ -57,5 +57,5 @@ against the catalog found the gaps; this adds the ones that fit a design: 21 lay
   roadmap, version 3.5.0. **Done.**
 
 ## Still open
-- The items listed under Blocks above.
-- Hyperparameter sweeps in the web app (proposed, not in this plan).
+Nothing: 3.6.0 shipped the items listed under Blocks above and hyperparameter sweeps
+in the web app.

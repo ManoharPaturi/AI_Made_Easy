@@ -117,4 +117,4 @@ A read-only audit of 3.3 and 3.4's newest code found four bugs; each fix has a t
 - The tag and release follow your confirmation.
 
 ## Still open
-- The next round of 3.4 features, to be agreed.
+Nothing: the next round became 3.5 ([ROADMAP_3.5.md](ROADMAP_3.5.md)).
