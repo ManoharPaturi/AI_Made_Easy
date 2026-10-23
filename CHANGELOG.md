@@ -4,7 +4,8 @@
 
 Find a good learning rate before training, continue a finished run, see where a model is
 weak by group, and 15 more blocks; Python 3.13 and 3.14 tested. 762 blocks, 72 recipes.
-See [docs/ROADMAP_3.8.md](docs/ROADMAP_3.8.md) for what is in this release.
+See [docs/ROADMAP_3.8.md](docs/ROADMAP_3.8.md) for what is in this release and what is
+still open.
 
 ### Added
 - **Find a learning rate** (both apps; `POST /api/lr-find`): from an optimizer block, a
@@ -38,7 +39,9 @@ See [docs/ROADMAP_3.8.md](docs/ROADMAP_3.8.md) for what is in this release.
 ### Fixed
 - A test worker that died could leave the test run hanging; it now fails at once with a
   traceback.
-- The MCP stdio round-trip test runs on Windows (its client runs in its own process).
+- Waiting for a run could return before its MLflow / W&B mirror was marked finished.
+- A data file rewritten twice within one clock tick (same size and modified time, as on
+  Windows) kept its old fingerprint.
 - TimesNet designs say they can't be exported to ExecuTorch int8, instead of failing
   during export.
 - Older roadmaps no longer list as open the items later releases shipped.

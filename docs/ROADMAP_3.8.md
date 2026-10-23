@@ -12,8 +12,11 @@ you say so.*
   weight in `tests/conftest.py`). **Done.**
 - A test worker that dies no longer leaves the run hanging at 99%
   (`--max-worker-restart=0`, with `PYTHONFAULTHANDLER` for a traceback). **Done.**
-- The MCP stdio round-trip test runs on Windows: the client runs in its own process
-  (`tests/fakes/mcp_client.py`). **Done.**
+- The MCP stdio round-trip test on Windows: the client now runs in its own process
+  (`tests/fakes/mcp_client.py`), which no longer crashes the test worker. **Not done:**
+  on Windows the server answers `initialize` and `list_tools` but not the first tool
+  call. The test runs there as an expected failure that dumps the server's stacks (see
+  Still open).
 - Making the Windows jobs required checks is your call (a ruleset change); it is not
   part of this plan.
 
@@ -60,5 +63,8 @@ Changes to the plan:
   3.8.0. The tag and release follow your confirmation.
 
 ## Still open
+- The MCP server on Windows stops answering at its first tool call (it answers
+  `initialize` and `list_tools`). The Windows CI job now records the server's thread
+  stacks when this happens; the cause comes from that report.
 - Core ML export of the new layers is untested: CI doesn't install coremltools, and it
   has no Python 3.14 wheel for local runs.
