@@ -417,17 +417,31 @@ class RunActions:
         from ai_made_easy.core import train_more
         from ai_made_easy.ui.features.run_tools import TrainMoreDialog
 
-        dialog = TrainMoreDialog(self.window, run_id)
+        dialog = TrainMoreDialog(self.window, run_id,
+                                 trees=self.experiments_page.boosted(run_id))
         if dialog.exec() != QtWidgets.QDialog.DialogCode.Accepted:
             return
         try:
             new_id = train_more.start(self.experiment_service.manager, run_id,
-                                      dialog.epochs.value(), dialog.scale.value())
+                                      dialog.epochs.value(), dialog.scale.value(),
+                                      dialog.epochs.value() if dialog.trees else None)
         except (train_more.TrainMoreError, KeyError) as exc:
             self.status_message.emit(str(exc))
             return
         self.status_message.emit(f"Run {new_id} continues {run_id}")
         self._watch_run(new_id)
+
+    def _resume_run(self, run_id: str) -> None:
+        """Continue a stopped, failed or interrupted run as the same run (3.9)."""
+        from ai_made_easy.core import resume
+
+        try:
+            epoch = resume.start(self.experiment_service.manager, run_id)
+        except (resume.ResumeError, KeyError) as exc:
+            QtWidgets.QMessageBox.information(self.window, "Can't Resume This Run", str(exc))
+            return
+        self.status_message.emit(f"Run {run_id} continues after epoch {epoch}")
+        self._watch_run(run_id)
 
     def _results_by_group(self, run_id: str) -> None:
         from ai_made_easy.ui.features.run_tools import GroupsDialog

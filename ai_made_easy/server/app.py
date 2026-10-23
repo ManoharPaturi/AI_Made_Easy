@@ -557,11 +557,13 @@ def create_app(*, token: str | None = None, projects_dir: str | Path | None = No
     # -------------------------------------------------------------- 3.8: tune and inspect
     @app.post("/api/lr-find", dependencies=guard)
     def find_lr(payload: dict = Body(...)) -> dict:  # noqa: B008
-        """Start a learning-rate range test: {graph, start?, end?, steps?, project?}."""
+        """Start a learning-rate range test: {graph, start?, end?, steps?, project?,
+        framework?}."""
         try:
             return api.find_learning_rate(
                 _graph_body(payload), start=payload.get("start"), end=payload.get("end"),
-                steps=payload.get("steps"), project=str(payload.get("project", "")))
+                steps=payload.get("steps"), project=str(payload.get("project", "")),
+                framework=str(payload.get("framework") or "auto"))
         except api.ApiError:
             raise
         except Exception as exc:  # noqa: BLE001 — e.g. codegen errors
@@ -578,9 +580,22 @@ def create_app(*, token: str | None = None, projects_dir: str | Path | None = No
 
     @app.post("/api/runs/{run_id}/more", dependencies=guard)
     def more(run_id: str, payload: dict = Body(default={})) -> dict:  # noqa: B008
-        """Train more: {epochs, lr_scale?} -> the new run."""
+        """Train more: {epochs, lr_scale?} for a network, {trees} for a boosted model ->
+        the new run."""
+        trees = payload.get("trees")
         return api.train_more(run_id, int(payload.get("epochs", 10)),
-                              float(payload.get("lr_scale", 1.0)))
+                              float(payload.get("lr_scale", 1.0)),
+                              None if trees is None else int(trees))
+
+    @app.get("/api/runs/{run_id}/resume", dependencies=guard)
+    def resume_info(run_id: str) -> dict:
+        """Whether the run can resume, and after which epoch."""
+        return api.resume_info(run_id)
+
+    @app.post("/api/runs/{run_id}/resume", dependencies=guard)
+    def resume_run(run_id: str) -> dict:
+        """Continue a stopped, failed or interrupted run as the same run."""
+        return api.resume_run(run_id)
 
     @app.get("/api/runs/{run_id}/groups/columns", dependencies=guard)
     def group_columns(run_id: str) -> dict:

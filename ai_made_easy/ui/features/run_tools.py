@@ -108,13 +108,18 @@ class LRFinderDialog(QtWidgets.QDialog):
 
 
 class TrainMoreDialog(QtWidgets.QDialog):
-    """How many more epochs, and the learning-rate scale."""
+    """How many more epochs and the learning-rate scale; for a boosted model (``trees``),
+    how many more trees."""
 
-    def __init__(self, parent, run_id: str) -> None:  # noqa: ANN001
+    def __init__(self, parent, run_id: str, trees: bool = False) -> None:  # noqa: ANN001
         super().__init__(parent)
         self.setWindowTitle(f"Train {run_id} More")
+        self.trees = trees
         layout = QtWidgets.QVBoxLayout(self)
         note = QtWidgets.QLabel(
+            "A new run keeps this model's trees and adds more, fitted on the same training "
+            "rows with the same class balancing. Past some point more trees only fit the "
+            "training data closer: watch the test score." if trees else
             "A new run starts from this run's best weights and trains for more epochs on "
             "the same data. The optimizer starts afresh, so a slightly lower learning rate "
             "is often smoother.")
@@ -123,15 +128,16 @@ class TrainMoreDialog(QtWidgets.QDialog):
         layout.addWidget(note)
         form = QtWidgets.QFormLayout()
         self.epochs = QtWidgets.QSpinBox()
-        self.epochs.setRange(1, 10_000)
-        self.epochs.setValue(10)
+        self.epochs.setRange(1, 100_000 if trees else 10_000)
+        self.epochs.setValue(100 if trees else 10)
         self.scale = QtWidgets.QDoubleSpinBox()
         self.scale.setRange(0.01, 10.0)
         self.scale.setSingleStep(0.1)
         self.scale.setValue(1.0)
         self.scale.setToolTip("Multiplies the design's learning rate (1 = the same)")
-        form.addRow("More epochs", self.epochs)
-        form.addRow("Learning-rate scale", self.scale)
+        form.addRow("More trees" if trees else "More epochs", self.epochs)
+        if not trees:
+            form.addRow("Learning-rate scale", self.scale)
         layout.addLayout(form)
         buttons = QtWidgets.QDialogButtonBox()
         buttons.addButton("Train More", QtWidgets.QDialogButtonBox.ButtonRole.AcceptRole)

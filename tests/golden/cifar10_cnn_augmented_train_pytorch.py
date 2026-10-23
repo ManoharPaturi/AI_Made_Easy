@@ -50,6 +50,8 @@ BEFORE_SAVE = None      # f(model): e.g. make pruning permanent
 PARAM_GROUPS = None     # f(model) -> optimizer groups ("lr_mult": discriminative rates)
 PREPARE_HOOK = None     # f(model) -> model: e.g. fake quantization for QAT
 BATCH_HOOK = None       # f(optimizer, loss): after each training batch (learning-rate finder)
+RESUME = False          # continue from RESUME_FILE (resume an interrupted run)
+RESUME_FILE = "resume.pt"   # everything training needs, saved after each epoch ("" = off)
 QUANTIZE = ""           # "dynamic_int8" / "qat_int8": int8 weights when serving
 
 
@@ -260,6 +262,45 @@ def report_resources(device: torch.device, step_seconds: float) -> None:
           f"batch_size={BATCH_SIZE} device={device.type}", flush=True)
 
 
+class GeneratorState:
+    """A random generator saved and restored like a module (the loader's shuffle order)."""
+
+    def __init__(self, generator: torch.Generator) -> None:
+        self.generator = generator
+
+    def state_dict(self) -> torch.Tensor:
+        return self.generator.get_state()
+
+    def load_state_dict(self, state: torch.Tensor) -> None:
+        self.generator.set_state(state)
+
+
+def save_resume(epoch: int, objects: dict, best: tuple) -> None:
+    """The model, optimizer and the rest after ``epoch``, written atomically."""
+    state = {name: obj.state_dict() for name, obj in objects.items()}
+    state.update(epoch=epoch, best=best, rng={
+        "torch": torch.get_rng_state(), "numpy": np.random.get_state(),
+        "cuda": torch.cuda.get_rng_state_all() if torch.cuda.is_available() else None})
+    tmp = Path(RESUME_FILE + ".tmp")
+    torch.save(state, tmp)
+    tmp.replace(RESUME_FILE)
+    Path(RESUME_FILE).with_suffix(".json").write_text(   # read by the app, without torch
+        json.dumps({"epoch": epoch, "epochs": EPOCHS}), encoding="utf-8")
+
+
+def load_resume(objects: dict, device) -> tuple[int, tuple]:  # noqa: ANN001
+    """Restore what save_resume wrote; returns the epoch it was saved after."""
+    state = torch.load(RESUME_FILE, map_location=device, weights_only=False)
+    for name, obj in objects.items():
+        obj.load_state_dict(state[name])
+    torch.set_rng_state(state["rng"]["torch"])
+    np.random.set_state(state["rng"]["numpy"])
+    if state["rng"]["cuda"] is not None and torch.cuda.is_available():
+        torch.cuda.set_rng_state_all(state["rng"]["cuda"])
+    print(f"resuming after epoch {state['epoch']}", flush=True)
+    return state["epoch"], state["best"]
+
+
 def fit(model: nn.Module, train_loader, val_loader, device, log: bool = True):
     """Train with early stopping on validation loss; returns the best state."""
     loss_fn = make_loss()
@@ -275,7 +316,17 @@ def fit(model: nn.Module, train_loader, val_loader, device, log: bool = True):
     scaler = torch.amp.GradScaler("cuda", enabled=use_amp and device.type == "cuda")
     best_loss, best_state, bad_epochs = float("inf"), None, 0
     reset_peak_memory(device)
-    for epoch in range(1, EPOCHS + 1):
+    resumable = {"model": model, "optimizer": optimizer, "scaler": scaler}
+    shuffle = (getattr(train_loader, "generator", None)
+               or getattr(train_loader.sampler, "generator", None))
+    if shuffle is not None:
+        resumable["shuffle"] = GeneratorState(shuffle)
+    resumable["scheduler"] = scheduler
+    first_epoch = 1
+    if log and RESUME and RESUME_FILE and Path(RESUME_FILE).exists():
+        done, (best_loss, best_state, bad_epochs) = load_resume(resumable, device)
+        first_epoch = done + 1
+    for epoch in range(first_epoch, EPOCHS + 1):
         if EPOCH_HOOK is not None:
             EPOCH_HOOK(epoch, model)
         model.train()
@@ -322,6 +373,8 @@ def fit(model: nn.Module, train_loader, val_loader, device, log: bool = True):
                 if log:
                     print(f"early stopping: no improvement for {EARLY_STOP} epochs")
                 break
+        if log and RESUME_FILE:
+            save_resume(epoch, resumable, (best_loss, best_state, bad_epochs))
     if best_state is not None:
         model.load_state_dict(best_state)
     return model, loss_fn
@@ -586,6 +639,9 @@ def main() -> None:
     final = {**report, **test_metrics, **{f"cv_{m}": v for m, v in cv.items()}}
     Path("metrics.json").write_text(json.dumps(
         {k: v for k, v in final.items() if isinstance(v, (float, list))}, indent=1), encoding="utf-8")
+    if RESUME_FILE:             # trained and scored: nothing to resume
+        Path(RESUME_FILE).unlink(missing_ok=True)
+        Path(RESUME_FILE).with_suffix(".json").unlink(missing_ok=True)
     try:
         dump_test_results(model, test_loader, device)
     except Exception as exc:  # noqa: BLE001 — artefacts are optional

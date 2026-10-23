@@ -33,6 +33,7 @@ INPUT_SHAPE = (1, 28, 28)  # per sample, channels-first (as designed)
 KERAS_TRANSPOSE = (0, 2, 3, 1)  # channels-first -> the model's Keras layout
 NUM_CLASSES = 10
 MODEL_FILE = "mnist_mlp_best.keras"
+CALLBACKS = []          # more Keras callbacks for fit (e.g. the learning-rate finder)
 CLASS_NAMES = None
 
 
@@ -214,6 +215,7 @@ def main() -> None:
             monitor="val_loss" if len(x_val) else "loss", patience=EARLY_STOP,
             restore_best_weights=True))
     callbacks.append(keras.callbacks.LearningRateScheduler(lambda epoch, lr: 1e-06 + (LR0 - 1e-06) * (1 + math.cos(math.pi * min(epoch, 50) / 50)) / 2))
+    callbacks.extend(CALLBACKS)
     train_model.fit(x_train, fit_y, validation_data=(x_val, val_y) if len(x_val) else None,
                     epochs=EPOCHS, batch_size=BATCH_SIZE, callbacks=callbacks, verbose=0)
     deploy_model.save(MODEL_FILE)

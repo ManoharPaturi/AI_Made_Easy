@@ -176,6 +176,7 @@ export interface RunRecord {
   params?: Record<string, unknown>;
   graph?: Project;
   duration?: number | null;
+  boosted?: boolean;  // a boosted-tree model: Train more adds trees (3.9)
 }
 
 export interface BackendInfo {
@@ -584,4 +585,12 @@ export interface GroupResult {
   overall?: Record<string, number>;
   groups?: GroupRow[];
   flagged?: string[];
+}
+
+/** 3.9: whether a stopped, failed or interrupted run can continue (GET /api/runs/{id}/resume). */
+export interface ResumeInfo {
+  run_id: string;
+  resumable: boolean;
+  after_epoch?: number;
+  reason?: string;
 }
