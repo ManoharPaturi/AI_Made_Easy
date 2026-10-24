@@ -30,6 +30,7 @@ import argparse
 import json
 import subprocess
 import sys
+from pathlib import Path
 
 from ai_made_easy.core.codegen import FRAMEWORKS, export, export_training
 from ai_made_easy.core.codegen import sanitize_identifier as sanitize_name
@@ -64,12 +65,22 @@ def main(argv: list[str] | None = None) -> int:
     p_runs = sub.add_parser("runs", help="run history")
     p_runs.add_argument("action", nargs="?", default="list",
                         choices=("list", "show", "compare", "delete", "attach", "import",
-                                 "export"))
+                                 "export", "resume", "more"))
     p_runs.add_argument("ids", nargs="*", help="run id(s); import: the results .zip")
     p_runs.add_argument("-o", "--out", default="runs.csv",
                         help="export: .csv or .parquet file (default runs.csv)")
     p_runs.add_argument("--epochs", action="store_true",
                         help="export: one row per epoch instead of per run")
+    p_runs.add_argument("-n", "--more", type=int, default=10, metavar="N",
+                        help="more: epochs for a network, trees for a boosted model "
+                             "(default 10)")
+    p_lr = sub.add_parser("lr-find", help="find a learning rate for a design (a short "
+                                          "range test on this computer)")
+    p_lr.add_argument("project", help="path to project .json")
+    p_lr.add_argument("-f", "--framework", default="auto", help="auto, pytorch or keras")
+    p_lr.add_argument("--steps", type=int, default=100, help="batches to test (default 100)")
+    p_lr.add_argument("--apply", action="store_true",
+                      help="write the suggested rate into the project's optimizer block")
     p_be = sub.add_parser("backends", help="where runs train: list, add, test, remove")
     p_be.add_argument("action", nargs="?", default="list",
                       choices=("list", "add", "test", "remove"))
@@ -240,6 +251,8 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "runs":
         return _runs_command(args)
+    if args.command == "lr-find":
+        return _lr_find_command(args)
     if args.command == "backends":
         return _backends_command(args)
     if args.command in ("deploy", "models", "serve"):
@@ -893,11 +906,19 @@ def _runs_command(args) -> int:  # noqa: ANN001
         if not args.ids:
             print("error: give a run id", file=sys.stderr)
             return 2
-        if args.action in ("attach", "import"):
+        if args.action in ("attach", "import", "resume", "more"):
             if args.action == "attach":
                 status = api.attach_run(args.ids[0])
-            else:
+            elif args.action == "import":
                 status = api.import_run_results(args.ids[0])
+            elif args.action == "resume":
+                resumed = api.resume_run(args.ids[0])
+                print(f"{resumed['run_id']} continues after epoch {resumed['after_epoch']}")
+                status = api.manager().status(resumed["run_id"])
+            else:
+                started = api.train_more(args.ids[0], args.more, trees=args.more)
+                print(f"{started['run_id']} continues {args.ids[0]}")
+                status = api.manager().status(started["run_id"])
             run_id = status["run_id"]
             if status["state"] not in ("finished", "failed", "stopped"):
                 status = api.manager().wait(run_id, timeout=7 * 24 * 3600)
@@ -915,6 +936,32 @@ def _runs_command(args) -> int:  # noqa: ANN001
     except (KeyError, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
+
+
+def _lr_find_command(args) -> int:  # noqa: ANN001
+    from ai_made_easy.core import api
+
+    path = Path(args.project)
+    try:
+        graph = json.loads(path.read_text(encoding="utf-8"))
+        run_id = api.find_learning_rate(graph, steps=args.steps,
+                                        framework=args.framework)["run_id"]
+        api.manager().wait(run_id, timeout=24 * 3600)
+        out = api.learning_rate_result(run_id)
+    except (api.ApiError, KeyError, ValueError, OSError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    if out.get("state") != "finished" or not out.get("suggested"):
+        print(f"no suggestion: {out.get('reason') or out.get('error') or out.get('state')}",
+              file=sys.stderr)
+        return 1
+    print(f"suggested learning rate {out['suggested']:.3g} ({out['reason']}); the loss was "
+          f"lowest at {out['min_loss_lr']:.3g}")
+    if args.apply:
+        path.write_text(json.dumps(api.apply_learning_rate(graph, out["suggested"]), indent=2),
+                        encoding="utf-8")
+        print(f"wrote it into {path}")
+    return 0
 
 
 def _option_value(text: str):  # noqa: ANN202

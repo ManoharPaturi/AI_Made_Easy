@@ -6,7 +6,7 @@ import { LineChart, type Series } from "../../components/LineChart";
 import { useDialogs } from "../../components/Dialogs";
 import { duration, ListState, metric, StatusChip } from "../../components/Modal";
 import { useStore } from "../../state";
-import type { RunRecord } from "../../types";
+import type { ResumeInfo, RunRecord } from "../../types";
 
 import { CompareTable, DeployModal, DiffModal, RunExplainView, RunSamplesView } from "./RunDetails";
 import { GroupsModal, TrainMoreModal } from "./RunTools";
@@ -26,6 +26,7 @@ export function Runs({ scope }: { scope: string }) {
   const [diffing, setDiffing] = useState("");
   const [more, setMore] = useState<RunRecord | null>(null);
   const [grouping, setGrouping] = useState<RunRecord | null>(null);
+  const [resumable, setResumable] = useState<ResumeInfo | null>(null);
 
   const refresh = useCallback(() => {
     api.runs(scope || undefined).then((r) => { setRuns(r.runs); setError(""); })
@@ -81,6 +82,22 @@ export function Runs({ scope }: { scope: string }) {
     }
   };
   const one = ids.length === 1 ? runs.find((r) => r.run_id === ids[0]) : undefined;
+  const stalled = one && ["stopped", "failed", "interrupted"].includes(one.status) ? one.run_id : "";
+  useEffect(() => {
+    setResumable(null);
+    if (stalled) api.resumeInfo(stalled).then(setResumable).catch(() => setResumable(null));
+  }, [stalled]);
+  const resumeRun = async () => {
+    if (!stalled) return;
+    try {
+      const r = await api.resumeRun(stalled);
+      notify(`Run ${r.run_id} continues after epoch ${r.after_epoch}`);
+      setResumable(null);
+      refresh();
+    } catch (e) {
+      notify(String((e as Error).message), true);
+    }
+  };
   const follow = async () => {
     if (!one) return;
     try {
@@ -103,12 +120,18 @@ export function Runs({ scope }: { scope: string }) {
         <button disabled={ids.length !== 1 || runs.find((r) => r.run_id === ids[0])?.status !== "finished"}
                 onClick={() => setTrying(runs.find((r) => r.run_id === ids[0]) ?? null)}
                 title="Run the trained model on your own input" data-testid="try-run">Try it…</button>
-        <button disabled={one?.status !== "finished" || one.framework !== "pytorch"}
+        <button disabled={one?.status !== "finished" || !(one.framework === "pytorch" || one.boosted)}
                 onClick={() => setMore(one ?? null)} data-testid="train-more"
-                title="Continue this network for more epochs, as a new run">Train more…</button>
+                title="Continue this network for more epochs, or a boosted model for more trees, as a new run">
+          Train more…</button>
         <button disabled={one?.status !== "finished"} onClick={() => setGrouping(one ?? null)}
                 data-testid="groups-run"
                 title="This run's test results for each value of a column">By group…</button>
+        <button disabled={!resumable?.resumable} onClick={resumeRun} data-testid="resume-run"
+                title={resumable?.resumable
+                  ? `Continue this run after epoch ${resumable.after_epoch}, as the same run`
+                  : resumable?.reason ?? "Continue a stopped, failed or interrupted run"}>
+          Resume</button>
         <button disabled={!one || !one.backend || one.status !== "running"} onClick={follow}
                 title="Follow a remote run again after a restart or a lost connection">Follow again</button>
         <label className="button" title="The results zip a Colab hand-off notebook downloaded">

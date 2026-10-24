@@ -6,10 +6,11 @@ loss; it stops early once the loss blows up. The suggestion is the rate where th
 falls fastest (steepest descent of the smoothed curve before its minimum), which is a
 safe pick a little below the edge of instability.
 
-The run is a stage script next to the design's own PyTorch training script: it imports
-the script as a module, sets ``PARAM_GROUPS`` (start at ``start``) and ``BATCH_HOOK``
-(raise the rate after every batch) and calls its ``main()``. It runs on this computer,
-saves no model, and writes ``lr_find.json``.
+The run is a stage script next to the design's own training script: it imports the
+script as a module and calls its ``main()``. For PyTorch it sets ``PARAM_GROUPS`` (start
+at ``start``) and ``BATCH_HOOK`` (raise the rate after every batch); for Keras (3.9) it
+adds a callback that sets each batch's rate and records its loss. It runs on this
+computer, saves no model, and writes ``lr_find.json``.
 """
 from __future__ import annotations
 
@@ -83,14 +84,9 @@ def rate(step):
     return START * (END / START) ** (step / max(STEPS - 1, 1))
 
 
-def groups(model):
-    return [{{"params": [p for p in model.parameters() if p.requires_grad], "lr": START}}]
-
-
-def after_batch(optimizer, loss):
+def observe(lr, loss):
+    """Record one batch's rate and loss; Done when the loss diverged or the steps ran out."""
     step = state["step"]
-    group = optimizer.param_groups[0]
-    lr = group["lr"] / group.get("lr_mult", 1.0)     # the rate this batch used
     state["avg"] = BETA * state["avg"] + (1 - BETA) * loss
     smooth = state["avg"] / (1 - BETA ** (step + 1))
     record["lrs"].append(lr)
@@ -104,17 +100,9 @@ def after_batch(optimizer, loss):
     state["step"] = step + 1
     if state["step"] >= STEPS:
         raise Done("all steps")
-    for g in optimizer.param_groups:
-        g["lr"] = rate(state["step"]) * g.get("lr_mult", 1.0)
 
 
-module = load_module({script!r}, "lr_find_model")
-module.PARAM_GROUPS = groups
-module.BATCH_HOOK = after_batch
-module.LR_SCALE = 1.0
-module.EPOCHS = 10_000         # as many passes as the steps need
-module.EARLY_STOP = 0
-stopped = "the data ran out"
+{drive}stopped = "the data ran out"
 try:
     module.main()
 except Done as exc:
@@ -132,6 +120,52 @@ else:
 '''
 
 
+_TORCH_DRIVE = '''def groups(model):
+    return [{{"params": [p for p in model.parameters() if p.requires_grad], "lr": START}}]
+
+
+def after_batch(optimizer, loss):
+    group = optimizer.param_groups[0]
+    observe(group["lr"] / group.get("lr_mult", 1.0), loss)   # the rate this batch used
+    for g in optimizer.param_groups:
+        g["lr"] = rate(state["step"]) * g.get("lr_mult", 1.0)
+
+
+module = load_module({script!r}, "lr_find_model")
+module.PARAM_GROUPS = groups
+module.BATCH_HOOK = after_batch
+module.LR_SCALE = 1.0
+module.EPOCHS = 10_000         # as many passes as the steps need
+module.EARLY_STOP = 0
+'''
+
+_KERAS_DRIVE = '''import keras
+
+
+class Finder(keras.callbacks.Callback):
+    """Sets each batch's rate and records its loss. Keras reports the epoch's running mean,
+    so a batch's own loss is k * mean_k - (k - 1) * mean_(k-1)."""
+
+    def on_epoch_begin(self, epoch, logs=None):
+        self.mean = 0.0
+
+    def on_train_batch_begin(self, batch, logs=None):
+        self.model.optimizer.learning_rate = rate(state["step"])
+
+    def on_train_batch_end(self, batch, logs=None):
+        mean, k = float(logs["loss"]), batch + 1
+        loss = k * mean - (k - 1) * self.mean
+        self.mean = mean
+        observe(rate(state["step"]), loss)
+
+
+module = load_module({script!r}, "lr_find_model")
+module.CALLBACKS = [Finder()]
+module.EPOCHS = 10_000         # as many passes as the steps need
+module.EARLY_STOP = 0
+'''
+
+
 def optimizer_node(graph):  # noqa: ANN001, ANN201 — Graph -> NodeInstance | None
     from ai_made_easy.core.training.catalog import OPTIMIZERS
 
@@ -140,7 +174,7 @@ def optimizer_node(graph):  # noqa: ANN001, ANN201 — Graph -> NodeInstance | N
 
 
 def write_script(workdir: Path, graph, *, start: float = START, end: float = END,  # noqa: ANN001
-                 steps: int = STEPS) -> Path:
+                 steps: int = STEPS, framework: str = "auto") -> Path:
     """The training script plus the range-test script that drives it (its path)."""
     from ai_made_easy.core.codegen import export_training
 
@@ -148,18 +182,23 @@ def write_script(workdir: Path, graph, *, start: float = START, end: float = END
         raise LRFindError("the start rate must be positive and below the end rate")
     if steps < 10:
         raise LRFindError("use at least 10 steps")
-    script = export_training(graph, "pytorch", workdir)
-    if "BATCH_HOOK = None" not in script.read_text(encoding="utf-8"):
+    from ai_made_easy.core.runner.manager import resolve_framework
+
+    framework = resolve_framework(graph, framework)
+    script = export_training(graph, framework, workdir)
+    hook, drive = ("CALLBACKS = []", _KERAS_DRIVE) if framework == "keras" else (
+        "BATCH_HOOK = None", _TORCH_DRIVE)
+    if hook not in script.read_text(encoding="utf-8"):
         raise LRFindError("this kind of design trains with its own loop; the learning-rate "
                           "finder works on networks trained with the standard trainer")
     path = Path(workdir) / "stage_lr_find.py"
     path.write_text(_SCRIPT.format(start=float(start), end=float(end), steps=int(steps),
-                                   suggest=inspect.getsource(suggest), script=script.name,
-                                   result=RESULT), encoding="utf-8")
+                                   suggest=inspect.getsource(suggest), result=RESULT,
+                                   drive=drive.format(script=script.name)), encoding="utf-8")
     return path
 
 
-def check(graph) -> None:  # noqa: ANN001
+def check(graph, framework: str = "auto") -> None:  # noqa: ANN001
     from ai_made_easy.core.runner.manager import resolve_framework
 
     errors = [i for i in graph.validate() if i.severity == "error"]
@@ -167,16 +206,22 @@ def check(graph) -> None:  # noqa: ANN001
         raise LRFindError("the design has errors: " + "; ".join(i.message for i in errors[:3]))
     if optimizer_node(graph) is None:
         raise LRFindError("add an optimizer block: the finder tunes its learning rate")
-    if resolve_framework(graph, "auto") != "pytorch":
-        raise LRFindError("the learning-rate finder runs PyTorch designs")
+    if resolve_framework(graph, framework) not in ("pytorch", "keras"):
+        raise LRFindError("the learning-rate finder runs PyTorch and Keras designs")
 
 
 def start(mgr, graph, *, start: float = START, end: float = END, steps: int = STEPS,  # noqa: ANN001
-          project: str = "") -> str:
-    check(graph)
+          project: str = "", framework: str = "auto") -> str:
+    """Run the range test with the framework the design trains with (``auto``: its own
+    default; ``keras`` for a Keras run)."""
+    from ai_made_easy.core.runner.manager import resolve_framework
+
+    check(graph, framework)
+    framework = resolve_framework(graph, framework)
     return mgr.start_stage(graph, lambda wd: write_script(wd, graph, start=start, end=end,
-                                                          steps=steps),
-                           kind="lr_find", project=project, tags=["lr-find"])
+                                                          steps=steps, framework=framework),
+                           framework=framework, kind="lr_find", project=project,
+                           tags=["lr-find"])
 
 
 def result(mgr, run_id: str) -> dict:  # noqa: ANN001

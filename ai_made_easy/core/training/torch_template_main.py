@@ -90,6 +90,9 @@ def main() -> None:
     final = {**report, **test_metrics, **{f"cv_{m}": v for m, v in cv.items()}}
     Path("metrics.json").write_text(json.dumps(
         {k: v for k, v in final.items() if isinstance(v, (float, list))}, indent=1), encoding="utf-8")
+    if RESUME_FILE:             # trained and scored: nothing to resume
+        Path(RESUME_FILE).unlink(missing_ok=True)
+        Path(RESUME_FILE).with_suffix(".json").unlink(missing_ok=True)
 {% if spec.predict %}
     preview_predictions(model, test_loader, device)
 {% endif %}

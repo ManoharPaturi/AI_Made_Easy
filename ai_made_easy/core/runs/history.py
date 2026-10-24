@@ -249,6 +249,24 @@ class RunHistory:
                 raise KeyError(f"unknown run {run_id!r}")
             remove_tree(path)
 
+    def keep_epochs(self, run_id: str, last: int) -> None:
+        """Keep the epochs up to ``last`` (a resumed run continues after it): later ones
+        are forgotten, and the epoch count and best metrics recomputed."""
+        kept = [e for e in self.epochs(run_id) if int(e.get("epoch") or 0) <= last]
+        with self._lock:
+            file = self.path(run_id) / "epochs.jsonl"
+            file.write_text("".join(json.dumps(e) + "\n" for e in kept), encoding="utf-8")
+            record = self.get(run_id)
+            record.epochs_done, record.best_metrics = len(kept), {}
+            for event in kept:
+                for key, value in (event.get("metrics") or {}).items():
+                    if not isinstance(value, (int, float)) or key == "lr":
+                        continue
+                    best = record.best_metrics.get(key)
+                    if best is None or (value < best if lower_is_better(key) else value > best):
+                        record.best_metrics[key] = float(value)
+            self.save(record)
+
     def reset_epochs(self, run_id: str) -> None:
         """Forget recorded epochs (before replaying a remote run's events again)."""
         with self._lock:

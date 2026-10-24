@@ -269,6 +269,12 @@ class RunManager:
             raise
         return self._launch(record.run_id, script, workdir, graph=graph)
 
+    def relaunch(self, run_id: str, script: Path, graph: Graph | None = None) -> str:
+        """Run ``script`` in an existing run's folder as that run again (core.resume)."""
+        self.history.update(run_id, status="running", returncode=None, error="",
+                            finished_at=None)
+        return self._launch(run_id, script, self.history.path(run_id), graph=graph)
+
     def _launch(self, run_id: str, script, workdir,  # noqa: ANN001
                 backend: backends.Backend | None = None, bundle=None,  # noqa: ANN001
                 graph: Graph | None = None) -> str:

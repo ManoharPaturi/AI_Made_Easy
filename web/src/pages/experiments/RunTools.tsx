@@ -13,11 +13,12 @@ export function TrainMoreModal({ run, onClose, onStarted }: {
   run: RunRecord; onClose: () => void; onStarted: () => void;
 }) {
   const { notify } = useStore();
-  const [epochs, setEpochs] = useState(10);
+  const trees = Boolean(run.boosted);           // 3.9: a boosted model grows more trees
+  const [epochs, setEpochs] = useState(trees ? 100 : 10);
   const [scale, setScale] = useState(1);
   const start = async () => {
     try {
-      const r = await api.trainMore(run.run_id, epochs, scale);
+      const r = await api.trainMore(run.run_id, epochs, scale, trees ? epochs : undefined);
       notify(`Run ${r.run_id} continues ${run.run_id}`);
       onStarted();
       onClose();
@@ -29,17 +30,21 @@ export function TrainMoreModal({ run, onClose, onStarted }: {
     <Modal title={`Train run ${run.run_id} more`} onClose={onClose}
            actions={<button className="primary" data-testid="start-more" onClick={start}
                             disabled={!(epochs >= 1)}>Train more</button>}>
-      <p className="dim">A new run starts from this run's best weights and trains for more
-        epochs on the same data. The optimizer starts afresh (its running averages aren't
-        saved with the weights), so a slightly lower learning rate is often smoother.</p>
+      {trees
+        ? <p className="dim">A new run keeps this model's trees and adds more, fitted on the
+            same training rows with the same class balancing. Watch the test score: past some
+            point more trees only fit the training data closer.</p>
+        : <p className="dim">A new run starts from this run's best weights and trains for more
+            epochs on the same data. The optimizer starts afresh (its running averages aren't
+            saved with the weights), so a slightly lower learning rate is often smoother.</p>}
       <div className="form">
-        <div className="field"><label htmlFor="more-epochs">More epochs</label>
+        <div className="field"><label htmlFor="more-epochs">{trees ? "More trees" : "More epochs"}</label>
           <input id="more-epochs" type="number" min={1} value={epochs}
                  onChange={(e) => setEpochs(parseInt(e.target.value, 10))} /></div>
-        <div className="field"><label htmlFor="more-scale">Learning-rate scale</label>
+        {!trees && <div className="field"><label htmlFor="more-scale">Learning-rate scale</label>
           <input id="more-scale" type="number" min={0.01} step={0.1} value={scale}
                  onChange={(e) => setScale(parseFloat(e.target.value))} />
-          <div className="help">Multiplies the design's learning rate (1 = the same).</div></div>
+          <div className="help">Multiplies the design's learning rate (1 = the same).</div></div>}
       </div>
     </Modal>
   );

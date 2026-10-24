@@ -307,10 +307,13 @@ def stop_run(run_id: str) -> dict:
 
 
 def list_runs(project: str | None = None, parent: str | None = None) -> dict:
+    from ai_made_easy.core.train_more import boosted
+
     records = manager().history.list(project=project, parent=parent)
     rows = []
     for r in records:
         row = r.to_dict()
+        row["boosted"] = r.framework == "sklearn" and boosted(r.graph)   # Train more: trees
         row.pop("graph", None)
         row.pop("params", None)
         rows.append(row)
@@ -502,15 +505,16 @@ def sweep_best_graph(sweep_id: str) -> dict:
 
 def find_learning_rate(graph: dict | Graph, *, start: float | None = None,
                        end: float | None = None, steps: int | None = None,
-                       project: str = "") -> dict:
-    """Start a learning-rate range test on the design (a short run on this computer)."""
+                       project: str = "", framework: str = "auto") -> dict:
+    """Start a learning-rate range test on the design (a short run on this computer), with
+    the framework it trains with (PyTorch or Keras)."""
     from ai_made_easy.core import lr_find
 
     try:
         run_id = lr_find.start(manager(), _graph(graph), start=start or lr_find.START,
                                end=end or lr_find.END, steps=steps or lr_find.STEPS,
-                               project=project)
-    except lr_find.LRFindError as exc:
+                               project=project, framework=framework or "auto")
+    except (lr_find.LRFindError, ValueError) as exc:
         raise ApiError(str(exc)) from exc
     return {"run_id": run_id}
 
@@ -532,14 +536,38 @@ def apply_learning_rate(graph: dict | Graph, lr: float) -> dict:
         raise ApiError(str(exc)) from exc
 
 
-def train_more(run_id: str, epochs: int, lr_scale: float = 1.0) -> dict:
-    """Continue a finished network for more epochs, as a new run."""
+def train_more(run_id: str, epochs: int, lr_scale: float = 1.0,
+               trees: int | None = None) -> dict:
+    """Continue a finished network for more epochs, or a boosted model for more trees, as a
+    new run."""
     from ai_made_easy.core import train_more as tm
 
     try:
-        return {"run_id": tm.start(manager(), run_id, int(epochs), float(lr_scale)),
+        return {"run_id": tm.start(manager(), run_id, int(epochs), float(lr_scale),
+                                   None if trees is None else int(trees)),
                 "continues": run_id}
     except (tm.TrainMoreError, FileNotFoundError) as exc:
+        raise ApiError(str(exc)) from exc
+
+
+def resume_info(run_id: str) -> dict:
+    """Whether a run can resume, and after which epoch (``reason`` says why not)."""
+    from ai_made_easy.core import resume
+
+    try:
+        return {"run_id": run_id, "resumable": True,
+                "after_epoch": resume.check(manager(), run_id)}
+    except resume.ResumeError as exc:
+        return {"run_id": run_id, "resumable": False, "reason": str(exc)}
+
+
+def resume_run(run_id: str) -> dict:
+    """Continue a stopped, failed or interrupted run after its last saved epoch."""
+    from ai_made_easy.core import resume
+
+    try:
+        return {"run_id": run_id, "after_epoch": resume.start(manager(), run_id)}
+    except resume.ResumeError as exc:
         raise ApiError(str(exc)) from exc
 
 

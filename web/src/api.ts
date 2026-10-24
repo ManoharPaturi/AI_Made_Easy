@@ -23,6 +23,7 @@ import type {
   Project,
   RecipeInfo,
   RecipeSuggestion,
+  ResumeInfo,
   RunEvent,
   RunRecord,
   RunSamples,
@@ -166,12 +167,16 @@ export const api = {
   learningRateResult: (id: string) => get<LRFindResult>(`/lr-find/${id}`),
   applyLearningRate: (graph: Project, lr: number) =>
     post<{ graph: Project }>("/lr-find/apply", { graph, lr }),
-  trainMore: (id: string, epochs: number, lrScale = 1) =>
-    post<{ run_id: string; continues: string }>(`/runs/${id}/more`, { epochs, lr_scale: lrScale }),
+  trainMore: (id: string, epochs: number, lrScale = 1, trees?: number) =>
+    post<{ run_id: string; continues: string }>(`/runs/${id}/more`,
+                                                { epochs, lr_scale: lrScale, trees }),
   groupColumns: (id: string) => get<{ columns: GroupColumn[] }>(`/runs/${id}/groups/columns`),
   resultsByGroup: (id: string, column: string) =>
     post<{ run_id: string }>(`/runs/${id}/groups`, { column }),
   groupResult: (id: string) => get<GroupResult>(`/groups/${id}`),
+  // 3.9: resume an interrupted run
+  resumeInfo: (id: string) => get<ResumeInfo>(`/runs/${id}/resume`),
+  resumeRun: (id: string) => post<{ run_id: string; after_epoch: number }>(`/runs/${id}/resume`, {}),
 
   startPipeline: (graph: Project, project = "", on = "local") =>
     post<{ pipeline_id: string; stages: string[] }>("/pipelines", { graph, project, on }),

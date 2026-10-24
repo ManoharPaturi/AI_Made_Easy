@@ -51,6 +51,7 @@ NUM_CLASSES = {{ spec.num_outputs if spec.task != "binary" else 2 }}
 TARGET_SCALING = {{ target_scaling }}
 {% endif %}
 MODEL_FILE = "{{ spec.name }}_best.keras"
+CALLBACKS = []          # more Keras callbacks for fit (e.g. the learning-rate finder)
 CLASS_NAMES = None
 {% for helper in keras_helpers %}
 
@@ -188,6 +189,7 @@ def main() -> None:
     counts = np.bincount(y_train.astype(int), minlength=NUM_CLASSES)
     class_weight = {c: len(y_train) / (NUM_CLASSES * max(n, 1)) for c, n in enumerate(counts)}
 {% endif %}
+    callbacks.extend(CALLBACKS)
     train_model.fit(x_train, fit_y, validation_data=(x_val, val_y) if len(x_val) else None,
                     epochs=EPOCHS, batch_size=BATCH_SIZE, callbacks=callbacks, verbose=0{% if balance == "class weights" %},
                     class_weight=class_weight{% endif %})

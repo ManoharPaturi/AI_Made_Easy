@@ -371,11 +371,9 @@ def feature_importances(model: Pipeline, top: int = 15) -> list[tuple[str, float
 {% endif %}
 
 
-def main() -> None:
-    X, y = load_data()
-    print(f"samples: {len(X)}")
-    model = build_pipeline()
 {% if supervised %}
+def training_split(X, y):
+    """Train / test rows, and the fit parameters that balance the classes."""
     X_train, X_test, y_train, y_test = train_test_split(
         X, y, test_size=TEST_FRACTION, random_state=SEED{% if stratify %},
         stratify=y if len(np.unique(y)) > 1 and np.min(np.unique(y, return_counts=True)[1]) > 1 else None{% endif %})
@@ -391,6 +389,16 @@ def main() -> None:
 {% elif sample_weight %}
     fit_params["model__sample_weight"] = compute_sample_weight("balanced", y_train)
 {% endif %}
+    return X_train, X_test, y_train, y_test, fit_params
+
+
+{% endif %}
+def main() -> None:
+    X, y = load_data()
+    print(f"samples: {len(X)}")
+    model = build_pipeline()
+{% if supervised %}
+    X_train, X_test, y_train, y_test, fit_params = training_split(X, y)
 {% if spec.kfold %}
     cv = {{ "StratifiedKFold" if task == "classification" else "KFold" }}(n_splits={{ spec.kfold.k }}, shuffle=True, random_state=SEED)
     results = cross_validate(model, X_train, y_train, cv=cv, scoring="{{ scoring }}", params=fit_params or None)

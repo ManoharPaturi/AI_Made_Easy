@@ -180,6 +180,7 @@ class AppContext(FileActions, ExportActions, RunActions, DataActions, QtCore.QOb
         ep.deploy_run_requested.connect(self._deploy_run)
         ep.try_run_requested.connect(self._try_run)
         ep.train_more_requested.connect(self._train_more)
+        ep.resume_requested.connect(self._resume_run)
         ep.groups_requested.connect(self._results_by_group)
         ep.model_deploy_requested.connect(self._deploy_model)
         ep.model_stage_requested.connect(self._set_model_stage)
