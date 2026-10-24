@@ -21,8 +21,8 @@ jobs:
       KERAS_BACKEND: torch
       HAS_KAGGLE: ${{ secrets.KAGGLE_KEY != '' }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
           cache: pip
@@ -37,7 +37,7 @@ jobs:
           pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
           pip install -e ".[all,dev]" pandas
       - name: Cache downloaded weights
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cache/torch
@@ -65,7 +65,7 @@ jobs:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
           AIME_HF_TEST_REPO: ${{ vars.AIME_HF_TEST_REPO }}
         run: AIME_ONLINE=1 pytest -q -p no:cacheprovider tests/test_integrations.py -k "real_hub"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: sweep-report
