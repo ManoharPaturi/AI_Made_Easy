@@ -20,6 +20,8 @@ from __future__ import annotations
 
 import json
 import math
+import pickle
+import random
 import time
 from pathlib import Path
 
@@ -52,6 +54,8 @@ TARGET_SCALING = {{ target_scaling }}
 {% endif %}
 MODEL_FILE = "{{ spec.name }}_best.keras"
 CALLBACKS = []          # more Keras callbacks for fit (e.g. the learning-rate finder)
+RESUME = False          # continue from RESUME_FILE (resume an interrupted run)
+RESUME_FILE = "resume.weights.h5"   # weights and optimizer, saved after each epoch ("" = off)
 CLASS_NAMES = None
 {% for helper in keras_helpers %}
 
@@ -118,6 +122,80 @@ class EpochReport(keras.callbacks.Callback):
         print(f"epoch {epoch + 1}/{EPOCHS} train_loss={logs.get('loss', float('nan')):.4f} "
               f"val_loss={logs.get('val_loss', float('nan')):.4f} {extra} "
               f"({time.time() - self.started:.1f}s)", flush=True)
+
+
+class SaveResume(keras.callbacks.Callback):
+    """After each epoch, what training needs to continue: the weights and optimizer
+    (RESUME_FILE), the random state and the other callbacks' counters (early stopping,
+    learning-rate plateaus). Listed last, so it restores those after they reset."""
+
+    KEPT = ("wait", "best", "best_weights", "best_epoch", "stopped_epoch", "cooldown_counter")
+
+    def __init__(self, callbacks: list) -> None:
+        super().__init__()
+        self.callbacks, self.restored = callbacks, None
+        self.weights = Path(RESUME_FILE)
+        self.extra = self.weights.with_name("resume.extra.pkl")
+        self.info = self.weights.with_name("resume.json")   # read by the app, without Keras
+
+    @staticmethod
+    def seeds(model: keras.Model) -> list:
+        """The layers' random generators (dropout, augmentation): not in the weights."""
+        return [g for layer in model._flatten_layers()
+                for g in getattr(layer, "_seed_generators", ())]
+
+    def load(self, model: keras.Model) -> int:
+        """Restore what on_epoch_end saved; returns the epoch it was saved after."""
+        model.optimizer.build(model.trainable_variables)
+        model.load_weights(self.weights)
+        with open(self.extra, "rb") as fh:
+            state = pickle.load(fh)
+        for generator, value in zip(self.seeds(model), state["seeds"], strict=True):
+            generator.state.assign(value)
+        self.restored = state
+        print(f"resuming after epoch {state['epoch']}", flush=True)
+        return state["epoch"]
+
+    def on_train_begin(self, logs=None) -> None:
+        """Just before the first epoch: fit's own setup draws random numbers too."""
+        state = self.restored
+        if state is None:
+            return
+        for callback, kept in zip(self.callbacks, state["callbacks"], strict=True):
+            callback.__dict__.update(kept)
+        random.setstate(state["python"])
+        np.random.set_state(state["numpy"])
+        if state["torch"] is not None:
+            import torch
+
+            torch.set_rng_state(state["torch"]["cpu"])
+            if state["torch"]["cuda"] is not None and torch.cuda.is_available():
+                torch.cuda.set_rng_state_all(state["torch"]["cuda"])
+            if state["torch"]["mps"] is not None and torch.backends.mps.is_available():
+                torch.mps.set_rng_state(state["torch"]["mps"])
+
+    def on_epoch_end(self, epoch, logs=None) -> None:
+        tmp = self.weights.with_name("resume.tmp.weights.h5")
+        self.model.save_weights(tmp, overwrite=True)
+        torch_state = None
+        if keras.backend.backend() == "torch":
+            import torch
+
+            torch_state = {   # unseeded dropout draws on the device's own generator
+                "cpu": torch.get_rng_state(),
+                "cuda": torch.cuda.get_rng_state_all() if torch.cuda.is_available() else None,
+                "mps": torch.mps.get_rng_state() if torch.backends.mps.is_available() else None}
+        state = {"epoch": epoch + 1, "python": random.getstate(),
+                 "numpy": np.random.get_state(), "torch": torch_state,
+                 "seeds": [keras.ops.convert_to_numpy(g.state) for g in self.seeds(self.model)],
+                 "callbacks": [{k: v for k, v in vars(c).items() if k in self.KEPT}
+                               for c in self.callbacks]}
+        with open(self.extra.with_suffix(".tmp"), "wb") as fh:
+            pickle.dump(state, fh)
+        tmp.replace(self.weights)
+        self.extra.with_suffix(".tmp").replace(self.extra)
+        self.info.write_text(json.dumps({"epoch": epoch + 1, "epochs": EPOCHS}),
+                             encoding="utf-8")
 
 
 def main() -> None:
@@ -189,9 +267,14 @@ def main() -> None:
     counts = np.bincount(y_train.astype(int), minlength=NUM_CLASSES)
     class_weight = {c: len(y_train) / (NUM_CLASSES * max(n, 1)) for c, n in enumerate(counts)}
 {% endif %}
+    saver = SaveResume(list(callbacks)) if RESUME_FILE else None   # the script's own callbacks
+    first_epoch = saver.load(train_model) if saver and RESUME and saver.weights.exists() else 0
     callbacks.extend(CALLBACKS)
+    if saver:
+        callbacks.append(saver)
     train_model.fit(x_train, fit_y, validation_data=(x_val, val_y) if len(x_val) else None,
-                    epochs=EPOCHS, batch_size=BATCH_SIZE, callbacks=callbacks, verbose=0{% if balance == "class weights" %},
+                    epochs=EPOCHS, batch_size=BATCH_SIZE, callbacks=callbacks, verbose=0,
+                    initial_epoch=first_epoch{% if balance == "class weights" %},
                     class_weight=class_weight{% endif %})
     deploy_model.save(MODEL_FILE)
     save_inference_state()
@@ -213,6 +296,9 @@ def main() -> None:
     metrics = compute_metrics(outputs, y_test) if len(x_test) else {}
     print("test: " + " ".join(f"{k}={v:.4f}" for k, v in metrics.items() if isinstance(v, float)))
     Path("metrics.json").write_text(json.dumps(metrics, indent=1), encoding="utf-8")
+    if RESUME_FILE:             # trained and scored: nothing to resume
+        for name in (RESUME_FILE, "resume.extra.pkl", "resume.json"):
+            Path(name).unlink(missing_ok=True)
 {% if spec.predict %}
     print("\nprediction preview:")
     scores = to_scores(outputs)

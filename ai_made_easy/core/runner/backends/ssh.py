@@ -273,7 +273,9 @@ class SSHBackend(RemoteBackend):
         for attempt in range(3):
             try:
                 data = self._check(self._run(
-                    f"cd {self._dir(run.run_id)} && tar czf - {excludes} .", timeout=1800),
+                    # COPYFILE_DISABLE: a macOS host's tar would add ._ metadata files
+                    f"cd {self._dir(run.run_id)} && COPYFILE_DISABLE=1 tar czf - {excludes} .",
+                    timeout=1800),
                     "downloading the outputs")
                 unpack_outputs(data, run.workdir)
                 return

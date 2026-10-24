@@ -198,6 +198,16 @@ unless `gpus=true`. Docker caches the image for later runs. Podman works too, if
 
 For a container on another machine, use an SSH backend with `docker_image`.
 
+## Resuming a run
+
+A run that stopped or failed on a backend resumes there (**Resume** in either app,
+`aime runs resume <id>`, `POST /api/runs/{id}/resume`), as the same run. The training
+script saves its state after each epoch; the backend brings that back with the outputs
+when the run ends, and the resumed run carries it out again in its bundle. On Kaggle the
+state comes back only with the kernel's outputs, so a kernel stopped from the app can't
+resume. Kaggle and Colab runs carry at most 20 MB inside their one file, saved state
+included.
+
 ## Sweeps, pipelines and agents
 
 - **Sweeps:** trials train on the chosen backend (`aime sweep … --on gpu-box`, or the
