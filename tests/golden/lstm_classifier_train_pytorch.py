@@ -313,7 +313,8 @@ def save_resume(epoch: int, objects: dict, best: tuple) -> None:
     state = {name: obj.state_dict() for name, obj in objects.items()}
     state.update(epoch=epoch, best=best, rng={
         "torch": torch.get_rng_state(), "numpy": np.random.get_state(),
-        "cuda": torch.cuda.get_rng_state_all() if torch.cuda.is_available() else None})
+        "cuda": torch.cuda.get_rng_state_all() if torch.cuda.is_available() else None,
+        "mps": torch.mps.get_rng_state() if torch.backends.mps.is_available() else None})
     tmp = Path(RESUME_FILE + ".tmp")
     torch.save(state, tmp)
     tmp.replace(RESUME_FILE)
@@ -330,6 +331,8 @@ def load_resume(objects: dict, device) -> tuple[int, tuple]:  # noqa: ANN001
     np.random.set_state(state["rng"]["numpy"])
     if state["rng"]["cuda"] is not None and torch.cuda.is_available():
         torch.cuda.set_rng_state_all(state["rng"]["cuda"])
+    if state["rng"].get("mps") is not None and torch.backends.mps.is_available():
+        torch.mps.set_rng_state(state["rng"]["mps"])
     print(f"resuming after epoch {state['epoch']}", flush=True)
     return state["epoch"], state["best"]
 

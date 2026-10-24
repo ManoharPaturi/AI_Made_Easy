@@ -105,7 +105,10 @@ def test_resume_says_why_a_run_cannot(isolated_home, tmp_path):
         with pytest.raises(api.ApiError, match="no epoch to resume"):
             api.resume_run(record.run_id)
         mgr.history.update(record.run_id, backend="ssh:gpu-box")
-        with pytest.raises(api.ApiError, match="this computer"):
+        with pytest.raises(api.ApiError, match="did not come back from ssh:gpu-box"):
+            api.resume_run(record.run_id)
+        mgr.history.update(record.run_id, backend="a-removed-backend")
+        with pytest.raises(api.ApiError, match="not set up any more"):
             api.resume_run(record.run_id)
         with pytest.raises(KeyError):
             api.resume_run("nope")

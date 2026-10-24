@@ -24,6 +24,8 @@ from typing import Any
 from ai_made_easy.core.paths import subdir
 
 FINAL_STATES = ("finished", "failed", "stopped")
+# what a training script saves after each epoch to resume from (PyTorch, Keras)
+RESUME_FILES = ("resume.pt", "resume.weights.h5", "resume.extra.pkl", "resume.json")
 
 
 @dataclass
@@ -231,6 +233,9 @@ class RunHistory:
             record.finished_at = time.time()
             if error:
                 record.error = error[-4000:]
+            if status == "finished":   # nothing left to resume (core.resume)
+                for name in RESUME_FILES:
+                    (self.path(run_id) / name).unlink(missing_ok=True)
             metrics_file = self.path(run_id) / "metrics.json"
             if metrics_file.exists():
                 try:
