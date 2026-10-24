@@ -1,5 +1,44 @@
 # Changelog
 
+## 3.9.0
+
+Resume a run where it stopped, train a boosted model more, faster sequence models, Keras
+versions of 15 more layers, and Core ML checked on macOS. 762 blocks, 72 recipes. See
+[docs/ROADMAP_3.9.md](docs/ROADMAP_3.9.md) for what is in this release.
+
+### Added
+- **Resume an interrupted run** (both apps, `POST /api/runs/{id}/resume`,
+  `aime runs resume`): PyTorch runs save what training needs after each epoch (weights,
+  optimizer, schedule, averaged weights, the best weights so far and the random state). A
+  run that was stopped, failed or cut off by a crash continues after its last saved
+  epoch, as the same run, and ends exactly where an uninterrupted run would.
+- **Train a boosted model more** (both apps, `aime runs more`): XGBoost, LightGBM,
+  CatBoost and scikit-learn's gradient boosting keep their trees and add more, on the same
+  training rows and class balancing; the run reports the new tree count.
+- **Find a learning rate for Keras designs** (`framework` in `POST /api/lr-find`), and
+  `aime lr-find project.json [--apply]` on the command line.
+- **Keras versions of 15 layers** that were PyTorch-only: differential, Linformer, latent,
+  QK-norm and gated attention; retention, RWKV, Hyena, Mamba-2, Gated DeltaNet, gated
+  linear attention and Griffin; involution, MobileNetV4's UIB and StarNet's block. With
+  the same weights they compute the same outputs as PyTorch.
+- **Core ML on macOS:** exports run on the Mac and must match PyTorch (within float16
+  precision); a `coreml` extra and a macOS CI job. 24 of the 27 layers from 3.7 and 3.8,
+  and 33 samples, convert and match.
+
+### Changed
+- Mamba-2, Gated DeltaNet and gated linear attention train in chunks, Griffin with a
+  parallel scan: the same results, 2-10 times faster on long sequences.
+- TimesNet exports to ExecuTorch, float and int8. DLRM exports to ExecuTorch too.
+- GitHub Actions moved to their Node 24 versions.
+
+### Fixed
+- The MCP server on Windows stopped answering at its first tool call.
+- Core ML exports failed for most attention and sequence layers with NumPy 2.5.
+- A pipeline stage whose run crashed without a traceback said only "the run failed"; it
+  now gives the exit code and the run's last output.
+- Export limits now say when Core ML can't take a layer: Hyena, deformable convolution,
+  involution, Glow's invertible 1x1 convolution, the spline flow.
+
 ## 3.8.0
 
 Find a good learning rate before training, continue a finished run, see where a model is

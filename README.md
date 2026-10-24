@@ -62,6 +62,15 @@ boilerplate. It runs on the desktop or in the browser.
   ArcFace, CosFace, triplet and supervised contrastive losses for embeddings; SAM and
   Schedule-Free AdamW; weight averaging (EMA, SWA); Integrated Gradients; target encoding
   and SMOTE for classic models; Tiny Llama, Vision Transformer, ConvNeXt and ArcFace recipes.
+- **Resume a run, train boosted models more, faster sequence models (3.9).** A run that
+  stopped or crashed continues from its last saved epoch, as the same run. XGBoost,
+  LightGBM, CatBoost and gradient-boosting models can grow more trees, and the
+  learning-rate finder runs Keras designs. Mamba-2, Gated DeltaNet, gated linear
+  attention and Griffin train 2-10 times faster on long sequences; 15 more layers have
+  Keras versions that compute exactly what the PyTorch ones do; Core ML exports are
+  checked against PyTorch on macOS.
+
+  ![Train a boosted model more: how many trees to add](docs/images/web_train_more_trees.png)
 - **Find a learning rate, train more, results by group (3.8).** From an optimizer block,
   a short range test plots loss against learning rate and suggests one to use. A finished
   network can train for more epochs from its best weights, and any run trained on a table
