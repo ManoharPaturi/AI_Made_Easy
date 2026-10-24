@@ -84,8 +84,10 @@ class DiffAttention(nn.Module):
         if self.causal:
             future = torch.ones(n, n, dtype=torch.bool, device=x.device).triu(1)
             s1, s2 = s1.masked_fill(future, float("-inf")), s2.masked_fill(future, float("-inf"))
-        lq1, lk1, lq2, lk2 = self.lambdas
-        lam = torch.exp((lq1 * lk1).sum()) - torch.exp((lq2 * lk2).sum()) + self.lambda_init
+        # exp(lq1.lk1) - exp(lq2.lk2) + init, kept as tensors of one element: Core ML
+        # folds arithmetic on 0-d constants into Python floats it then rejects
+        e = torch.exp((self.lambdas[0::2] * self.lambdas[1::2]).sum(-1))
+        lam = e[0:1] - e[1:2] + self.lambda_init
         att = s1.softmax(-1) - lam * s2.softmax(-1)
         o = att @ v
         o = o * torch.rsqrt(o.pow(2).mean(-1, keepdim=True) + 1e-6) * self.norm
@@ -143,7 +145,8 @@ class RWKVBlock(nn.Module):
 
     @staticmethod
     def shift(x: torch.Tensor) -> torch.Tensor:
-        return nn.functional.pad(x, (0, 0, 1, -1))
+        # (pad by -1 is the same, but Core ML can't convert a negative pad)
+        return torch.cat([x.new_zeros(x.shape[0], 1, x.shape[2]), x[:, :-1]], 1)
 
     def wkv(self, k: torch.Tensor, v: torch.Tensor) -> torch.Tensor:
         b, n, d = k.shape

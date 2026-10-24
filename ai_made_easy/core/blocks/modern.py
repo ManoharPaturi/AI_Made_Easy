@@ -31,8 +31,9 @@ class RotaryEmbedding(nn.Module):
         self.register_buffer("inv_freq", inv, persistent=False)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:  # [..., L, D]
-        pos = torch.arange(x.size(-2), device=x.device, dtype=self.inv_freq.dtype)
-        angles = torch.outer(pos, self.inv_freq)
+        # cast, then multiply: Core ML builds arange as integers and can't matmul them
+        pos = torch.arange(x.size(-2), device=x.device).to(self.inv_freq.dtype)
+        angles = pos[:, None] * self.inv_freq
         cos, sin = angles.cos().to(x.dtype), angles.sin().to(x.dtype)
         pairs = x.unflatten(-1, (-1, 2))
         x1, x2 = pairs[..., 0], pairs[..., 1]

@@ -24,7 +24,9 @@ both accuracies.
 """
 from __future__ import annotations
 
+import contextlib
 import json
+import sys
 import time
 import traceback
 from dataclasses import dataclass, field
@@ -34,6 +36,8 @@ from typing import Callable
 import numpy as np
 
 FLOAT_TOL = 1e-4
+HALF_TOL = 5e-2             # Core ML programs compute in float16 by default: deep networks
+                            # (a small GPT, a diffusion U-Net) drift 2-3% of their output scale
 CLASS_TOL = 2e-3            # per-pixel outputs: or every class agrees and drift stays below
 DETECTION_MATCH = 0.9       # float detector exports: share of detections that must match
 INT8_FORMATS = ("onnx_int8", "executorch_int8", "litert_int8")
@@ -231,7 +235,8 @@ class Check:
 
 
 def compare(kind: str, int8: bool, refs: list, outs: list, *, labels=None,
-            eval_refs=None, eval_outs=None, source: str = "PyTorch") -> Check:
+            eval_refs=None, eval_outs=None, source: str = "PyTorch",
+            tol: float = FLOAT_TOL) -> Check:
     metrics: dict = {}
     if kind == "detector":
         matched = compared = 0
@@ -266,7 +271,7 @@ def compare(kind: str, int8: bool, refs: list, outs: list, *, labels=None,
         if acc_ref is not None and acc_got is not None:
             metrics.update(accuracy_source=round(acc_ref, 4), accuracy=round(acc_got, 4))
     if not int8:
-        if worst <= FLOAT_TOL:
+        if worst <= tol:
             return Check(metrics, True, f"matches {source} (max diff {metrics['max_diff']:.1e})")
         per_pixel = all(r.ndim == 4 for r in refs)
         if per_pixel and metrics.get("top1_agreement") == 1.0 and worst <= CLASS_TOL:
@@ -308,6 +313,34 @@ def size(path: Path) -> int:
 
 Runner = Callable[[tuple], np.ndarray]
 
+
+
+@contextlib.contextmanager
+def _coreml_numpy_compat():
+    """coremltools 9.0 casts a shape held in a one-element array with ``int(array)``,
+    which NumPy 2.5 rejects ("only 0-dimensional arrays can be converted"): every traced
+    reshape that reads the input's size failed. During a conversion its cast reduces the
+    value to a scalar first. Left alone if coremltools' internals look different."""
+    try:
+        from coremltools.converters.mil.frontend.torch import ops
+        original = ops._cast
+        get_inputs, mb = ops._get_inputs, ops.mb
+    except (ImportError, AttributeError):
+        yield
+        return
+
+    def cast(context, node, dtype, dtype_name):  # noqa: ANN001
+        x = get_inputs(context, node, expected=1)[0]
+        if not x.can_be_folded_to_const() or isinstance(x.val, dtype):
+            return original(context, node, dtype, dtype_name)
+        value = dtype(np.asarray(x.val).reshape(-1)[0])
+        context.add(mb.const(val=value, name=node.name), node.name)
+
+    ops._cast = cast
+    try:
+        yield
+    finally:
+        ops._cast = original
 
 class Exporter:
     """Runs the requested formats for one model and collects a report."""
@@ -428,7 +461,8 @@ class Exporter:
             eval_outs = [np.asarray(runner(c)) for c in self.samples.eval_cases]
         return compare(self.kind, int8, self.refs(), outs, labels=labels,
                        eval_refs=self.eval_refs() if eval_outs else None, eval_outs=eval_outs,
-                       source=_SOURCE.get(self.framework, self.framework))
+                       source=_SOURCE.get(self.framework, self.framework),
+                       tol=HALF_TOL if fmt == "coreml" else FLOAT_TOL)
 
     # ------------------------------------------------------------ PyTorch
     def _torch_table(self) -> dict:
@@ -542,10 +576,22 @@ class Exporter:
         path = self.out / "model.mlpackage"
         with torch.no_grad(), _plain_attention():
             traced = torch.jit.trace(self.model, example)
-        inputs = [ct.TensorType(name="input" if len(example) == 1 else f"input_{i}",
-                                shape=t.shape) for i, t in enumerate(example)]
-        ct.convert(traced, inputs=inputs, convert_to="mlprogram").save(str(path))
-        return path, None, "not checked here (Core ML runs on Apple devices)"
+        names = ["input" if len(example) == 1 else f"input_{i}" for i in range(len(example))]
+        inputs = [ct.TensorType(name=n, shape=t.shape) for n, t in zip(names, example,
+                                                                         strict=True)]
+        with _coreml_numpy_compat():
+            converted = ct.convert(traced, inputs=inputs, convert_to="mlprogram")
+        converted.save(str(path))
+        if sys.platform != "darwin":
+            return path, None, "not checked here (Core ML runs on Apple devices)"
+        output = converted.get_spec().description.output[0].name
+
+        def run(case: tuple) -> np.ndarray:
+            arrays = [np.asarray(a, np.int32 if np.issubdtype(np.asarray(a).dtype, np.integer)
+                                 else np.float32) for a in case]
+            return converted.predict(dict(zip(names, arrays, strict=True)))[output]
+
+        return path, run, "float16, as on Apple devices"
 
     def executorch(self, int8: bool) -> tuple:
         if self.kind == "graph":

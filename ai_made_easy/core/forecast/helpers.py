@@ -454,26 +454,37 @@ class TimesNet(Forecaster):
         self.project = nn.Linear(window * d_model, self.out.size)
         self.register_buffer("spectrum", torch.zeros(layers, window // 2 + 1))
         self._fixed = None
+        self._copies: list = []
 
     def train(self, mode: bool = True):
-        self._fixed = None
-        return super().train(mode)
+        out = super().train(mode)
+        self._fixed = None if mode else self._freeze()
+        return out
 
     def _load_from_state_dict(self, *args, **kwargs) -> None:
-        self._fixed = None
         super()._load_from_state_dict(*args, **kwargs)
+        self._fixed = None
+
+    def _freeze(self) -> list:
+        """Periods from the running spectrum (plain ints, worked out eagerly so a traced
+        or exported model holds them as constants), with cosine / sine bases that measure
+        their strength without an FFT."""
+        fixed = []
+        t = torch.arange(self.window, dtype=torch.float32, device=self.spectrum.device)
+        for row in self.spectrum.detach().cpu():
+            freqs = [int(f) + 1 for f in row[1:].topk(self.top_k).indices]
+            angle = 2 * math.pi * t[:, None] * torch.tensor(freqs, device=t.device) / self.window
+            fixed.append(([max(1, self.window // f) for f in freqs],
+                          torch.cos(angle), torch.sin(angle)))
+        # one copy of each layer's convolutions per period: a module used at two call
+        # sites gives an int8 XNNPACK program that ExecuTorch can't load
+        self._copies = [[copy.deepcopy(conv) for _ in range(self.top_k)]
+                        for conv in self.convs]
+        return fixed
 
     def _frozen(self, layer: int):
-        """Periods from the running spectrum, with cosine / sine bases that measure their
-        strength without an FFT."""
-        if self._fixed is None:
-            self._fixed = []
-            t = torch.arange(self.window, dtype=torch.float32, device=self.spectrum.device)
-            for row in self.spectrum:
-                freqs = (row[1:].topk(self.top_k).indices + 1).tolist()
-                angle = 2 * math.pi * t[:, None] * torch.tensor(freqs, device=t.device) / self.window
-                self._fixed.append(([max(1, self.window // f) for f in freqs],
-                                    torch.cos(angle), torch.sin(angle)))
+        if self._fixed is None or self._copies[0][0][0].weight.device != self.spectrum.device:
+            self._fixed = self._freeze()     # weights loaded, or moved, while in eval mode
         return self._fixed[layer]
 
     def _periods(self, z: torch.Tensor, layer: int):
@@ -492,27 +503,30 @@ class TimesNet(Forecaster):
     def _fold(self, z: torch.Tensor, conv: nn.Module, period: int) -> torch.Tensor:
         b, n, d = z.shape
         length = -(-n // period) * period
-        padded = nn.functional.pad(z, (0, 0, 0, length - n))
+        padded = nn.functional.pad(z, (0, 0, 0, length - n)) if length > n else z
         grid = padded.reshape(b, length // period, period, d).permute(0, 3, 1, 2)
-        return conv(grid).permute(0, 2, 3, 1).reshape(b, length, d)[:, :n]
+        out = conv(grid).permute(0, 2, 3, 1).reshape(b, length, d)
+        return out[:, :n] if length > n else out
 
     def forecast(self, x: torch.Tensor, future=None) -> torch.Tensor:
         z = self.embed(x) + self.position
         for i, (conv, norm) in enumerate(zip(self.convs, self.norms)):
             periods, weight = self._periods(z, i)
-            outs = torch.stack([self._fold(z, conv, p) for p in periods], -1)
+            convs = [conv] * len(periods) if self.training else self._copies[i]
+            outs = torch.stack([self._fold(z, c, p) for c, p in zip(convs, periods)], -1)
             mixed = (outs * weight.softmax(-1)[:, None, None, :]).sum(-1)
             z = norm(z + self.drop(mixed))
         return self.out(self.project(z.flatten(1)))
 '''
 
 _MATH = "import math\n\n\n"
+_COPY_MATH = "import copy\nimport math\n\n\n"
 FORECAST_HELPERS: dict[str, str] = {
     "ForecastHead": HEAD, "DLinear": DLINEAR, "NBEATS": NBEATS, "NHITS": _MATH + NHITS,
     "TCNForecaster": TCN_FORECASTER, "PatchTST": PATCHTST, "TiDE": TIDE,
     "RNNForecaster": RNN_FORECASTER, "TransformerForecaster": TRANSFORMER_FORECASTER,
     "TFTLite": TFT, "NLinear": NLINEAR, "ITransformer": ITRANSFORMER, "TSMixer": TSMIXER,
-    "TimesNet": _MATH + TIMESNET,
+    "TimesNet": _COPY_MATH + TIMESNET,
 }
 
 

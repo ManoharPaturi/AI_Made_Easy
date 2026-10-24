@@ -372,9 +372,22 @@ def test_timesnet_predicts_with_the_periods_it_learned(rt):
         assert periods[0] == 48 // int(freqs[0])
 
 
-def test_timesnet_names_its_export_limit():
+@pytest.mark.slow
+def test_timesnet_exports_to_executorch_float_and_int8(tmp_path):
+    """Eval mode fixes TimesNet's periods as plain ints and gives each period its own copy
+    of the convolutions: export traces constants (float ExecuTorch failed on a
+    data-dependent shape) and the int8 XNNPACK program loads (a convolution used at two
+    call sites gave one that didn't)."""
+    pytest.importorskip("executorch")
+    from test_export import _build
+
+    from ai_made_easy.core.deploy import exporters as ex
     from ai_made_easy.core.deploy.exportability import blockers
 
-    found = blockers(Graph.from_dict(design("forecast.timesnet", {"d_model": 8, "hidden": 8})))
-    assert set(found) == {"executorch_int8"} and "ONNX int8" in found["executorch_int8"][0]
-    assert blockers(Graph.from_dict(design("forecast.tsmixer"))) == {}
+    graph = Graph.from_dict(design("forecast.timesnet", {"d_model": 8, "hidden": 8}))
+    assert blockers(graph) == {}
+    model, samples = _build(graph)
+    report = ex.export_all(model, "pytorch", ["executorch", "executorch_int8"], tmp_path,
+                           samples, log=lambda _m: None)
+    assert report["executorch"]["ok"], report["executorch"].get("error")
+    assert report["executorch_int8"]["ok"], report["executorch_int8"].get("error")

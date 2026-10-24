@@ -112,6 +112,11 @@ class DLRM(nn.Module):
         n_vec = 3 if n_dense else 2
         pairs = n_vec * (n_vec - 1) // 2
         self.top = nn.Sequential(_mlp([dim + pairs, *top]), nn.Linear(top[-1], 1))
+        # the vector pairs, fixed here: exports carry them as constants (ExecuTorch and
+        # Core ML have no triu_indices)
+        rows, cols = torch.triu_indices(n_vec, n_vec, 1)
+        self.register_buffer("rows", rows, persistent=False)
+        self.register_buffer("cols", cols, persistent=False)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         u, i = rec_ids(x, self.user, self.item)
@@ -120,8 +125,7 @@ class DLRM(nn.Module):
             vecs.insert(0, self.bottom(x[:, 2:2 + self.n_dense]))
         stack = torch.stack(vecs, dim=1)                              # [B, n, dim]
         inter = stack @ stack.transpose(1, 2)
-        rows, cols = torch.triu_indices(len(vecs), len(vecs), 1)
-        return self.top(torch.cat([vecs[0], inter[:, rows, cols]], dim=-1))
+        return self.top(torch.cat([vecs[0], inter[:, self.rows, self.cols]], dim=-1))
 '''
 
 REC_HELPERS = {"RecIds": IDS, "MatrixFactorization": MF, "NeuralCF": NCF,

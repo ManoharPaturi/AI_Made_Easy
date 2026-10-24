@@ -44,12 +44,13 @@ _BLOCKS = {
     "audio.mfcc": Blocker(ON_DEVICE, "the MFCC front end uses a complex STFT, which "
                                      "ExecuTorch can't lower: export to ONNX, or compute "
                                      "features before the model"),
-    "rec.dlrm": Blocker(ON_DEVICE, "DLRM's pairwise feature interactions use triu_indices, "
-                                   "which ExecuTorch has no kernel for: export to ONNX"),
-    "flow.spline_coupling": Blocker(ON_DEVICE, "the spline is evaluated only where inputs "
-                                               "fall inside its bounds (data-dependent "
-                                               "shapes), which ExecuTorch can't follow: "
-                                               "export to ONNX"),
+    "flow.invconv1x1": Blocker(("coreml",), "the invertible 1x1 convolution builds its weight "
+                               "with diag, which Core ML can't convert: export to ONNX or "
+                               "ExecuTorch"),
+    "flow.spline_coupling": Blocker((*ON_DEVICE, "coreml"), "the spline is evaluated only "
+                                    "where inputs fall inside its bounds (data-dependent "
+                                    "shapes), which ExecuTorch and Core ML can't follow: "
+                                    "export to ONNX"),
     "tab.ft_transformer": Blocker(("executorch_int8",), "categorical embeddings read ids "
                                                         "from the float input row, and the "
                                                         "int8 quantizer can't follow that "
@@ -63,15 +64,16 @@ _BLOCKS = {
     "seq.rwkv_block": Blocker(ON_DEVICE, "the RWKV recurrence runs as a loop with running "
                               "maxima that the ExecuTorch runtime rejects: export to ONNX or "
                               "TorchScript"),
-    "seq.hyena": Blocker(ON_DEVICE, "the Hyena long convolution uses FFTs (complex numbers), "
-                         "which ExecuTorch can't run: export to ONNX or TorchScript"),
-    "vision.deform_conv2d": Blocker(("onnx", "onnx_int8", *ON_DEVICE), "deformable "
+    "seq.hyena": Blocker((*ON_DEVICE, "coreml"), "the Hyena long convolution uses FFTs "
+                         "(complex numbers), which ExecuTorch and Core ML can't run: export "
+                         "to ONNX or TorchScript"),
+    "vision.deform_conv2d": Blocker(("onnx", "onnx_int8", *ON_DEVICE, "coreml"), "deformable "
                                     "convolution is a torchvision operator that only "
                                     "TorchScript can carry"),
+    "vision.involution": Blocker(("coreml",), "Core ML's conversion of the patch "
+                                 "extraction (unfold) gives different numbers than PyTorch: "
+                                 "export to ONNX, TorchScript or ExecuTorch"),
     # 3.8
-    "forecast.timesnet": Blocker(("executorch_int8",), "the int8 XNNPACK program built from "
-                                 "TimesNet's folded 2-D convolutions fails to load: use "
-                                 "ExecuTorch float or ONNX int8"),
     "graph.topk_pool": Blocker(("onnx", "onnx_int8"), _POOL),
     "graph.sag_pool": Blocker(("onnx", "onnx_int8"), _POOL),
 }

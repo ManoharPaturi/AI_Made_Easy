@@ -9,6 +9,8 @@ Run:    aime-mcp            (stdio transport, for MCP client configs)
 from __future__ import annotations
 
 import json
+import os
+import sys
 from typing import Any
 
 from mcp.server.fastmcp import FastMCP
@@ -537,7 +539,27 @@ def split_preview(graph: dict) -> str:
         return _err(exc)
 
 
+def _prepare() -> None:
+    """Before serving: load the block registry (and numpy with it), and read requests
+    from a private copy of the stdin pipe while standard input itself reads nothing.
+
+    On Windows, a thread blocked reading the stdin pipe stalled other work in the
+    process: the first tool call, which loaded numpy's extension, never returned. With
+    the imports done up front and the pipe moved off standard input (child processes
+    such as training workers no longer inherit it), requests can't block each other.
+    """
+    from ai_made_easy.core.registry import get_registry
+
+    get_registry()
+    pipe = os.dup(0)                       # not inheritable
+    null = os.open(os.devnull, os.O_RDONLY)
+    os.dup2(null, 0)
+    os.close(null)
+    sys.stdin = open(pipe, encoding="utf-8", errors="replace", closefd=True)  # noqa: SIM115
+
+
 def main() -> None:
+    _prepare()
     mcp.run()  # stdio transport
 
 

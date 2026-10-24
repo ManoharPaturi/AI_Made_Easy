@@ -141,10 +141,6 @@ def test_mcp_stdio_round_trip(tmp_path):
     result = next((line for line in lines if line.startswith("RESULT ")), None)
     server = errlog.read_text(encoding="utf-8", errors="replace") if errlog.exists() else ""
     report = "client:\n" + "".join(lines)[-3000:] + "\nserver stderr:\n" + server[-6000:]
-    if result is None and sys.platform == "win32":
-        # Open (ROADMAP_3.8): on Windows the server answers initialize and list_tools but
-        # not the first tool call. Kept running so the report shows where it stops.
-        pytest.xfail("MCP server stalls on its first tool call on Windows\n" + report)
     assert result, report
     out = json.loads(result.split("RESULT ", 1)[1])
     assert {"list_blocks", "validate_graph", "generate_code", "start_training",
